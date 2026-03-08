@@ -1,0 +1,387 @@
+import { create } from "zustand";
+
+// --- Types ---
+
+export interface EnvVariable {
+  key: string;
+  value: string;
+}
+
+export interface Environment {
+  id: string;
+  name: string;
+  color: string;
+  variables: EnvVariable[];
+}
+
+export const ENV_COLORS = [
+  { id: "green", label: "Green", hex: "#22c55e" },
+  { id: "blue", label: "Blue", hex: "#3b82f6" },
+  { id: "amber", label: "Amber", hex: "#f59e0b" },
+  { id: "red", label: "Red", hex: "#ef4444" },
+  { id: "purple", label: "Purple", hex: "#a855f7" },
+  { id: "cyan", label: "Cyan", hex: "#06b6d4" },
+  { id: "pink", label: "Pink", hex: "#ec4899" },
+  { id: "orange", label: "Orange", hex: "#f97316" },
+] as const;
+
+export interface ProtoService {
+  name: string;
+  fullName: string;
+  methods: ProtoMethod[];
+}
+
+export interface ProtoMethod {
+  name: string;
+  fullName: string;
+  requestType: string;
+  responseType: string;
+  requestFields: FieldInfo[];
+  responseFields: FieldInfo[];
+}
+
+export interface FieldInfo {
+  name: string;
+  type: string;
+  repeated: boolean;
+  optional: boolean;
+  fields?: FieldInfo[];
+  enumValues?: string[];
+}
+
+export interface InstalledPackage {
+  name: string;
+  version: string;
+  protoFiles: string[];
+  services: ProtoService[];
+}
+
+export interface MetadataEntry {
+  key: string;
+  value: string;
+  enabled: boolean;
+}
+
+export type ProtocolTab = "grpc-web" | "grpc" | "sdk";
+
+export type AppTheme =
+  | "dark"
+  | "light"
+  | "nord"
+  | "emerald"
+  | "rose"
+  | "violet";
+
+export const THEMES = [
+  { id: "dark" as const, label: "Dark", color: "oklch(0.25 0.02 260)" },
+  { id: "light" as const, label: "Light", color: "oklch(0.98 0.01 260)" },
+  { id: "nord" as const, label: "Nord", color: "oklch(0.55 0.08 220)" },
+  { id: "emerald" as const, label: "Emerald", color: "oklch(0.55 0.12 160)" },
+  { id: "rose" as const, label: "Rose", color: "oklch(0.65 0.15 10)" },
+  { id: "violet" as const, label: "Violet", color: "oklch(0.55 0.2 290)" },
+] as const;
+
+export interface ResponseState {
+  status: string;
+  statusCode: number;
+  body: string;
+  headers: Record<string, string>;
+  duration: number;
+  error?: string;
+}
+
+export interface RequestTab {
+  id: string;
+  protocolTab: ProtocolTab;
+  targetUrl: string;
+  requestBody: string;
+  metadata: MetadataEntry[];
+  selectedPackage: string | null;
+  selectedService: string | null;
+  selectedMethod: ProtoMethod | null;
+  response: ResponseState | null;
+  isLoading: boolean;
+}
+
+// --- Helpers ---
+
+function createTab(): RequestTab {
+  return {
+    id: `tab_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    protocolTab: "grpc-web",
+    targetUrl: "{{URL}}",
+    requestBody: "{}",
+    metadata: [
+      { key: "Authorization", value: "Bearer ", enabled: true },
+      { key: "eId", value: "", enabled: true },
+    ],
+    selectedPackage: null,
+    selectedService: null,
+    selectedMethod: null,
+    response: null,
+    isLoading: false,
+  };
+}
+
+export { createTab };
+
+// --- App State ---
+
+export interface AppState {
+  tabs: RequestTab[];
+  activeTabId: string | null;
+  addTab: () => void;
+  removeTab: (id: string) => void;
+  resetActiveTab: () => void;
+  setActiveTab: (id: string) => void;
+  updateActiveTab: (patch: Partial<RequestTab>) => void;
+
+  grpcWebPackages: InstalledPackage[];
+  grpcPackages: InstalledPackage[];
+  sdkPackages: InstalledPackage[];
+  setGrpcWebPackages: (pkgs: InstalledPackage[]) => void;
+  setGrpcPackages: (pkgs: InstalledPackage[]) => void;
+  setSdkPackages: (pkgs: InstalledPackage[]) => void;
+  addGrpcWebPackage: (pkg: InstalledPackage) => void;
+  addGrpcPackage: (pkg: InstalledPackage) => void;
+  addSdkPackage: (pkg: InstalledPackage) => void;
+  removeGrpcWebPackage: (name: string) => void;
+  removeGrpcPackage: (name: string) => void;
+  removeSdkPackage: (name: string) => void;
+
+  grpcWebEnvironments: Environment[];
+  grpcEnvironments: Environment[];
+  sdkEnvironments: Environment[];
+  grpcWebActiveEnvId: string | null;
+  grpcActiveEnvId: string | null;
+  sdkActiveEnvId: string | null;
+  setGrpcWebEnvironments: (envs: Environment[]) => void;
+  setGrpcEnvironments: (envs: Environment[]) => void;
+  setSdkEnvironments: (envs: Environment[]) => void;
+  setGrpcWebActiveEnvId: (id: string | null) => void;
+  setGrpcActiveEnvId: (id: string | null) => void;
+  setSdkActiveEnvId: (id: string | null) => void;
+  addGrpcWebEnvironment: (env: Environment) => void;
+  addGrpcEnvironment: (env: Environment) => void;
+  addSdkEnvironment: (env: Environment) => void;
+  updateGrpcWebEnvironment: (id: string, patch: Partial<Environment>) => void;
+  updateGrpcEnvironment: (id: string, patch: Partial<Environment>) => void;
+  updateSdkEnvironment: (id: string, patch: Partial<Environment>) => void;
+  deleteGrpcWebEnvironment: (id: string) => void;
+  deleteGrpcEnvironment: (id: string) => void;
+  deleteSdkEnvironment: (id: string) => void;
+
+  theme: AppTheme;
+  setTheme: (theme: AppTheme) => void;
+
+  isInstallerOpen: boolean;
+  setInstallerOpen: (open: boolean) => void;
+  installLog: string[];
+  addInstallLog: (line: string) => void;
+  clearInstallLog: () => void;
+
+  showTutorial: boolean;
+  setShowTutorial: (show: boolean) => void;
+
+  userName: string;
+  setUserName: (name: string) => void;
+}
+
+const THEME_KEY = "pengvi-theme";
+const TUTORIAL_KEY = "pengvi-tutorial-seen";
+const USERNAME_KEY = "pengvi-username";
+
+function loadUserName(): string {
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem(USERNAME_KEY) ?? "";
+}
+
+function loadTheme(): AppTheme {
+  if (typeof window === "undefined") return "dark";
+  const stored = localStorage.getItem(THEME_KEY);
+  const valid: AppTheme[] = ["dark", "light", "nord", "emerald", "rose", "violet"];
+  if (stored && valid.includes(stored as AppTheme)) return stored as AppTheme;
+  return "dark";
+}
+
+function loadShowTutorial(): boolean {
+  if (typeof window === "undefined") return true;
+  return localStorage.getItem(TUTORIAL_KEY) !== "true";
+}
+
+export const useAppStore = create<AppState>((set, get) => {
+  const initialTheme = loadTheme();
+  if (typeof document !== "undefined") {
+    document.documentElement.setAttribute("data-theme", initialTheme);
+  }
+  const initialTab = createTab();
+  return {
+    tabs: [initialTab],
+    activeTabId: initialTab.id,
+    addTab: () => {
+      const tab = createTab();
+      set((s) => ({
+        tabs: [...s.tabs, tab],
+        activeTabId: tab.id,
+      }));
+    },
+    removeTab: (id) => {
+      set((s) => {
+        if (s.tabs.length <= 1) return s;
+        const idx = s.tabs.findIndex((t) => t.id === id);
+        const next = s.tabs.filter((t) => t.id !== id);
+        const nextActive =
+          s.activeTabId === id
+            ? (next[Math.min(idx, next.length - 1)]?.id ?? next[0]?.id ?? null)
+            : s.activeTabId;
+        return {
+          tabs: next,
+          activeTabId: nextActive,
+        };
+      });
+    },
+    resetActiveTab: () => {
+      const tabs = get().tabs;
+      if (tabs.length === 0) return;
+      set({ activeTabId: tabs[0].id });
+    },
+    setActiveTab: (id) => set({ activeTabId: id }),
+    updateActiveTab: (patch) => {
+      const { activeTabId, tabs } = get();
+      if (!activeTabId) return;
+      set({
+        tabs: tabs.map((t) =>
+          t.id === activeTabId ? { ...t, ...patch } : t
+        ),
+      });
+    },
+
+    grpcWebPackages: [],
+    grpcPackages: [],
+    sdkPackages: [],
+    setGrpcWebPackages: (pkgs) => set({ grpcWebPackages: pkgs }),
+    setGrpcPackages: (pkgs) => set({ grpcPackages: pkgs }),
+    setSdkPackages: (pkgs) => set({ sdkPackages: pkgs }),
+    addGrpcWebPackage: (pkg) =>
+      set((s) => ({
+        grpcWebPackages: [...s.grpcWebPackages, pkg],
+      })),
+    addGrpcPackage: (pkg) =>
+      set((s) => ({
+        grpcPackages: [...s.grpcPackages, pkg],
+      })),
+    addSdkPackage: (pkg) =>
+      set((s) => ({
+        sdkPackages: [...s.sdkPackages, pkg],
+      })),
+    removeGrpcWebPackage: (name) =>
+      set((s) => ({
+        grpcWebPackages: s.grpcWebPackages.filter((p) => p.name !== name),
+      })),
+    removeGrpcPackage: (name) =>
+      set((s) => ({
+        grpcPackages: s.grpcPackages.filter((p) => p.name !== name),
+      })),
+    removeSdkPackage: (name) =>
+      set((s) => ({
+        sdkPackages: s.sdkPackages.filter((p) => p.name !== name),
+      })),
+
+    grpcWebEnvironments: [],
+    grpcEnvironments: [],
+    sdkEnvironments: [],
+    grpcWebActiveEnvId: null,
+    grpcActiveEnvId: null,
+    sdkActiveEnvId: null,
+    setGrpcWebEnvironments: (envs) => set({ grpcWebEnvironments: envs }),
+    setGrpcEnvironments: (envs) => set({ grpcEnvironments: envs }),
+    setSdkEnvironments: (envs) => set({ sdkEnvironments: envs }),
+    setGrpcWebActiveEnvId: (id) => set({ grpcWebActiveEnvId: id }),
+    setGrpcActiveEnvId: (id) => set({ grpcActiveEnvId: id }),
+    setSdkActiveEnvId: (id) => set({ sdkActiveEnvId: id }),
+    addGrpcWebEnvironment: (env) =>
+      set((s) => ({
+        grpcWebEnvironments: [...s.grpcWebEnvironments, env],
+      })),
+    addGrpcEnvironment: (env) =>
+      set((s) => ({
+        grpcEnvironments: [...s.grpcEnvironments, env],
+      })),
+    addSdkEnvironment: (env) =>
+      set((s) => ({
+        sdkEnvironments: [...s.sdkEnvironments, env],
+      })),
+    updateGrpcWebEnvironment: (id, patch) =>
+      set((s) => ({
+        grpcWebEnvironments: s.grpcWebEnvironments.map((e) =>
+          e.id === id ? { ...e, ...patch } : e
+        ),
+      })),
+    updateGrpcEnvironment: (id, patch) =>
+      set((s) => ({
+        grpcEnvironments: s.grpcEnvironments.map((e) =>
+          e.id === id ? { ...e, ...patch } : e
+        ),
+      })),
+    updateSdkEnvironment: (id, patch) =>
+      set((s) => ({
+        sdkEnvironments: s.sdkEnvironments.map((e) =>
+          e.id === id ? { ...e, ...patch } : e
+        ),
+      })),
+    deleteGrpcWebEnvironment: (id) =>
+      set((s) => ({
+        grpcWebEnvironments: s.grpcWebEnvironments.filter((e) => e.id !== id),
+        grpcWebActiveEnvId:
+          s.grpcWebActiveEnvId === id ? null : s.grpcWebActiveEnvId,
+      })),
+    deleteGrpcEnvironment: (id) =>
+      set((s) => ({
+        grpcEnvironments: s.grpcEnvironments.filter((e) => e.id !== id),
+        grpcActiveEnvId: s.grpcActiveEnvId === id ? null : s.grpcActiveEnvId,
+      })),
+    deleteSdkEnvironment: (id) =>
+      set((s) => ({
+        sdkEnvironments: s.sdkEnvironments.filter((e) => e.id !== id),
+        sdkActiveEnvId: s.sdkActiveEnvId === id ? null : s.sdkActiveEnvId,
+      })),
+
+    theme: initialTheme,
+    setTheme: (theme) => {
+      if (typeof window !== "undefined") {
+        localStorage.setItem(THEME_KEY, theme);
+        document.documentElement.setAttribute("data-theme", theme);
+      }
+      set({ theme });
+    },
+
+    isInstallerOpen: false,
+    setInstallerOpen: (open) => set({ isInstallerOpen: open }),
+    installLog: [],
+    addInstallLog: (line) =>
+      set((s) => ({ installLog: [...s.installLog, line] })),
+    clearInstallLog: () => set({ installLog: [] }),
+
+    showTutorial: loadShowTutorial(),
+    setShowTutorial: (show) => {
+      if (typeof window !== "undefined") {
+        localStorage.setItem(TUTORIAL_KEY, show ? "false" : "true");
+      }
+      set({ showTutorial: show });
+    },
+
+    userName: loadUserName(),
+    setUserName: (name) => {
+      if (typeof window !== "undefined") {
+        localStorage.setItem(USERNAME_KEY, name);
+      }
+      set({ userName: name });
+    },
+  };
+});
+
+export function useActiveTab(): RequestTab | null {
+  const activeTabId = useAppStore((s) => s.activeTabId);
+  const tabs = useAppStore((s) => s.tabs);
+  return tabs.find((t) => t.id === activeTabId) ?? null;
+}
