@@ -12,6 +12,9 @@ if (lastVersion !== APP_VERSION) {
   const keep = [
     "pengvi-username",
     "pengvi-theme",
+    "pengvi-tabs",
+    "pengvi-active-tab",
+    "pengvi-history",
     "pengvi-grpc-web-environments",
     "pengvi-grpc-web-active-env",
     "pengvi-grpc-environments",

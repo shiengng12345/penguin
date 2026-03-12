@@ -251,10 +251,7 @@ if (!method) {
   process.exit(0);
 }
 
-const deadline = new Date();
-deadline.setSeconds(deadline.getSeconds() + 30);
-
-method.call(client, reqBody, meta, { deadline }, (err, response) => {
+method.call(client, reqBody, meta, (err, response) => {
   if (err) {
     console.log(JSON.stringify({
       error: err.message || err.details,

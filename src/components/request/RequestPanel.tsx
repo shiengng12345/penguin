@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useAppStore, useActiveTab, type MetadataEntry } from "@/lib/store";
+import { useAppStore, useActiveTab, type MetadataEntry, type HistoryEntry } from "@/lib/store";
 import { useEnvironments } from "@/hooks/useEnvironments";
 import { interpolate } from "@/lib/environment-store";
 import { callGrpcWeb } from "@/lib/grpc-web-client";
@@ -8,10 +8,11 @@ import { callSdk } from "@/lib/sdk-client";
 import { getPackagesDir } from "@/lib/package-manager";
 import { generateDefaultJson } from "@/lib/proto-parser";
 import { Button } from "@/components/ui/button";
+import { JsonEditor } from "@/components/ui/json-editor";
 import { Send, Plus, X, RotateCcw, Copy, Braces } from "lucide-react";
 
 export function RequestPanel() {
-  const { updateActiveTab } = useAppStore();
+  const { updateActiveTab, addHistory } = useAppStore();
   const tab = useActiveTab();
   const { activeEnv } = useEnvironments();
   const sendRef = useRef<() => void>(() => {});
@@ -29,6 +30,19 @@ export function RequestPanel() {
 
     const resolvedUrl = interpolate(tab.targetUrl, activeEnv);
     updateActiveTab({ isLoading: true, response: null });
+
+    const entry: HistoryEntry = {
+      id: `hist_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: Date.now(),
+      protocol: tab.protocolTab,
+      methodFullName: tab.selectedMethod.fullName,
+      serviceName: tab.selectedService ?? "",
+      packageName: tab.selectedPackage ?? "",
+      url: tab.targetUrl,
+      metadata: tab.metadata.filter((m) => m.enabled && m.key),
+      requestBody: tab.requestBody,
+    };
+    addHistory(entry);
 
     try {
       const protocol = tab.protocolTab;
@@ -259,17 +273,10 @@ export function RequestPanel() {
               </button>
             </div>
           </div>
-          <textarea
+          <JsonEditor
             value={tab.requestBody}
-            onChange={(e) =>
-              updateActiveTab({ requestBody: e.target.value })
-            }
-            placeholder='{"key": "value"}'
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck={false}
-            data-gramm="false"
-            className="flex-1 w-full bg-transparent px-3 py-2 font-mono text-xs resize-none focus:outline-none"
+            onChange={(val) => updateActiveTab({ requestBody: val })}
+            fields={tab.selectedMethod?.requestFields}
           />
         </div>
       </div>

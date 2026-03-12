@@ -41,7 +41,8 @@ async function run() {
 
   const meta = (metadata || []).filter(m => m.enabled && m.key).reduce((acc, m) => { acc[m.key] = m.value; return acc; }, {});
   const token = meta.Authorization?.replace(/^Bearer\\s+/i, '') || meta.token || meta.Token || '';
-  const playerId = meta.playerId || meta.PlayerId || meta.eId || meta.EId || '';
+  const eId = meta.eId || meta.EId || meta.eid || '';
+  const playerId = meta.playerId || meta.PlayerId || eId || '';
 
   let env = 1;
   const urlLower = url.toLowerCase();
@@ -110,7 +111,17 @@ async function run() {
     }
 
     if (token && GC?.setToken) GC.setToken(token);
-    if (playerId && GC?.setPlayerId) GC.setPlayerId(playerId);
+    if (playerId) {
+      if (GC?.setPlayerId) GC.setPlayerId(playerId);
+      if (GC) GC.playerId = playerId;
+      if (GC) GC.cur_player = playerId;
+    }
+    if (eId && GC) GC.defaultEId = eId;
+    if (playerId && GC?.setPlayerAuthInfo) {
+      GC.setPlayerAuthInfo({ playerId, token: token || undefined });
+    }
+
+    sdkLogs.push(['config', 'playerId=' + (GC?.playerId || '(empty)') + ' defaultEId=' + (GC?.defaultEId || '(empty)') + ' token=' + (GC?.token ? '***' : '(empty)')]);
 
     const ServiceClass = sdk[serviceName] || sdkMod[serviceName];
     if (!ServiceClass) {
@@ -131,6 +142,7 @@ async function run() {
         sdkLogs.push(['warn', 'Failed to parse request body: ' + body]);
       }
     }
+    sdkLogs.push(['request', 'service=' + serviceName + ' method=' + methodName + ' body=' + JSON.stringify(reqBody)]);
 
     let result;
     let instance;
@@ -151,16 +163,28 @@ async function run() {
     result = await method.call(instance, reqBody);
 
     const fullResult = result && typeof result === 'object' ? result : { data: result };
+
+    const nestedData = fullResult.data && typeof fullResult.data === 'object' ? fullResult.data : null;
     const baseStatus = fullResult.baseResponse?.status || fullResult.status;
-    const isError = baseStatus && baseStatus !== 'STATUS_SUCCESS' && baseStatus !== 200 && baseStatus !== '200';
-    const statusCode = isError ? (fullResult.baseResponse?.status || fullResult.statusCode || 400) : 200;
+    const nestedStatus = nestedData ? nestedData.status : undefined;
+
+    const isBaseError = baseStatus && baseStatus !== 'STATUS_SUCCESS' && baseStatus !== 200 && baseStatus !== '200';
+    const isNestedError = nestedStatus !== undefined && nestedStatus !== 'STATUS_SUCCESS' && nestedStatus !== 200 && nestedStatus !== '200' && nestedData?.errorMessage;
+    const isError = isBaseError || isNestedError;
+
+    const errorMsg = isError
+      ? (nestedData?.displayMessage || nestedData?.errorMessage || fullResult.baseResponse?.message || fullResult.message || fullResult.error || '')
+      : undefined;
+    const statusCode = isError
+      ? (nestedStatus || fullResult.baseResponse?.status || fullResult.statusCode || 400)
+      : 200;
 
     process.stdout.write(JSON.stringify({
       statusCode,
       body: JSON.stringify(fullResult),
       headers: {},
       sdkLogs,
-      error: isError ? (fullResult.baseResponse?.message || fullResult.message || fullResult.error || '') : undefined,
+      error: errorMsg || undefined,
     }) + '\\n');
   } catch (err) {
     const errObj = err && typeof err === 'object' ? err : { message: String(err) };

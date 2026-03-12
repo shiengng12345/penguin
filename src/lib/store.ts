@@ -62,6 +62,18 @@ export interface MetadataEntry {
   enabled: boolean;
 }
 
+export interface HistoryEntry {
+  id: string;
+  timestamp: number;
+  protocol: ProtocolTab;
+  methodFullName: string;
+  serviceName: string;
+  packageName: string;
+  url: string;
+  metadata: MetadataEntry[];
+  requestBody: string;
+}
+
 export type ProtocolTab = "grpc-web" | "grpc" | "sdk";
 
 export type AppTheme =
@@ -185,15 +197,62 @@ export interface AppState {
 
   userName: string;
   setUserName: (name: string) => void;
+
+  history: HistoryEntry[];
+  addHistory: (entry: HistoryEntry) => void;
+  clearHistory: () => void;
 }
 
 const THEME_KEY = "pengvi-theme";
 const TUTORIAL_KEY = "pengvi-tutorial-seen";
 const USERNAME_KEY = "pengvi-username";
+const TABS_KEY = "pengvi-tabs";
+const ACTIVE_TAB_KEY = "pengvi-active-tab";
+const HISTORY_KEY = "pengvi-history";
+const MAX_HISTORY = 200;
 
 function loadUserName(): string {
   if (typeof window === "undefined") return "";
   return localStorage.getItem(USERNAME_KEY) ?? "";
+}
+
+function loadTabs(): { tabs: RequestTab[]; activeTabId: string | null } {
+  if (typeof window === "undefined") return { tabs: [], activeTabId: null };
+  try {
+    const raw = localStorage.getItem(TABS_KEY);
+    if (raw) {
+      const tabs: RequestTab[] = JSON.parse(raw);
+      if (Array.isArray(tabs) && tabs.length > 0) {
+        const activeTabId =
+          localStorage.getItem(ACTIVE_TAB_KEY) ?? tabs[0].id;
+        return { tabs, activeTabId };
+      }
+    }
+  } catch { /* corrupted data, start fresh */ }
+  return { tabs: [], activeTabId: null };
+}
+
+function saveTabs(tabs: RequestTab[], activeTabId: string | null) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(TABS_KEY, JSON.stringify(tabs));
+  if (activeTabId) localStorage.setItem(ACTIVE_TAB_KEY, activeTabId);
+}
+
+function loadHistory(): HistoryEntry[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return arr;
+    }
+  } catch { /* corrupted */ }
+  return [];
+}
+
+function saveHistory(entries: HistoryEntry[]) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, MAX_HISTORY)));
 }
 
 function loadTheme(): AppTheme {
@@ -214,16 +273,20 @@ export const useAppStore = create<AppState>((set, get) => {
   if (typeof document !== "undefined") {
     document.documentElement.setAttribute("data-theme", initialTheme);
   }
-  const initialTab = createTab();
+  const restored = loadTabs();
+  const initialTab = restored.tabs.length > 0 ? null : createTab();
+  const startTabs = restored.tabs.length > 0 ? restored.tabs : [initialTab!];
+  const startActiveId = restored.tabs.length > 0 ? restored.activeTabId : initialTab!.id;
   return {
-    tabs: [initialTab],
-    activeTabId: initialTab.id,
+    tabs: startTabs,
+    activeTabId: startActiveId,
     addTab: () => {
       const tab = createTab();
-      set((s) => ({
-        tabs: [...s.tabs, tab],
-        activeTabId: tab.id,
-      }));
+      set((s) => {
+        const next = { tabs: [...s.tabs, tab], activeTabId: tab.id };
+        saveTabs(next.tabs, next.activeTabId);
+        return next;
+      });
     },
     removeTab: (id) => {
       set((s) => {
@@ -234,26 +297,28 @@ export const useAppStore = create<AppState>((set, get) => {
           s.activeTabId === id
             ? (next[Math.min(idx, next.length - 1)]?.id ?? next[0]?.id ?? null)
             : s.activeTabId;
-        return {
-          tabs: next,
-          activeTabId: nextActive,
-        };
+        saveTabs(next, nextActive);
+        return { tabs: next, activeTabId: nextActive };
       });
     },
     resetActiveTab: () => {
       const tabs = get().tabs;
       if (tabs.length === 0) return;
       set({ activeTabId: tabs[0].id });
+      saveTabs(tabs, tabs[0].id);
     },
-    setActiveTab: (id) => set({ activeTabId: id }),
+    setActiveTab: (id) => {
+      set({ activeTabId: id });
+      saveTabs(get().tabs, id);
+    },
     updateActiveTab: (patch) => {
       const { activeTabId, tabs } = get();
       if (!activeTabId) return;
-      set({
-        tabs: tabs.map((t) =>
-          t.id === activeTabId ? { ...t, ...patch } : t
-        ),
-      });
+      const nextTabs = tabs.map((t) =>
+        t.id === activeTabId ? { ...t, ...patch } : t
+      );
+      set({ tabs: nextTabs });
+      saveTabs(nextTabs, activeTabId);
     },
 
     grpcWebPackages: [],
@@ -376,6 +441,19 @@ export const useAppStore = create<AppState>((set, get) => {
         localStorage.setItem(USERNAME_KEY, name);
       }
       set({ userName: name });
+    },
+
+    history: loadHistory(),
+    addHistory: (entry) => {
+      set((s) => {
+        const next = [entry, ...s.history].slice(0, MAX_HISTORY);
+        saveHistory(next);
+        return { history: next };
+      });
+    },
+    clearHistory: () => {
+      saveHistory([]);
+      set({ history: [] });
     },
   };
 });

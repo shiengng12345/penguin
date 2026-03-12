@@ -15,17 +15,14 @@ export function SettingsDialog({
   const [clearing, setClearing] = useState(false);
   const [cleared, setCleared] = useState(false);
 
-  const handleClearCache = async () => {
+  const handleClearCache = () => {
     setClearing(true);
     setCleared(false);
-    try {
-      await invoke<string>("clear_all_packages");
-      localStorage.clear();
-      window.location.reload();
-    } catch (err) {
-      console.error("Failed to clear cache:", err);
-      setClearing(false);
-    }
+    localStorage.clear();
+    invoke<string>("clear_all_packages").catch((err) =>
+      console.error("Failed to clear packages:", err),
+    );
+    window.location.reload();
   };
 
   return (

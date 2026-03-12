@@ -1,7 +1,9 @@
+import { useMemo } from "react";
 import { useActiveTab } from "@/lib/store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Copy, Clock, AlertCircle, CheckCircle2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 function stripUnderscoreKeys(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
@@ -18,26 +20,101 @@ function stripUnderscoreKeys(obj: unknown): unknown {
   return obj;
 }
 
+function unwrapNestedJson(obj: unknown): unknown {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) return obj.map(unwrapNestedJson);
+  if (typeof obj === "string") {
+    const trimmed = obj.trim();
+    if ((trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+        (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+      try {
+        return unwrapNestedJson(JSON.parse(trimmed));
+      } catch { /* not valid JSON */ }
+    }
+    return obj;
+  }
+  if (typeof obj === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      out[k] = unwrapNestedJson(v);
+    }
+    return out;
+  }
+  return obj;
+}
+
 function formatBody(body: string | undefined): string {
   if (!body) return "(empty)";
   try {
     const parsed = JSON.parse(body);
-    const cleaned = stripUnderscoreKeys(parsed);
+    const unwrapped = unwrapNestedJson(parsed);
+    const cleaned = stripUnderscoreKeys(unwrapped);
     return JSON.stringify(cleaned, null, 2);
   } catch {
     return body;
   }
 }
 
+type TokenType = "key" | "string" | "number" | "bool" | "null" | "punct";
+
+interface JsonToken {
+  text: string;
+  type: TokenType;
+}
+
+function tokenizeJson(json: string): JsonToken[] {
+  const tokens: JsonToken[] = [];
+  const re = /("(?:[^"\\]|\\.)*")\s*(?=:)|("(?:[^"\\]|\\.)*")|(true|false)|(null)|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|([{}[\]:,])|(\s+)/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(json)) !== null) {
+    if (match[1]) tokens.push({ text: match[1], type: "key" });
+    else if (match[2]) tokens.push({ text: match[2], type: "string" });
+    else if (match[3]) tokens.push({ text: match[3], type: "bool" });
+    else if (match[4]) tokens.push({ text: match[4], type: "null" });
+    else if (match[5]) tokens.push({ text: match[5], type: "number" });
+    else if (match[6]) tokens.push({ text: match[6], type: "punct" });
+    else if (match[7]) tokens.push({ text: match[7], type: "punct" });
+  }
+  return tokens;
+}
+
+const TOKEN_CLASSES: Record<TokenType, string> = {
+  key: "text-sky-300",
+  string: "text-green-300",
+  number: "text-rose-300",
+  bool: "text-violet-300",
+  null: "text-slate-400",
+  punct: "text-slate-500",
+};
+
+const TOKEN_CLASSES_LIGHT: Record<TokenType, string> = {
+  key: "text-sky-700",
+  string: "text-green-700",
+  number: "text-rose-600",
+  bool: "text-violet-600",
+  null: "text-slate-500",
+  punct: "text-slate-400",
+};
+
+function SyntaxJson({ json, className }: { json: string; className?: string }) {
+  const tokens = useMemo(() => tokenizeJson(json), [json]);
+  const isDark = typeof document !== "undefined"
+    ? document.documentElement.getAttribute("data-theme") !== "light"
+    : true;
+  const colors = isDark ? TOKEN_CLASSES : TOKEN_CLASSES_LIGHT;
+
+  return (
+    <pre className={cn("font-mono text-xs leading-relaxed whitespace-pre-wrap break-all", className)}>
+      {tokens.map((t, i) => (
+        <span key={i} className={colors[t.type]}>{t.text}</span>
+      ))}
+    </pre>
+  );
+}
+
 export function ResponsePanel() {
   const tab = useActiveTab();
   if (!tab) return null;
-
-  const handleCopy = () => {
-    if (tab.response?.body) {
-      navigator.clipboard.writeText(tab.response.body);
-    }
-  };
 
   if (tab.isLoading) {
     return (
@@ -63,20 +140,43 @@ export function ResponsePanel() {
         </div>
         <p className="text-xs text-muted-foreground/50 text-center max-w-xs">
           Select a method, fill in the request, and click Send.
-          The response status, headers, and body will show here.
-        </p>
-        <p className="text-xs text-muted-foreground/50 text-center max-w-xs">
-          选择方法，填写请求，点击发送。
-          响应状态、头部和内容将显示在这里。
         </p>
       </div>
     );
   }
 
-  const isError = tab.response.error || tab.response.status === "ERROR";
+  const isError = tab.response.status === "ERROR" ||
+    (!!tab.response.error && tab.response.status !== "OK");
+
+  const rawBody = tab.response.body;
+  const hasBody = rawBody && rawBody !== "" && rawBody !== "{}" && rawBody !== "null";
+
+  let bodyJson: string;
+  if (hasBody) {
+    bodyJson = formatBody(rawBody);
+  } else if (tab.response.error) {
+    try {
+      const parsed = JSON.parse(tab.response.error);
+      const unwrapped = unwrapNestedJson(parsed);
+      const cleaned = stripUnderscoreKeys(unwrapped);
+      bodyJson = JSON.stringify(cleaned, null, 2);
+    } catch {
+      bodyJson = JSON.stringify({
+        error: tab.response.error,
+        status: tab.response.statusCode || tab.response.status,
+      }, null, 2);
+    }
+  } else {
+    bodyJson = "(empty)";
+  }
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(bodyJson);
+  };
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Status bar */}
       <div className="flex items-center gap-3 border-b border-border px-4 py-2 bg-card">
         <div className="flex items-center gap-1.5">
           {isError ? (
@@ -93,24 +193,13 @@ export function ResponsePanel() {
           <Clock className="h-3 w-3" />
           {tab.response.duration}ms
         </div>
-
-        <div className="ml-auto">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopy}>
-            <Copy className="h-3.5 w-3.5" />
-          </Button>
-        </div>
       </div>
 
-      {tab.response.error && (
-        <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2">
-          <p className="text-xs text-destructive">{tab.response.error}</p>
-        </div>
-      )}
-
+      {/* Response headers */}
       {Object.keys(tab.response.headers).length > 0 && (
         <div className="border-b border-border px-4 py-2">
-          <div className="mb-1 text-[10px] font-medium text-muted-foreground">
-            Headers / 响应头
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Headers
           </div>
           <div className="space-y-0.5">
             {Object.entries(tab.response.headers).map(([key, value]) => (
@@ -123,15 +212,20 @@ export function ResponsePanel() {
         </div>
       )}
 
+      {/* Response body */}
       <div className="flex-1 overflow-auto">
-        <div className="px-4 py-1.5 border-b border-border">
-          <span className="text-[10px] font-medium text-muted-foreground">
-            Body / 响应体
+        <div className="flex items-center justify-between px-4 py-1.5 border-b border-border bg-muted/20">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Body
           </span>
+          <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px]" onClick={handleCopy}>
+            <Copy className="mr-1 h-3 w-3" />
+            Copy
+          </Button>
         </div>
-        <pre className="p-4 font-mono text-xs leading-relaxed text-foreground whitespace-pre-wrap break-all">
-          {formatBody(tab.response.body)}
-        </pre>
+        <div className="p-4">
+          <SyntaxJson json={bodyJson} />
+        </div>
       </div>
     </div>
   );

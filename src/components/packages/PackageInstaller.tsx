@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAppStore, useActiveTab } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Package, X, Download } from "lucide-react";
+import { Package, X, Download, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const PACKAGE_REGEX = /^@snsoft\/([\w-]+-(grpc-web|grpc)|js-sdk)@[\w.\-T]+$/;
@@ -37,11 +37,22 @@ export function PackageInstaller({ onInstall, onClose }: PackageInstallerProps) 
   const tab = useActiveTab();
   const protocolTab = tab?.protocolTab ?? "grpc-web";
   const installLog = useAppStore((s) => s.installLog);
+  const clearInstallLog = useAppStore((s) => s.clearInstallLog);
   const [spec, setSpec] = useState("");
   const [isInstalling, setIsInstalling] = useState(false);
 
+  useEffect(() => { clearInstallLog(); }, []);
+
   const detectedProtocol = detectProtocol(spec);
   const isValid = PACKAGE_REGEX.test(spec.trim());
+
+  const lastLog = installLog[installLog.length - 1] ?? "";
+  const installDone =
+    lastLog === "Installation complete!" ||
+    lastLog === "Package removed!" ||
+    lastLog.startsWith("Installation failed") ||
+    lastLog.startsWith("Removal failed") ||
+    lastLog.startsWith("Error:");
 
   const handleInstall = async () => {
     const trimmed = spec.trim();
@@ -96,7 +107,10 @@ export function PackageInstaller({ onInstall, onClose }: PackageInstallerProps) 
                 value={spec}
                 onChange={(e) => setSpec(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && isValid && !isInstalling) handleInstall();
+                  if (e.key === "Enter") {
+                    if (installDone) { onClose(); return; }
+                    if (isValid && !isInstalling) handleInstall();
+                  }
                 }}
                 placeholder={PLACEHOLDERS[protocolTab] ?? PLACEHOLDERS["grpc-web"]}
                 className="font-mono text-sm"
@@ -121,15 +135,61 @@ export function PackageInstaller({ onInstall, onClose }: PackageInstallerProps) 
             </p>
           </div>
 
-          {installLog.length > 0 && (
-            <div className="rounded-md border border-border bg-muted/50 p-2 max-h-32 overflow-y-auto">
-              <div className="space-y-0.5 font-mono text-[10px] text-muted-foreground">
-                {installLog.map((line, i) => (
-                  <div key={i}>{line}</div>
-                ))}
+          {installLog.length > 0 && (() => {
+            const last = installLog[installLog.length - 1];
+            const isSuccess = last === "Installation complete!" || last === "Package removed!";
+            const isFailed = last.startsWith("Installation failed") || last.startsWith("Removal failed") || last.startsWith("Error:");
+            const isDone = isSuccess || isFailed;
+            const logLines = isDone ? installLog.slice(0, -1) : installLog;
+
+            return (
+              <div className="space-y-2">
+                {logLines.length > 0 && (
+                  <div className="rounded-md border border-border bg-muted/50 p-2 max-h-24 overflow-y-auto">
+                    <div className="space-y-0.5 font-mono text-[10px] text-muted-foreground">
+                      {logLines.map((line, i) => (
+                        <div key={i}>{line}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {isSuccess && (
+                  <div className="flex items-center gap-2.5 rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2.5 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <CheckCircle2 className="h-5 w-5 shrink-0 text-green-500" />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-green-600 dark:text-green-400">
+                        {last === "Package removed!" ? "Removed successfully!" : "Installed successfully!"}
+                      </p>
+                      <p className="text-[10px] text-green-600/70 dark:text-green-400/70">
+                        {last === "Package removed!"
+                          ? "Package has been removed / 包已成功移除"
+                          : "Package is ready to use / 安装成功，可以使用了"}
+                      </p>
+                    </div>
+                    <kbd className="shrink-0 rounded border border-green-500/30 bg-green-500/10 px-1.5 py-0.5 text-[9px] font-mono text-green-600 dark:text-green-400">
+                      Enter ↵
+                    </kbd>
+                  </div>
+                )}
+                {isFailed && (
+                  <div className="flex items-center gap-2.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <XCircle className="h-5 w-5 shrink-0 text-red-500" />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-red-600 dark:text-red-400">
+                        Installation failed
+                      </p>
+                      <p className="text-[10px] text-red-600/70 dark:text-red-400/70">
+                        {last}
+                      </p>
+                    </div>
+                    <kbd className="shrink-0 rounded border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[9px] font-mono text-red-600 dark:text-red-400">
+                      Enter ↵
+                    </kbd>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onClose} disabled={isInstalling}>

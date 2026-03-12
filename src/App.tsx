@@ -9,10 +9,12 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { UrlBar } from "@/components/layout/UrlBar";
 import { RequestPanel } from "@/components/request/RequestPanel";
 import { ResponsePanel } from "@/components/request/ResponsePanel";
+import { ResizablePanels } from "@/components/ui/resizable-panels";
 import { PackageInstaller } from "@/components/packages/PackageInstaller";
 import { EnvManager } from "@/components/environment/EnvManager";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { CommandSearch } from "@/components/search/CommandSearch";
+import { HistoryPanel } from "@/components/history/HistoryPanel";
 import { Tutorial } from "@/components/onboarding/Tutorial";
 import { Welcome } from "@/components/onboarding/Welcome";
 import { installPackage } from "@/lib/package-manager";
@@ -34,6 +36,7 @@ export default function App() {
   const activeTab = useActiveTab();
 
   const [searchOpen, setSearchOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [envManagerOpen, setEnvManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -162,6 +165,10 @@ export default function App() {
           e.preventDefault();
           handleCycleProtocol();
           break;
+        case "h":
+          e.preventDefault();
+          setHistoryOpen((o) => !o);
+          break;
         case "enter":
           e.preventDefault();
           document.dispatchEvent(new CustomEvent("pengvi:send-request"));
@@ -207,10 +214,13 @@ export default function App() {
 
         <div className="flex flex-1 flex-col min-w-0">
           <UrlBar resolvedUrl={resolvedUrl} />
-          <div className="flex flex-1 min-h-0">
-            <RequestPanel />
-            <ResponsePanel />
-          </div>
+          <ResizablePanels
+            left={<RequestPanel />}
+            right={<ResponsePanel />}
+            defaultRatio={0.45}
+            minRatio={0.25}
+            maxRatio={0.75}
+          />
         </div>
       </div>
 
@@ -233,6 +243,7 @@ export default function App() {
       )}
 
       <CommandSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
+      <HistoryPanel open={historyOpen} onClose={() => setHistoryOpen(false)} />
       <Welcome />
       <Tutorial />
     </div>
