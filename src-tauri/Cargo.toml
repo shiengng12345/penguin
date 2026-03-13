@@ -1,6 +1,6 @@
 [package]
 name = "pengvi"
-version = "0.1.0"
+version = "1.0.0"
 description = "gRPC/gRPC-Web API Client"
 authors = ["Pengvi"]
 edition = "2021"

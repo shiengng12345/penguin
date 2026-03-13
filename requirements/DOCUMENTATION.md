@@ -389,7 +389,7 @@ pnpm tauri build
 Tag a release to trigger automated builds / 打标签触发自动构建:
 
 ```bash
-git tag v0.1.0
+git tag v1.0.0
 git push --tags
 ```
 

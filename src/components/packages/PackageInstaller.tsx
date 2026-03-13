@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAppStore, useActiveTab } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Package, X, Download, CheckCircle2, XCircle } from "lucide-react";
+import { Package, X, Download, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const PACKAGE_REGEX = /^@snsoft\/([\w-]+-(grpc-web|grpc)|js-sdk)@[\w.\-T]+$/;
@@ -40,8 +40,21 @@ export function PackageInstaller({ onInstall, onClose }: PackageInstallerProps) 
   const clearInstallLog = useAppStore((s) => s.clearInstallLog);
   const [spec, setSpec] = useState("");
   const [isInstalling, setIsInstalling] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => { clearInstallLog(); }, []);
+
+  useEffect(() => {
+    if (isInstalling) {
+      setElapsed(0);
+      timerRef.current = setInterval(() => setElapsed((t) => t + 1), 1000);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [isInstalling]);
 
   const detectedProtocol = detectProtocol(spec);
   const isValid = PACKAGE_REGEX.test(spec.trim());
@@ -135,12 +148,18 @@ export function PackageInstaller({ onInstall, onClose }: PackageInstallerProps) 
             </p>
           </div>
 
-          {installLog.length > 0 && (() => {
-            const last = installLog[installLog.length - 1];
+          {(installLog.length > 0 || isInstalling) && (() => {
+            const last = installLog[installLog.length - 1] ?? "";
             const isSuccess = last === "Installation complete!" || last === "Package removed!";
             const isFailed = last.startsWith("Installation failed") || last.startsWith("Removal failed") || last.startsWith("Error:");
             const isDone = isSuccess || isFailed;
             const logLines = isDone ? installLog.slice(0, -1) : installLog;
+
+            const formatTime = (s: number) => {
+              const m = Math.floor(s / 60);
+              const sec = s % 60;
+              return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+            };
 
             return (
               <div className="space-y-2">
@@ -153,6 +172,22 @@ export function PackageInstaller({ onInstall, onClose }: PackageInstallerProps) 
                     </div>
                   </div>
                 )}
+                {isInstalling && !isDone && (
+                  <div className="flex items-center gap-2.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2.5">
+                    <Loader2 className="h-5 w-5 shrink-0 text-blue-500 animate-spin" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-blue-600 dark:text-blue-400">
+                        Downloading dependencies...
+                      </p>
+                      <p className="text-[10px] text-blue-600/70 dark:text-blue-400/70">
+                        This may take a while for large packages / 大型包可能需要较长时间
+                      </p>
+                    </div>
+                    <span className="shrink-0 font-mono text-xs tabular-nums text-blue-600 dark:text-blue-400">
+                      {formatTime(elapsed)}
+                    </span>
+                  </div>
+                )}
                 {isSuccess && (
                   <div className="flex items-center gap-2.5 rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2.5 animate-in fade-in slide-in-from-bottom-2 duration-300">
                     <CheckCircle2 className="h-5 w-5 shrink-0 text-green-500" />
@@ -163,7 +198,7 @@ export function PackageInstaller({ onInstall, onClose }: PackageInstallerProps) 
                       <p className="text-[10px] text-green-600/70 dark:text-green-400/70">
                         {last === "Package removed!"
                           ? "Package has been removed / 包已成功移除"
-                          : "Package is ready to use / 安装成功，可以使用了"}
+                          : `Package is ready to use (${formatTime(elapsed)}) / 安装成功`}
                       </p>
                     </div>
                     <kbd className="shrink-0 rounded border border-green-500/30 bg-green-500/10 px-1.5 py-0.5 text-[9px] font-mono text-green-600 dark:text-green-400">

@@ -44,7 +44,7 @@ interface CommandSearchProps {
 }
 
 export function CommandSearch({ open, onClose }: CommandSearchProps) {
-  const { tabs, activeTabId, setActiveTab, updateActiveTab } = useAppStore();
+  const { tabs, activeTabId, updateActiveTab } = useAppStore();
   const grpcWebPackages = useAppStore((s) => s.grpcWebPackages);
   const grpcPackages = useAppStore((s) => s.grpcPackages);
   const sdkPackages = useAppStore((s) => s.sdkPackages);
@@ -154,18 +154,29 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
     const tab = tabs.find((t) => t.id === activeTabId);
     if (!tab) return;
 
+    const isNewTab = !tab.selectedMethod;
+
     const body =
       result.method.requestFields && result.method.requestFields.length > 0
         ? JSON.stringify(generateDefaultJson(result.method.requestFields), null, 2)
         : "{}";
-    setActiveTab(activeTabId);
-    updateActiveTab({
+
+    const patch = {
       protocolTab: result.protocol,
       selectedPackage: result.packageName,
       selectedService: result.serviceName,
       selectedMethod: result.method,
       requestBody: body,
-    });
+    };
+
+    if (isNewTab) {
+      updateActiveTab(patch);
+    } else {
+      const { addTab } = useAppStore.getState();
+      addTab();
+      setTimeout(() => useAppStore.getState().updateActiveTab(patch), 0);
+    }
+
     document.dispatchEvent(new CustomEvent("pengvi:focus-method", {
       detail: { packageName: result.packageName, serviceName: result.serviceName },
     }));

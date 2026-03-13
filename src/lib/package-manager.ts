@@ -46,7 +46,7 @@ export async function listInstalledPackages(
   });
 }
 
-const INSTALL_TIMEOUT_MS = 120_000;
+const INSTALL_TIMEOUT_MS = 300_000;
 
 function shellCmd(script: string, cwd: string) {
   return Command.create("zsh-login", ["-l", "-c", `cd ${JSON.stringify(cwd)} && ${script}`]);
@@ -96,7 +96,7 @@ export async function installPackage(
 
   setTimeout(() => {
     if (!finished) {
-      onLog("Installation timed out (2 min). Killing process...");
+      onLog("Installation timed out (5 min). Killing process...");
       child.kill();
     }
   }, INSTALL_TIMEOUT_MS);
@@ -143,7 +143,7 @@ export async function uninstallPackage(
 
   setTimeout(() => {
     if (!finished) {
-      onLog("Uninstall timed out (2 min). Killing process...");
+      onLog("Uninstall timed out (5 min). Killing process...");
       child.kill();
     }
   }, INSTALL_TIMEOUT_MS);
