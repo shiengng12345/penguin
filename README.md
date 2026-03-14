@@ -11,6 +11,7 @@ A modern desktop API client for **gRPC-Web**, **gRPC**, and **SDK** testing — 
 
 ## Table of Contents
 
+- [Download](#download)
 - [Features](#features)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
@@ -19,6 +20,15 @@ A modern desktop API client for **gRPC-Web**, **gRPC**, and **SDK** testing — 
 - [Deployment & Releases](#deployment--releases)
 - [Configuration](#configuration)
 - [Keyboard Shortcuts](#keyboard-shortcuts)
+
+---
+
+## Download
+
+- **Download page (recommended):** https://shiengng12345.github.io/penguin/
+- **Latest release (macOS .dmg):** https://github.com/shiengng12345/penguin/releases/latest
+
+> Tip: If macOS blocks the app on first launch (Gatekeeper), right-click the app → **Open** once, or allow it in **System Settings → Privacy & Security**.
 
 ---
 

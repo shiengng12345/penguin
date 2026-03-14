@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Penguin — Desktop API Client</title>
+    <meta
+      name="description"
+      content="Penguin is a modern desktop API client for gRPC-Web, native gRPC, and SDK testing — built with Tauri, React, and Rust."
+    />
+    <style>
+      :root {
+        --bg: #0b1020;
+        --card: rgba(255, 255, 255, 0.06);
+        --card2: rgba(255, 255, 255, 0.08);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.72);
+        --muted2: rgba(255, 255, 255, 0.58);
+        --border: rgba(255, 255, 255, 0.12);
+        --brand: #5dd8ff;
+        --brand2: #b08cff;
+        --good: #34d399;
+        --warn: #f59e0b;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--text);
+        background:
+          radial-gradient(900px 500px at 20% 0%, rgba(93, 216, 255, 0.22), transparent 60%),
+          radial-gradient(900px 500px at 90% 10%, rgba(176, 140, 255, 0.18), transparent 60%),
+          radial-gradient(700px 450px at 60% 110%, rgba(52, 211, 153, 0.10), transparent 55%),
+          var(--bg);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        line-height: 1.45;
+      }
+      a { color: inherit; }
+      .wrap { max-width: 1024px; margin: 0 auto; padding: 28px 18px 64px; }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 0;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+      }
+      .logo {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, rgba(93, 216, 255, 0.9), rgba(176, 140, 255, 0.9));
+        box-shadow: 0 10px 25px rgba(93, 216, 255, 0.18);
+      }
+      .toplinks { display: flex; gap: 10px; flex-wrap: wrap; }
+      .pill {
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.04);
+        border-radius: 999px;
+        text-decoration: none;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .pill:hover { background: rgba(255, 255, 255, 0.07); color: var(--text); }
+
+      .hero {
+        display: grid;
+        grid-template-columns: 1.2fr 0.8fr;
+        gap: 18px;
+        margin-top: 18px;
+      }
+      @media (max-width: 900px) {
+        .hero { grid-template-columns: 1fr; }
+      }
+      .card {
+        border: 1px solid var(--border);
+        background: var(--card);
+        border-radius: 18px;
+        padding: 18px;
+        box-shadow: 0 18px 50px rgba(0,0,0,0.25);
+        backdrop-filter: blur(10px);
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 38px;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+      }
+      .subtitle { margin: 0 0 14px; color: var(--muted); font-size: 15px; }
+      .badges { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 18px; }
+      .badge {
+        font-size: 12px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        background: rgba(255,255,255,0.03);
+      }
+      .ctaRow { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+      .btn {
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+        padding: 11px 14px;
+        border-radius: 12px;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 650;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .btn:hover { background: rgba(255, 255, 255, 0.09); }
+      .btn.primary {
+        border-color: rgba(93, 216, 255, 0.45);
+        background: linear-gradient(135deg, rgba(93,216,255,0.22), rgba(176,140,255,0.18));
+      }
+      .btn.primary:hover {
+        background: linear-gradient(135deg, rgba(93,216,255,0.30), rgba(176,140,255,0.22));
+      }
+      .hint { margin-top: 10px; color: var(--muted2); font-size: 12px; }
+      .hint strong { color: var(--text); font-weight: 650; }
+
+      .side {
+        display: grid;
+        gap: 12px;
+        align-content: start;
+      }
+      .shot {
+        width: 100%;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: var(--card2);
+        overflow: hidden;
+        display: block;
+      }
+      .shot img { width: 100%; display: block; }
+      .mini { font-size: 12px; color: var(--muted2); margin-top: 10px; }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-top: 14px;
+      }
+      @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+      .feature h3 { margin: 0 0 6px; font-size: 14px; }
+      .feature p { margin: 0; color: var(--muted); font-size: 13px; }
+      .k { display: inline-block; padding: 1px 7px; border: 1px solid var(--border); border-radius: 7px; font-size: 12px; color: var(--muted); background: rgba(255,255,255,0.03); }
+
+      .faq { margin-top: 18px; }
+      details {
+        border: 1px solid var(--border);
+        background: rgba(255,255,255,0.04);
+        border-radius: 14px;
+        padding: 12px 14px;
+      }
+      details + details { margin-top: 10px; }
+      summary { cursor: pointer; font-weight: 650; }
+      details p, details ul { color: var(--muted); font-size: 13px; }
+      footer {
+        margin-top: 18px;
+        color: var(--muted2);
+        font-size: 12px;
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      code { color: rgba(255,255,255,0.88); }
+      .ok { color: var(--good); font-weight: 650; }
+      .warn { color: var(--warn); font-weight: 650; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="brand">
+          <div class="logo" aria-hidden="true"></div>
+          <div>Penguin</div>
+        </div>
+        <nav class="toplinks">
+          <a class="pill" id="releasesLink" href="#" rel="noreferrer">Releases</a>
+          <a class="pill" id="repoLink" href="#" rel="noreferrer">GitHub Repo</a>
+        </nav>
+      </header>
+
+      <section class="hero">
+        <div class="card">
+          <h1>Desktop API client for gRPC-Web, gRPC & SDK</h1>
+          <p class="subtitle">
+            Built with Tauri + React + Rust. Install packages, browse services/methods, send requests, view responses, save history.
+          </p>
+
+          <div class="badges">
+            <span class="badge">macOS</span>
+            <span class="badge">Tauri 2</span>
+            <span class="badge">React 19</span>
+            <span class="badge">Auto-updates</span>
+          </div>
+
+          <div class="ctaRow">
+            <a class="btn primary" id="btnRecommended" href="#" rel="noreferrer">
+              Download (Recommended)
+              <span class="k" id="chipTag">detecting…</span>
+            </a>
+            <a class="btn" id="btnM" href="#" rel="noreferrer">Download for Apple Silicon (M1/M2/M3)</a>
+            <a class="btn" id="btnIntel" href="#" rel="noreferrer">Download for Intel (x86_64)</a>
+          </div>
+
+          <div class="hint">
+            Buttons download the <strong>latest release</strong> from GitHub.
+            If direct download is blocked by browser, open the <a href="#" id="openLatest">latest release page</a>.
+          </div>
+
+          <div class="grid">
+            <div class="card feature">
+              <h3>Multi-protocol</h3>
+              <p><span class="k">gRPC-Web</span> via ConnectRPC + Rust HTTP proxy, <span class="k">gRPC</span> via Node sidecar, <span class="k">SDK</span> via Node runner.</p>
+            </div>
+            <div class="card feature">
+              <h3>Package-driven</h3>
+              <p>Install <code>@snsoft/*</code> packages, auto-discover protos/typings, browse services & methods in sidebar.</p>
+            </div>
+            <div class="card feature">
+              <h3>Productivity</h3>
+              <p>Environments with <code>{{VAR}}</code> interpolation, request history, saved requests, keyboard shortcuts.</p>
+            </div>
+          </div>
+
+          <div class="faq">
+            <details>
+              <summary>macOS blocked the app on first launch (Gatekeeper). What to do?</summary>
+              <p>
+                This is normal for apps downloaded outside App Store.
+              </p>
+              <ul>
+                <li>Option A (fast): right-click the app → <span class="ok">Open</span> → confirm.</li>
+                <li>Option B: System Settings → Privacy &amp; Security → find “blocked app” → <span class="ok">Open Anyway</span>.</li>
+              </ul>
+              <p class="mini"><span class="warn">Tip:</span> If you plan to distribute publicly, consider notarization to reduce blocks.</p>
+            </details>
+            <details>
+              <summary>Which download do I pick?</summary>
+              <ul>
+                <li>Apple Silicon: M1 / M2 / M3 / M4 Macs → download <strong>aarch64</strong>.</li>
+                <li>Intel Macs → download <strong>x86_64</strong>.</li>
+              </ul>
+            </details>
+            <details>
+              <summary>Do you support Windows / Linux?</summary>
+              <p>Not yet. Current builds target macOS only.</p>
+            </details>
+          </div>
+
+          <footer>
+            <div>© <span id="year"></span> Penguin</div>
+            <div class="mini">Powered by GitHub Pages • <span class="mini">v<span id="versionText">latest</span></span></div>
+          </footer>
+        </div>
+
+        <div class="side">
+          <div class="card">
+            <div class="shot">
+              <img
+                alt="Penguin screenshot"
+                src="https://raw.githubusercontent.com/shiengng12345/penguin/main/penguin.png"
+              />
+            </div>
+            <div class="mini">
+              Screenshot loaded from the repository.
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const OWNER = "shiengng12345";
+      const REPO = "penguin";
+
+      const releasesUrl = `https://github.com/${OWNER}/${REPO}/releases`;
+      const repoUrl = `https://github.com/${OWNER}/${REPO}`;
+      const latestReleaseUrl = `https://github.com/${OWNER}/${REPO}/releases/latest`;
+
+      // Stable direct download URLs (require CI to publish fixed asset names)
+      const dmgM = `https://github.com/${OWNER}/${REPO}/releases/latest/download/Penguin_aarch64.dmg`;
+      const dmgIntel = `https://github.com/${OWNER}/${REPO}/releases/latest/download/Penguin_x86_64.dmg`;
+
+      document.getElementById("releasesLink").href = releasesUrl;
+      document.getElementById("repoLink").href = repoUrl;
+      document.getElementById("openLatest").href = latestReleaseUrl;
+      document.getElementById("btnM").href = dmgM;
+      document.getElementById("btnIntel").href = dmgIntel;
+      document.getElementById("year").textContent = new Date().getFullYear();
+
+      function detectChipTag() {
+        // Browsers differ: this is best-effort.
+        const platform = navigator.platform || "";
+        const ua = navigator.userAgent || "";
+        const isMac = /Mac/i.test(platform) || /Macintosh/i.test(ua);
+        const isIntelLike = /x86_64|x64|Intel/i.test(ua) || /Intel/i.test(platform);
+        const isArmLike = /arm|aarch64/i.test(ua);
+
+        if (!isMac) return { label: "macOS only", href: latestReleaseUrl };
+        if (isArmLike && !isIntelLike) return { label: "Apple Silicon", href: dmgM };
+        if (isIntelLike) return { label: "Intel", href: dmgIntel };
+        return { label: "Choose", href: latestReleaseUrl };
+      }
+
+      const rec = detectChipTag();
+      document.getElementById("chipTag").textContent = rec.label;
+      document.getElementById("btnRecommended").href = rec.href;
+    </script>
+  </body>
+</html>
+
