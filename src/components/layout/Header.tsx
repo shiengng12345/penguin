@@ -3,9 +3,10 @@ import { useAppStore, THEMES, ENV_COLORS } from "@/lib/store";
 import { useEnvironments } from "@/hooks/useEnvironments";
 import { useGreeting } from "@/hooks/useGreeting";
 import { useClock } from "@/hooks/useClock";
+import { openPenguinSite } from "@/lib/external-links";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Palette, Settings, Clock } from "lucide-react";
+import { Palette, Settings, Clock, BookOpenText } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface HeaderProps {
@@ -132,6 +133,18 @@ export function Header({ onOpenSettings }: HeaderProps) {
             </>
           )}
         </div>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => {
+            void openPenguinSite();
+          }}
+          title="Guide / 文档站"
+        >
+          <BookOpenText className="h-4 w-4" />
+        </Button>
 
         <Button
           variant="ghost"

@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useAppStore } from "@/lib/store";
+import { openPenguinSite } from "@/lib/external-links";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, BookOpenText } from "lucide-react";
 
 export function Welcome() {
   const { userName, setUserName } = useAppStore();
@@ -60,6 +61,17 @@ export function Welcome() {
           >
             Get Started
             <ArrowRight className="ml-1.5 h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full h-10"
+            onClick={() => {
+              void openPenguinSite();
+            }}
+          >
+            Open Guide Website
+            <BookOpenText className="ml-1.5 h-4 w-4" />
           </Button>
         </form>
 
