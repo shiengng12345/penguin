@@ -48,6 +48,15 @@ jobs:
       - name: Copy config
         run: mkdir -p ~/.pengvi && cp .pengvi.config.json ~/.pengvi/config.json
 
+      - name: Debug environment
+        run: |
+          echo "Node: $(node --version)"
+          echo "pnpm: $(pnpm --version)"
+          echo "CI var: [$CI]"
+          pnpm exec tauri --version
+          ls -la node_modules/.bin/tauri* || true
+          which tauri || true
+
       - name: Build Tauri app
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
