@@ -90,12 +90,13 @@ export function SettingsDialog({
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("fetch") || msg.includes("release") || msg.includes("remote")) {
-        setUpdateStatus("up-to-date");
-      } else {
-        setUpdateError(msg);
-        setUpdateStatus("error");
-      }
+      const normalized = msg.toLowerCase();
+      const friendlyError =
+        normalized.includes("fetch") || normalized.includes("release") || normalized.includes("remote")
+          ? "Unable to reach the update feed. Publish the GitHub release and make sure latest.json is reachable."
+          : msg;
+      setUpdateError(friendlyError);
+      setUpdateStatus("error");
     }
   }, []);
 
