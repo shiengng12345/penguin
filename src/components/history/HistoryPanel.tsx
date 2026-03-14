@@ -56,7 +56,7 @@ function formatTime(ts: number): string {
 
   if (isYesterday) return `Yesterday ${time}`;
 
-  return `${d.getMonth() + 1}/${d.getDate()} ${time}`;
+  return `${d.getMonth() +1}/${d.getDate()} ${time}`;
 }
 
 function getMethodShortName(fullName: string): string {
@@ -70,7 +70,7 @@ function getServiceShortName(fullName: string): string {
 }
 
 export function HistoryPanel({ open, onClose }: HistoryPanelProps) {
-  const { history, clearHistory, updateActiveTab } = useAppStore();
+  const { history, clearHistory, addTab } = useAppStore();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -90,7 +90,8 @@ export function HistoryPanel({ open, onClose }: HistoryPanelProps) {
     : history;
 
   const selectEntry = (entry: HistoryEntry) => {
-    updateActiveTab({
+    addTab();
+    const patch = {
       protocolTab: entry.protocol,
       targetUrl: entry.url,
       metadata: entry.metadata.length > 0
@@ -102,17 +103,22 @@ export function HistoryPanel({ open, onClose }: HistoryPanelProps) {
       requestBody: entry.requestBody,
       selectedPackage: entry.packageName || null,
       selectedService: entry.serviceName || null,
-    });
-    if (entry.packageName && entry.serviceName) {
-      document.dispatchEvent(
-        new CustomEvent("pengvi:focus-method", {
-          detail: {
-            packageName: entry.packageName,
-            serviceName: entry.serviceName,
-          },
-        })
-      );
-    }
+      selectedMethod: entry.selectedMethod ?? null,
+      origin: "history" as const,
+    };
+    setTimeout(() => {
+      useAppStore.getState().updateActiveTab(patch);
+      if (entry.packageName && entry.serviceName) {
+        document.dispatchEvent(
+          new CustomEvent("pengvi:focus-method", {
+            detail: {
+              packageName: entry.packageName,
+              serviceName: entry.serviceName,
+            },
+          })
+        );
+      }
+    }, 0);
     onClose();
   };
 
@@ -140,7 +146,7 @@ export function HistoryPanel({ open, onClose }: HistoryPanelProps) {
       if (e.key === "Escape") onClose();
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedIndex((i) => Math.min(i + 1, filtered.length - 1));
+        setSelectedIndex((i) => Math.min(i +1, filtered.length - 1));
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();

@@ -1,5 +1,4 @@
 import { useAppStore, useActiveTab, type ProtoMethod, type InstalledPackage } from "@/lib/store";
-import { generateDefaultJson } from "@/lib/proto-parser";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -109,7 +108,7 @@ export function Sidebar({ packages, onInstallClick, onUninstall, onUpdate }: Sid
     let matchName: (text: string) => boolean;
     if (q.includes("*")) {
       const regex = new RegExp(
-        "^" + q.split("*").map(s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$"
+        "^" +q.split("*").map(s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") +"$"
       );
       matchName = (text) => regex.test(text.toLowerCase());
     } else {
@@ -161,11 +160,12 @@ export function Sidebar({ packages, onInstallClick, onUninstall, onUpdate }: Sid
     updateActiveTab({ selectedService: fullName, selectedMethod: null });
   };
 
-  const handleMethodClick = (pkgName: string, svcFullName: string, method: ProtoMethod) => {
-    const body =
-      method.requestFields && method.requestFields.length > 0
-        ? JSON.stringify(generateDefaultJson(method.requestFields), null, 2)
-        : "{}";
+  const handleMethodClick = async (pkgName: string, svcFullName: string, method: ProtoMethod) => {
+    let body = "{}";
+    if (method.requestFields && method.requestFields.length > 0) {
+      const { generateDefaultJson } = await import("@/lib/proto-parser");
+      body = JSON.stringify(generateDefaultJson(method.requestFields), null, 2);
+    }
     updateActiveTab({
       selectedPackage: pkgName,
       selectedService: svcFullName,
@@ -206,7 +206,7 @@ export function Sidebar({ packages, onInstallClick, onUninstall, onUpdate }: Sid
   };
 
   return (
-    <aside className="flex h-full w-72 flex-col border-r border-border bg-card">
+    <aside className="flex h-full w-72 flex-col border-r border-border bg-card" data-tour="sidebar">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div className="flex items-center gap-1.5">
           {protocolTab === "grpc-web" ? (
@@ -235,7 +235,7 @@ export function Sidebar({ packages, onInstallClick, onUninstall, onUpdate }: Sid
               <ChevronsDownUp className="h-4 w-4" />
             </Button>
           )}
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onInstallClick}>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onInstallClick} data-tour="install-btn">
             <Plus className="h-4 w-4" />
           </Button>
         </div>
@@ -272,7 +272,7 @@ export function Sidebar({ packages, onInstallClick, onUninstall, onUpdate }: Sid
                 No {protocolTab === "grpc-web" ? "gRPC-Web" : protocolTab === "sdk" ? "SDK" : "gRPC"} packages
               </p>
               <p className="text-xs text-muted-foreground/60">
-                Click + to install a package
+                Click +to install a package
               </p>
             </div>
           </div>
@@ -425,7 +425,7 @@ export function Sidebar({ packages, onInstallClick, onUninstall, onUpdate }: Sid
         {isSearching && filteredPackages.length !== packages.length
           ? `${filteredPackages.length}/${packages.length} packages · `
           : `${packages.length} package${packages.length !== 1 ? "s" : ""} · `}
-        {packages.reduce((sum, p) => sum + p.services.length, 0)} services
+        {packages.reduce((sum, p) => sum +p.services.length, 0)} services
       </div>
     </aside>
   );

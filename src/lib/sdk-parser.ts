@@ -88,7 +88,7 @@ export function parseSdkDts(
       const className = match[1];
       if (SKIP_CLASSES.has(className)) continue;
 
-      const classStart = match.index + match[0].length;
+      const classStart = match.index +match[0].length;
       let depth = 1;
       let pos = classStart;
       while (pos < content.length && depth > 0) {
@@ -97,7 +97,7 @@ export function parseSdkDts(
         if (close === -1) break;
         if (open !== -1 && open < close) {
           depth++;
-          pos = open + 1;
+          pos = open +1;
         } else {
           depth--;
           if (depth === 0) {
@@ -112,7 +112,7 @@ export function parseSdkDts(
             }
             break;
           }
-          pos = close + 1;
+          pos = close +1;
         }
       }
     }

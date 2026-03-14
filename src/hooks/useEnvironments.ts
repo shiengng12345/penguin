@@ -129,7 +129,8 @@ function saveToStorage(
     }
   }
 
-  syncAllProtocolEnvs();
+  // Defer Tauri IPC config sync to after first paint
+  requestAnimationFrame(() => syncAllProtocolEnvs());
 })();
 
 function getEnvsKey(p: ProtocolTab) {

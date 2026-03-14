@@ -109,7 +109,7 @@ function extractProtoFields(type: protobuf.Type): FieldInfo[] {
   });
 }
 
-// ---- ConnectRPC _connect.d.ts + _pb.d.ts parsing ----
+// ---- ConnectRPC _connect.d.ts +_pb.d.ts parsing ----
 
 interface ParsedField {
   name: string;

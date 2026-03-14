@@ -46,9 +46,25 @@ export function PackageInstaller({ onInstall, onClose }: PackageInstallerProps) 
   useEffect(() => { clearInstallLog(); }, []);
 
   useEffect(() => {
+    const prefill = useAppStore.getState().installerPrefill;
+    if (prefill) {
+      setSpec(prefill);
+      useAppStore.getState().setInstallerPrefill("");
+      return;
+    }
+    const unsub = useAppStore.subscribe((state, prev) => {
+      if (state.installerPrefill && state.installerPrefill !== prev.installerPrefill) {
+        setSpec(state.installerPrefill);
+        useAppStore.getState().setInstallerPrefill("");
+      }
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
     if (isInstalling) {
       setElapsed(0);
-      timerRef.current = setInterval(() => setElapsed((t) => t + 1), 1000);
+      timerRef.current = setInterval(() => setElapsed((t) => t +1), 1000);
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = null;
@@ -233,6 +249,10 @@ export function PackageInstaller({ onInstall, onClose }: PackageInstallerProps) 
             <Button
               onClick={handleInstall}
               disabled={!spec.trim() || !isValid || isInstalling}
+              className={cn(
+                isValid && !isInstalling &&
+                  "animate-pulse shadow-[0_0_14px_2px_oklch(0.7_0.15_250/0.5)]"
+              )}
             >
               <Download className="mr-1.5 h-4 w-4" />
               {isInstalling ? "Installing... / 安装中..." : "Install / 安装"}

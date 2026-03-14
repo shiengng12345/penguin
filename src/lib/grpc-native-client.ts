@@ -163,7 +163,7 @@ for (const dep of userDeps) {
 }
 
 if (allProtos.length === 0) {
-  console.log(JSON.stringify({ error: 'No .proto files found for packages: ' + userDeps.join(', '), statusCode: 0, body: '', headers: {} }));
+  console.log(JSON.stringify({ error: 'No .proto files found for packages: ' +userDeps.join(', '), statusCode: 0, body: '', headers: {} }));
   process.exit(0);
 }
 
@@ -172,7 +172,7 @@ const svcShortName = input.typeName.split('.').pop();
 const matchingProtos = allProtos.filter(p => {
   try {
     const content = fs.readFileSync(p, 'utf-8');
-    return content.includes('service ' + svcShortName);
+    return content.includes('service ' +svcShortName);
   } catch { return false; }
 });
 
@@ -222,7 +222,7 @@ function findService(obj, typeName) {
 
 const ServiceClass = findService(grpcObj, input.typeName);
 if (!ServiceClass || !ServiceClass.service) {
-  console.log(JSON.stringify({ error: 'Service not found: ' + input.typeName, statusCode: 0, body: '', headers: {} }));
+  console.log(JSON.stringify({ error: 'Service not found: ' +input.typeName, statusCode: 0, body: '', headers: {} }));
   process.exit(0);
 }
 
@@ -246,7 +246,7 @@ try {
 
 const method = client[input.methodName];
 if (!method) {
-  console.log(JSON.stringify({ error: 'Method not found: ' + input.methodName + '. Available: ' + Object.keys(ServiceClass.service).join(', '), statusCode: 0, body: '', headers: {} }));
+  console.log(JSON.stringify({ error: 'Method not found: ' +input.methodName +'. Available: ' +Object.keys(ServiceClass.service).join(', '), statusCode: 0, body: '', headers: {} }));
   client.close();
   process.exit(0);
 }

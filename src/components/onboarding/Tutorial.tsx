@@ -19,17 +19,17 @@ const STEPS = [
     icon: Package,
     titleEn: "Install Packages",
     titleZh: "安装包",
-    descEn: "Install gRPC-Web, gRPC, or SDK packages from the sidebar. Use ⌘S to open the installer.",
-    descZh: "从侧边栏安装 gRPC-Web、gRPC 或 SDK 包。使用 ⌘S 打开安装器。",
-    shortcut: "⌘S",
+    descEn: "Install gRPC-Web, gRPC, or SDK packages from the sidebar. Use ⌘ + S to open the installer.",
+    descZh: "从侧边栏安装 gRPC-Web、gRPC 或 SDK 包。使用 ⌘ + S 打开安装器。",
+    shortcut: "⌘ + S",
   },
   {
     icon: Globe,
     titleEn: "Switch Protocols",
     titleZh: "切换协议",
-    descEn: "Cycle between gRPC-Web, gRPC, and SDK with the protocol toggle. Use ⌘E for quick switching.",
-    descZh: "使用协议切换在 gRPC-Web、gRPC 和 SDK 之间切换。使用 ⌘E 快速切换。",
-    shortcut: "⌘E",
+    descEn: "Cycle between gRPC-Web, gRPC, and SDK with the protocol toggle. Use ⌘ + E for quick switching.",
+    descZh: "使用协议切换在 gRPC-Web、gRPC 和 SDK 之间切换。使用 ⌘ + E 快速切换。",
+    shortcut: "⌘ + E",
   },
   {
     icon: Layers,
@@ -42,16 +42,16 @@ const STEPS = [
     icon: Search,
     titleEn: "Search Methods",
     titleZh: "搜索方法",
-    descEn: "Quickly find methods across all packages with ⌘F. Supports wildcard search (*).",
-    descZh: "使用 ⌘F 快速搜索所有包中的方法。支持通配符搜索 (*)。",
-    shortcut: "⌘F",
+    descEn: "Quickly find methods across all packages with ⌘ + F. Supports wildcard search (*).",
+    descZh: "使用 ⌘ + F 快速搜索所有包中的方法。支持通配符搜索 (*)。",
+    shortcut: "⌘ + F",
   },
   {
     icon: Keyboard,
     titleEn: "Keyboard Shortcuts",
     titleZh: "快捷键",
-    descEn: "⌘N new tab, ⌘W close tab, ⌘R refresh, ⌘S installer, ⌘E cycle protocol, ⌘F search.",
-    descZh: "⌘N 新建标签，⌘W 关闭标签，⌘R 刷新，⌘S 安装器，⌘E 切换协议，⌘F 搜索。",
+    descEn: "⌘ + N new tab, ⌘ + W close tab, ⌘ + R refresh, ⌘ + S installer, ⌘ + E cycle protocol, ⌘ + F search.",
+    descZh: "⌘ + N 新建标签，⌘ + W 关闭标签，⌘ + R 刷新，⌘ + S 安装器，⌘ + E 切换协议，⌘ + F 搜索。",
   },
   {
     icon: Settings,
@@ -139,7 +139,7 @@ export function Tutorial() {
                 Get Started / 开始使用
               </Button>
             ) : (
-              <Button size="sm" onClick={() => setStep((s) => s + 1)}>
+              <Button size="sm" onClick={() => setStep((s) => s +1)}>
                 Next / 下一步
                 <ChevronRight className="ml-1 h-4 w-4" />
               </Button>

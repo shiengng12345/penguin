@@ -1,23 +1,107 @@
-import { useState } from "react";
-import { useEnvironments } from "@/hooks/useEnvironments";
-import { ENV_COLORS, type Environment, type EnvVariable } from "@/lib/store";
+import { useState, useCallback } from "react";
+import {
+  useAppStore,
+  useActiveTab,
+  ENV_COLORS,
+  type Environment,
+  type EnvVariable,
+  type ProtocolTab,
+} from "@/lib/store";
 import { generateEnvId } from "@/lib/environment-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, Edit, X, Save } from "lucide-react";
+import { Plus, Trash2, Edit, X, Save, Globe, Server, Box } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const PROTOCOL_TABS: { id: ProtocolTab; label: string; icon: typeof Globe }[] = [
+  { id: "grpc-web", label: "gRPC-Web", icon: Globe },
+  { id: "grpc", label: "gRPC", icon: Server },
+  { id: "sdk", label: "SDK", icon: Box },
+];
+
+const STORE_KEYS: Record<ProtocolTab, string> = {
+  "grpc-web": "pengvi-grpc-web-environments",
+  grpc: "pengvi-grpc-environments",
+  sdk: "pengvi-sdk-environments",
+};
+
+function saveToStorage(protocol: ProtocolTab, environments: Environment[], activeEnvId: string | null): void {
+  localStorage.setItem(STORE_KEYS[protocol], JSON.stringify(environments));
+  const activeKey = `pengvi-${protocol === "grpc-web" ? "grpc-web" : protocol}-active-env`;
+  if (activeEnvId) localStorage.setItem(activeKey, activeEnvId);
+  else localStorage.removeItem(activeKey);
+}
+
+function useEnvsForProtocol(protocol: ProtocolTab) {
+  const environments =
+    protocol === "grpc-web"
+      ? useAppStore((s) => s.grpcWebEnvironments)
+      : protocol === "grpc"
+        ? useAppStore((s) => s.grpcEnvironments)
+        : useAppStore((s) => s.sdkEnvironments);
+
+  const activeEnvId =
+    protocol === "grpc-web"
+      ? useAppStore((s) => s.grpcWebActiveEnvId)
+      : protocol === "grpc"
+        ? useAppStore((s) => s.grpcActiveEnvId)
+        : useAppStore((s) => s.sdkActiveEnvId);
+
+  const addEnv = useCallback(
+    (env: Environment) => {
+      const s = useAppStore.getState();
+      if (protocol === "grpc-web") s.addGrpcWebEnvironment(env);
+      else if (protocol === "grpc") s.addGrpcEnvironment(env);
+      else s.addSdkEnvironment(env);
+      const next = [...(protocol === "grpc-web" ? s.grpcWebEnvironments : protocol === "grpc" ? s.grpcEnvironments : s.sdkEnvironments), env];
+      saveToStorage(protocol, next, activeEnvId);
+    },
+    [protocol, activeEnvId],
+  );
+
+  const updateEnv = useCallback(
+    (id: string, patch: Partial<Environment>) => {
+      const s = useAppStore.getState();
+      if (protocol === "grpc-web") s.updateGrpcWebEnvironment(id, patch);
+      else if (protocol === "grpc") s.updateGrpcEnvironment(id, patch);
+      else s.updateSdkEnvironment(id, patch);
+      const envs = protocol === "grpc-web" ? s.grpcWebEnvironments : protocol === "grpc" ? s.grpcEnvironments : s.sdkEnvironments;
+      const next = envs.map((e) => (e.id === id ? { ...e, ...patch } : e));
+      saveToStorage(protocol, next, activeEnvId);
+    },
+    [protocol, activeEnvId],
+  );
+
+  const deleteEnv = useCallback(
+    (id: string) => {
+      const s = useAppStore.getState();
+      if (protocol === "grpc-web") s.deleteGrpcWebEnvironment(id);
+      else if (protocol === "grpc") s.deleteGrpcEnvironment(id);
+      else s.deleteSdkEnvironment(id);
+      const envs = protocol === "grpc-web" ? s.grpcWebEnvironments : protocol === "grpc" ? s.grpcEnvironments : s.sdkEnvironments;
+      const next = envs.filter((e) => e.id !== id);
+      const nextActive = activeEnvId === id ? null : activeEnvId;
+      saveToStorage(protocol, next, nextActive);
+    },
+    [protocol, activeEnvId],
+  );
+
+  return { environments, activeEnvId, addEnvironment: addEnv, updateEnvironment: updateEnv, deleteEnvironment: deleteEnv };
+}
 
 interface EnvManagerProps {
   onClose: () => void;
 }
 
 export function EnvManager({ onClose }: EnvManagerProps) {
+  const activeTab = useActiveTab();
+  const [selectedProtocol, setSelectedProtocol] = useState<ProtocolTab>(activeTab?.protocolTab ?? "grpc-web");
   const {
     environments,
     addEnvironment,
     updateEnvironment,
     deleteEnvironment,
-  } = useEnvironments();
+  } = useEnvsForProtocol(selectedProtocol);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -97,17 +181,59 @@ export function EnvManager({ onClose }: EnvManagerProps) {
         className="relative z-50 w-full max-w-lg max-h-[90vh] overflow-hidden rounded-lg border border-border bg-popover shadow-xl flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-border p-4 shrink-0">
-          <h2 className="text-lg font-semibold text-foreground">
-            Environments / 环境管理
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 hover:bg-accent"
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <div className="border-b border-border shrink-0">
+          <div className="flex items-center justify-between p-4 pb-3">
+            <h2 className="text-lg font-semibold text-foreground">
+              Environments / 环境管理
+            </h2>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded p-1 hover:bg-accent"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="flex gap-1 px-4 pb-2">
+            {PROTOCOL_TABS.map((pt) => {
+              const Icon = pt.icon;
+              const count =
+                pt.id === "grpc-web"
+                  ? useAppStore.getState().grpcWebEnvironments.length
+                  : pt.id === "grpc"
+                    ? useAppStore.getState().grpcEnvironments.length
+                    : useAppStore.getState().sdkEnvironments.length;
+              return (
+                <button
+                  key={pt.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedProtocol(pt.id);
+                    cancelForm();
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                    selectedProtocol === pt.id
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )}
+                >
+                  <Icon className="h-3 w-3" />
+                  {pt.label}
+                  {count > 0 && (
+                    <span className={cn(
+                      "ml-0.5 rounded-full px-1.5 py-0 text-[9px] font-bold",
+                      selectedProtocol === pt.id
+                        ? "bg-primary-foreground/20 text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
+                    )}>
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">

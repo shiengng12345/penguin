@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useState, useCallback, useEffect } from "react";
 import { useActiveTab } from "@/lib/store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -112,6 +112,82 @@ function SyntaxJson({ json, className }: { json: string; className?: string }) {
   );
 }
 
+const VIRTUAL_THRESHOLD = 500;
+const LINE_HEIGHT = 18;
+const OVERSCAN = 20;
+
+function VirtualizedJson({ json }: { json: string }) {
+  const lines = useMemo(() => json.split("\n"), [json]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [containerH, setContainerH] = useState(600);
+
+  const isDark =
+    typeof document !== "undefined"
+      ? document.documentElement.getAttribute("data-theme") !== "light"
+      : true;
+  const colors = isDark ? TOKEN_CLASSES : TOKEN_CLASSES_LIGHT;
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) setContainerH(e.contentRect.height);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    if (containerRef.current) setScrollTop(containerRef.current.scrollTop);
+  }, []);
+
+  const totalHeight = lines.length * LINE_HEIGHT;
+  const startIdx = Math.max(0, Math.floor(scrollTop / LINE_HEIGHT) - OVERSCAN);
+  const visibleCount = Math.ceil(containerH / LINE_HEIGHT) +OVERSCAN * 2;
+  const endIdx = Math.min(lines.length, startIdx +visibleCount);
+
+  const tokenizedLines = useMemo(() => {
+    const result: { idx: number; tokens: JsonToken[] }[] = [];
+    for (let i = startIdx; i < endIdx; i++) {
+      result.push({ idx: i, tokens: tokenizeJson(lines[i]) });
+    }
+    return result;
+  }, [lines, startIdx, endIdx]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="flex-1 overflow-auto"
+      onScroll={handleScroll}
+    >
+      <div style={{ height: totalHeight, position: "relative" }}>
+        <div
+          className="p-4 font-mono text-xs"
+          style={{
+            position: "absolute",
+            top: startIdx * LINE_HEIGHT,
+            left: 0,
+            right: 0,
+          }}
+        >
+          {tokenizedLines.map(({ idx, tokens }) => (
+            <div
+              key={idx}
+              style={{ height: LINE_HEIGHT }}
+              className="whitespace-pre-wrap break-all leading-[18px]"
+            >
+              {tokens.map((t, j) => (
+                <span key={j} className={colors[t.type]}>{t.text}</span>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ResponsePanel() {
   const tab = useActiveTab();
   if (!tab) return null;
@@ -170,6 +246,8 @@ export function ResponsePanel() {
     bodyJson = "(empty)";
   }
 
+  const bodyLines = bodyJson.split("\n").length;
+
   const handleCopy = () => {
     navigator.clipboard.writeText(bodyJson);
   };
@@ -213,20 +291,31 @@ export function ResponsePanel() {
       )}
 
       {/* Response body */}
-      <div className="flex-1 overflow-auto">
-        <div className="flex items-center justify-between px-4 py-1.5 border-b border-border bg-muted/20">
+      <div className="flex items-center justify-between px-4 py-1.5 border-b border-border bg-muted/20">
+        <div className="flex items-center gap-2">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Body
           </span>
-          <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px]" onClick={handleCopy}>
-            <Copy className="mr-1 h-3 w-3" />
-            Copy
-          </Button>
+          {bodyLines > VIRTUAL_THRESHOLD && (
+            <span className="text-[9px] text-muted-foreground/60 font-mono">
+              {bodyLines.toLocaleString()} lines (virtual scroll)
+            </span>
+          )}
         </div>
-        <div className="p-4">
-          <SyntaxJson json={bodyJson} />
-        </div>
+        <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px]" onClick={handleCopy}>
+          <Copy className="mr-1 h-3 w-3" />
+          Copy
+        </Button>
       </div>
+      {bodyLines > VIRTUAL_THRESHOLD ? (
+        <VirtualizedJson json={bodyJson} />
+      ) : (
+        <div className="flex-1 overflow-auto">
+          <div className="p-4">
+            <SyntaxJson json={bodyJson} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

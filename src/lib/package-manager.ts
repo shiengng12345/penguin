@@ -1,8 +1,5 @@
-import { Command } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 import type { ProtocolTab, InstalledPackage } from "./store";
-import { parseProtoContent } from "./proto-parser";
-import { parseSdkDts } from "./sdk-parser";
 
 interface RawProtoFile {
   name: string;
@@ -33,6 +30,11 @@ export async function listInstalledPackages(
     protocol,
   });
 
+  const [{ parseProtoContent }, { parseSdkDts }] = await Promise.all([
+    import("./proto-parser"),
+    import("./sdk-parser"),
+  ]);
+
   return raw.map((pkg) => {
     const files = pkg.protos.map((p) => ({ name: p.name, content: p.content }));
     const services =
@@ -48,7 +50,8 @@ export async function listInstalledPackages(
 
 const INSTALL_TIMEOUT_MS = 300_000;
 
-function shellCmd(script: string, cwd: string) {
+async function shellCmd(script: string, cwd: string) {
+  const { Command } = await import("@tauri-apps/plugin-shell");
   return Command.create("zsh-login", ["-l", "-c", `cd ${JSON.stringify(cwd)} && ${script}`]);
 }
 
@@ -62,7 +65,7 @@ export async function installPackage(
   onLog(`Protocol: ${protocol.toUpperCase()}`);
   onLog(`Target: ${dir}`);
 
-  const cmd = shellCmd(
+  const cmd = await shellCmd(
     `npm install --save --prefer-offline --no-audit --no-fund ${JSON.stringify(packageSpec)}`,
     dir
   );
@@ -112,7 +115,7 @@ export async function uninstallPackage(
   const dir = await ensurePackagesDir(protocol);
   onLog(`Removing ${packageName}...`);
 
-  const cmd = shellCmd(
+  const cmd = await shellCmd(
     `npm uninstall --no-audit --no-fund ${JSON.stringify(packageName)}`,
     dir
   );

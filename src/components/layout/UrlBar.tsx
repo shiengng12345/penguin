@@ -16,7 +16,7 @@ export function UrlBar({ resolvedUrl }: UrlBarProps) {
   const servicePath = tab.selectedMethod
     ? (() => {
         const typeName = tab.selectedMethod.fullName.substring(0, tab.selectedMethod.fullName.lastIndexOf("."));
-        const methodName = tab.selectedMethod.fullName.substring(tab.selectedMethod.fullName.lastIndexOf(".") + 1);
+        const methodName = tab.selectedMethod.fullName.substring(tab.selectedMethod.fullName.lastIndexOf(".") +1);
         const protoPackage = typeName.split(".")[0];
         return `/${protoPackage}/${typeName}/${methodName}`;
       })()
@@ -28,7 +28,7 @@ export function UrlBar({ resolvedUrl }: UrlBarProps) {
     : null;
 
   return (
-    <div className="border-b border-border bg-card">
+    <div className="border-b border-border bg-card" data-tour="url-bar">
       <div className="flex items-center gap-2 px-4 py-2">
         <Badge
           variant="outline"
@@ -55,6 +55,7 @@ export function UrlBar({ resolvedUrl }: UrlBarProps) {
           }}
           disabled={tab.isLoading || !tab.targetUrl.trim() || !tab.selectedMethod}
           size="default"
+          data-tour="send-btn"
         >
           <Send className="mr-1.5 h-4 w-4" />
           {tab.isLoading ? "Sending..." : "Send"}

@@ -339,10 +339,10 @@ export const JsonEditor = memo(function JsonEditor({
               })();
 
               const insert = closingBracket
-                ? "\n" + indent + "\n" + currentIndent
-                : "\n" + indent;
+                ? "\n" +indent +"\n" +currentIndent
+                : "\n" +indent;
 
-              const cursorPos = cur + 1 + indent.length;
+              const cursorPos = cur +1 +indent.length;
 
               view.dispatch({
                 changes: { from: cur, to: cur, insert },

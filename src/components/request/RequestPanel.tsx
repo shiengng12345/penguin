@@ -1,32 +1,44 @@
-import { useEffect, useRef } from "react";
-import { useAppStore, useActiveTab, type MetadataEntry, type HistoryEntry } from "@/lib/store";
+import { useEffect, useRef, useState, lazy, Suspense } from "react";
+import { useAppStore, useActiveTab, type MetadataEntry, type HistoryEntry, type SavedRequest } from "@/lib/store";
 import { useEnvironments } from "@/hooks/useEnvironments";
 import { interpolate } from "@/lib/environment-store";
-import { callGrpcWeb } from "@/lib/grpc-web-client";
-import { callGrpcNative } from "@/lib/grpc-native-client";
-import { callSdk } from "@/lib/sdk-client";
-import { getPackagesDir } from "@/lib/package-manager";
-import { generateDefaultJson } from "@/lib/proto-parser";
 import { Button } from "@/components/ui/button";
-import { JsonEditor } from "@/components/ui/json-editor";
-import { Send, Plus, X, RotateCcw, Copy, Braces } from "lucide-react";
+import { Send, Plus, X, RotateCcw, Copy, Braces, Bookmark, Check, FileText, Terminal } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const LazyJsonEditor = lazy(() => import("@/components/ui/json-editor").then(m => ({ default: m.JsonEditor })));
 
 export function RequestPanel() {
-  const { updateActiveTab, addHistory } = useAppStore();
+  const { updateActiveTab, addHistory, saveRequest } = useAppStore();
   const tab = useActiveTab();
   const { activeEnv } = useEnvironments();
   const sendRef = useRef<() => void>(() => {});
+  const saveRef = useRef<() => void>(() => {});
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [curlFlash, setCurlFlash] = useState(false);
+  const [offlineFlash, setOfflineFlash] = useState(false);
 
   useEffect(() => {
-    const handler = () => sendRef.current();
-    document.addEventListener("pengvi:send-request", handler);
-    return () => document.removeEventListener("pengvi:send-request", handler);
+    const sendHandler = () => sendRef.current();
+    const saveHandler = () => saveRef.current();
+    document.addEventListener("pengvi:send-request", sendHandler);
+    document.addEventListener("pengvi:save-request", saveHandler);
+    return () => {
+      document.removeEventListener("pengvi:send-request", sendHandler);
+      document.removeEventListener("pengvi:save-request", saveHandler);
+    };
   }, []);
 
   if (!tab) return null;
 
   const handleSend = async () => {
     if (!tab.selectedMethod || !tab.targetUrl.trim()) return;
+
+    if (!navigator.onLine) {
+      setOfflineFlash(true);
+      setTimeout(() => setOfflineFlash(false), 3000);
+      return;
+    }
 
     const resolvedUrl = interpolate(tab.targetUrl, activeEnv);
     updateActiveTab({ isLoading: true, response: null });
@@ -41,6 +53,7 @@ export function RequestPanel() {
       url: tab.targetUrl,
       metadata: tab.metadata.filter((m) => m.enabled && m.key),
       requestBody: tab.requestBody,
+      selectedMethod: tab.selectedMethod,
     };
     addHistory(entry);
 
@@ -50,15 +63,14 @@ export function RequestPanel() {
 
       if (protocol === "grpc-web") {
         const typeName = tab.selectedMethod.fullName.substring(
-          0,
-          tab.selectedMethod.fullName.lastIndexOf(".")
+          0, tab.selectedMethod.fullName.lastIndexOf(".")
         );
         const methodName = tab.selectedMethod.fullName.substring(
-          tab.selectedMethod.fullName.lastIndexOf(".") + 1
+          tab.selectedMethod.fullName.lastIndexOf(".") +1
         );
         const protoPackage = typeName.split(".")[0];
         const servicePath = `/${protoPackage}/${typeName}/${methodName}`;
-
+        const { callGrpcWeb } = await import("@/lib/grpc-web-client");
         result = await callGrpcWeb({
           url: resolvedUrl,
           servicePath,
@@ -68,16 +80,16 @@ export function RequestPanel() {
         });
       } else if (protocol === "grpc") {
         const typeName = tab.selectedMethod.fullName.substring(
-          0,
-          tab.selectedMethod.fullName.lastIndexOf(".")
+          0, tab.selectedMethod.fullName.lastIndexOf(".")
         );
         const methodName = tab.selectedMethod.fullName.substring(
-          tab.selectedMethod.fullName.lastIndexOf(".") + 1
+          tab.selectedMethod.fullName.lastIndexOf(".") +1
         );
         const protoPackage = typeName.split(".")[0];
         const servicePath = `/${protoPackage}/${typeName}/${methodName}`;
+        const { getPackagesDir } = await import("@/lib/package-manager");
         const packagesDir = await getPackagesDir("grpc");
-
+        const { callGrpcNative } = await import("@/lib/grpc-native-client");
         result = await callGrpcNative({
           url: resolvedUrl,
           servicePath,
@@ -91,8 +103,9 @@ export function RequestPanel() {
         const methodName = parts.pop() ?? "";
         const serviceName =
           parts.length > 0 ? parts[parts.length - 1] : fullName;
+        const { getPackagesDir } = await import("@/lib/package-manager");
         const packagesDir = await getPackagesDir("sdk");
-
+        const { callSdk } = await import("@/lib/sdk-client");
         result = await callSdk({
           url: resolvedUrl,
           serviceName,
@@ -139,8 +152,9 @@ export function RequestPanel() {
     updateActiveTab({ metadata: next });
   };
 
-  const handleResetBody = () => {
+  const handleResetBody = async () => {
     if (tab.selectedMethod?.requestFields) {
+      const { generateDefaultJson } = await import("@/lib/proto-parser");
       const defaultJson = generateDefaultJson(tab.selectedMethod.requestFields);
       updateActiveTab({
         requestBody: JSON.stringify(defaultJson, null, 2),
@@ -161,7 +175,71 @@ export function RequestPanel() {
     navigator.clipboard.writeText(tab.requestBody);
   };
 
+  const handleSaveRequest = () => {
+    if (!tab.selectedMethod) return;
+    const methodShort = tab.selectedMethod.name;
+    const serviceShort = tab.selectedService?.split(".").pop() ?? "";
+    const defaultName = serviceShort
+      ? `${serviceShort}.${methodShort}`
+      : methodShort;
+
+    const entry: SavedRequest = {
+      id: `saved_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: defaultName,
+      savedAt: Date.now(),
+      protocol: tab.protocolTab,
+      methodFullName: tab.selectedMethod.fullName,
+      serviceName: tab.selectedService ?? "",
+      packageName: tab.selectedPackage ?? "",
+      url: tab.targetUrl,
+      metadata: tab.metadata.filter((m) => m.key),
+      requestBody: tab.requestBody,
+      response: tab.response,
+      selectedMethod: tab.selectedMethod,
+    };
+    saveRequest(entry);
+    setSavedFlash(true);
+    setTimeout(() => setSavedFlash(false), 1500);
+  };
+
+  const handleCopyCurl = () => {
+    if (!tab.selectedMethod) return;
+    const resolvedUrl = interpolate(tab.targetUrl, activeEnv);
+    const typeName = tab.selectedMethod.fullName.substring(
+      0, tab.selectedMethod.fullName.lastIndexOf(".")
+    );
+    const methodName = tab.selectedMethod.fullName.substring(
+      tab.selectedMethod.fullName.lastIndexOf(".") +1
+    );
+    const protoPackage = typeName.split(".")[0];
+    const servicePath = `/${protoPackage}/${typeName}/${methodName}`;
+    const fullUrl = `${resolvedUrl.replace(/\/$/, "")}${servicePath}`;
+
+    const headers = tab.metadata
+      .filter((m) => m.enabled && m.key)
+      .map((m) => `  -H '${m.key}: ${m.value}'`)
+      .join(" \\\n");
+
+    const contentTypeH = `  -H 'Content-Type: application/json'`;
+    const allHeaders = headers
+      ? `${contentTypeH} \\\n${headers}`
+      : contentTypeH;
+
+    let body = "";
+    try {
+      body = JSON.stringify(JSON.parse(tab.requestBody));
+    } catch {
+      body = tab.requestBody;
+    }
+
+    const curl = `curl -X POST '${fullUrl}' \\\n${allHeaders} \\\n  -d '${body}'`;
+    navigator.clipboard.writeText(curl);
+    setCurlFlash(true);
+    setTimeout(() => setCurlFlash(false), 1500);
+  };
+
   sendRef.current = handleSend;
+  saveRef.current = handleSaveRequest;
 
   const methodInfo =
     tab.selectedMethod && tab.selectedService
@@ -169,7 +247,15 @@ export function RequestPanel() {
       : null;
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden border-r border-border">
+    <div className="flex flex-1 flex-col overflow-hidden border-r border-border" data-tour="request-panel">
+      {offlineFlash && (
+        <div className="border-b border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs text-destructive flex items-center gap-2">
+          <span>No internet connection</span>
+          <button onClick={() => setOfflineFlash(false)} className="ml-auto text-destructive/60 hover:text-destructive">
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      )}
       {methodInfo && (
         <div className="flex items-center gap-2 border-b border-border bg-muted/30 px-3 py-1.5">
           <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -273,23 +359,84 @@ export function RequestPanel() {
               </button>
             </div>
           </div>
-          <JsonEditor
-            value={tab.requestBody}
-            onChange={(val) => updateActiveTab({ requestBody: val })}
-            fields={tab.selectedMethod?.requestFields}
-          />
+          <Suspense fallback={
+            <textarea
+              value={tab.requestBody}
+              onChange={(e) => updateActiveTab({ requestBody: e.target.value })}
+              className="flex-1 w-full bg-transparent font-mono text-xs p-3 resize-none focus:outline-none"
+              spellCheck={false}
+            />
+          }>
+            <LazyJsonEditor
+              value={tab.requestBody}
+              onChange={(val) => updateActiveTab({ requestBody: val })}
+              fields={tab.selectedMethod?.requestFields}
+            />
+          </Suspense>
         </div>
       </div>
 
-      <div className="border-t border-border px-3 py-2">
+      <div className="border-t border-border px-3 py-2 flex gap-1.5">
         <Button
           onClick={handleSend}
           disabled={tab.isLoading || !tab.selectedMethod}
-          className="w-full h-8"
+          className="flex-1 h-8"
           size="sm"
         >
           <Send className="mr-1.5 h-3.5 w-3.5" />
           {tab.isLoading ? "Sending..." : "Send"}
+        </Button>
+        <Button
+          variant={savedFlash ? "default" : "outline"}
+          size="sm"
+          className={cn(
+            "h-8 transition-all",
+            savedFlash ? "px-3 bg-success text-success-foreground hover:bg-success" : "px-2.5"
+          )}
+          onClick={handleSaveRequest}
+          disabled={!tab.selectedMethod}
+          title="Save request ⌘ + Shift + S (⌘ + O to open)"
+          data-tour="save-btn"
+        >
+          {savedFlash ? (
+            <>
+              <Check className="mr-1 h-3.5 w-3.5" />
+              <span className="text-xs">Saved!</span>
+            </>
+          ) : (
+            <Bookmark className="h-3.5 w-3.5" />
+          )}
+        </Button>
+        <Button
+          variant={curlFlash ? "default" : "outline"}
+          size="sm"
+          className={cn(
+            "h-8 transition-all",
+            curlFlash ? "px-3 bg-success text-success-foreground hover:bg-success" : "px-2.5"
+          )}
+          onClick={handleCopyCurl}
+          disabled={!tab.selectedMethod}
+          title="Copy as cURL"
+          data-tour="curl-btn"
+        >
+          {curlFlash ? (
+            <>
+              <Check className="mr-1 h-3.5 w-3.5" />
+              <span className="text-xs">cURL</span>
+            </>
+          ) : (
+            <Terminal className="h-3.5 w-3.5" />
+          )}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 px-2.5"
+          onClick={() => document.dispatchEvent(new CustomEvent("pengvi:open-doc"))}
+          disabled={!tab.selectedMethod}
+          title="Request as Doc ⌘ + D"
+        >
+          <FileText className="h-3.5 w-3.5" />
         </Button>
       </div>
     </div>

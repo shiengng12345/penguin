@@ -22,7 +22,7 @@
 | **Preset Config** / 预设配置 | `.pengvi.config.json` presets environments and packages per protocol / 通过配置文件预设各协议的环境和包 |
 | **Fuzzy Search** / 模糊搜索 | `Cmd+F` global search with fuzzy matching and wildcard (`*`) support / 全局模糊搜索，支持通配符 |
 | **Multi-Tab** / 多标签页 | Multiple request tabs with independent state / 多标签页，每个标签独立状态 |
-| **Multi-Theme** / 多主题 | 10+ themes including dark, light, and colorful options / 10+ 主题选择 |
+| **Multi-Theme** / 多主题 | 10+themes including dark, light, and colorful options / 10+主题选择 |
 | **Live Clock** / 实时时钟 | 12-hour format clock with lunch-time penguin reminder at 12:30 PM / 12 小时制时钟，12:30 午餐提醒 |
 | **Personalized Greetings** / 个性化问候 | Dynamic hourly greetings with Malaysian Chinese flavor / 每小时轮换的个性化问候语 |
 
@@ -72,7 +72,7 @@
 - **pnpm** >= 9
 - **Rust** (install via [rustup.rs](https://rustup.rs))
 - **macOS**: Xcode Command Line Tools (`xcode-select --install`)
-- **Windows**: Visual Studio C++ Build Tools
+- **Windows**: Visual Studio C++Build Tools
 
 ---
 
@@ -283,7 +283,7 @@ Pengvi/
 │   │   │   ├── TabBar.tsx       # Multi-tab management / 多标签管理
 │   │   │   └── UrlBar.tsx       # URL input with variable resolution / URL 输入栏
 │   │   ├── request/
-│   │   │   ├── RequestPanel.tsx # Headers + body editor, send logic / 请求编辑器
+│   │   │   ├── RequestPanel.tsx # Headers +body editor, send logic / 请求编辑器
 │   │   │   └── ResponsePanel.tsx# Response viewer / 响应查看器
 │   │   ├── packages/
 │   │   │   └── PackageInstaller.tsx # Package install dialog / 包安装对话框
@@ -300,7 +300,7 @@ Pengvi/
 │   │   ├── useEnvironments.ts   # Per-protocol environment state / 每协议环境状态
 │   │   ├── usePackages.ts       # Package install/uninstall/list / 包管理
 │   │   ├── useGreeting.ts       # Hourly rotating greetings / 每小时轮换问候
-│   │   └── useClock.ts          # Live 12h clock + lunch reminder / 时钟和午餐提醒
+│   │   └── useClock.ts          # Live 12h clock +lunch reminder / 时钟和午餐提醒
 │   └── lib/
 │       ├── store.ts             # Zustand global store / 全局状态
 │       ├── grpc-web-client.ts   # gRPC-Web call logic / gRPC-Web 调用逻辑
@@ -317,7 +317,7 @@ Pengvi/
 │   ├── capabilities/default.json# Shell permissions for npm/node / Shell 权限
 │   └── icons/                   # App icons (icns, ico, png) / 应用图标
 └── .github/
-    └── workflows/build.yml      # CI: build macOS + Windows / CI 构建
+    └── workflows/build.yml      # CI: build macOS +Windows / CI 构建
 ```
 
 ### Protocol Flow / 协议流程

@@ -1,10 +1,5 @@
 import { useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import {
-  installPackage,
-  uninstallPackage,
-  listInstalledPackages,
-} from "@/lib/package-manager";
 import { useAppStore } from "@/lib/store";
 import { useActiveTab } from "@/lib/store";
 import type { ProtocolTab } from "@/lib/store";
@@ -51,6 +46,7 @@ async function autoInstallFromConfig(
   const specs = section?.packages ?? [];
   if (specs.length === 0) return;
 
+  const { listInstalledPackages } = await import("@/lib/package-manager");
   const installed = await listInstalledPackages(protocol);
   const installedNames = new Set(installed.map((p) => p.name));
 
@@ -61,6 +57,7 @@ async function autoInstallFromConfig(
     if (installedNames.has(fullName)) continue;
 
     try {
+      const { installPackage } = await import("@/lib/package-manager");
       const ok = await installPackage(protocol, spec, addInstallLog);
       if (ok) installedNames.add(fullName);
     } catch (e) {
@@ -96,6 +93,7 @@ export function usePackages(): {
     const sortByName = (pkgs: InstalledPackage[]) =>
       [...pkgs].sort((a, b) => a.name.localeCompare(b.name));
 
+    const { listInstalledPackages } = await import("@/lib/package-manager");
     const [gw, grpc, sdk] = await Promise.all([
       listInstalledPackages("grpc-web"),
       listInstalledPackages("grpc"),
@@ -109,6 +107,7 @@ export function usePackages(): {
   const install = useCallback(
     async (packageSpec: string, overrideProtocol?: ProtocolTab) => {
       const protocol = overrideProtocol ?? detectProtocol(packageSpec);
+      const { installPackage } = await import("@/lib/package-manager");
       await installPackage(protocol, packageSpec, addInstallLog);
       await refresh();
     },
@@ -117,6 +116,7 @@ export function usePackages(): {
 
   const uninstall = useCallback(
     async (packageName: string) => {
+      const { uninstallPackage } = await import("@/lib/package-manager");
       await uninstallPackage(protocolTab, packageName, addInstallLog);
       await refresh();
     },
@@ -127,16 +127,6 @@ export function usePackages(): {
     let cancelled = false;
 
     const run = async () => {
-      await refresh();
-      if (cancelled) return;
-
-      const others: ProtocolTab[] = ["grpc-web", "grpc", "sdk"].filter(
-        (p) => p !== protocolTab
-      ) as ProtocolTab[];
-      for (const p of others) {
-        await listInstalledPackages(p);
-        if (cancelled) return;
-      }
       await refresh();
       if (cancelled) return;
 
@@ -156,9 +146,12 @@ export function usePackages(): {
       }
     };
 
-    run();
+    // Defer package scanning so the UI renders first
+    const ric = typeof requestIdleCallback === "function" ? requestIdleCallback : (cb: () => void) => setTimeout(cb, 50);
+    const id = ric(() => { if (!cancelled) run(); });
     return () => {
       cancelled = true;
+      if (typeof cancelIdleCallback === "function") cancelIdleCallback(id as number);
     };
   }, []);
 

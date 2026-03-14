@@ -1,6 +1,6 @@
 import { useAppStore, useActiveTab, createTab, type ProtocolTab } from "@/lib/store";
 import { Button } from "@/components/ui/button";
-import { Globe, Server, Box, Plus, X } from "lucide-react";
+import { Globe, Server, Box, Plus, X, History, Bookmark } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const PROTOCOL_BADGES: Record<
@@ -33,7 +33,7 @@ export function TabBar({ onCycleProtocol }: TabBarProps) {
   const activeTab = useActiveTab();
 
   return (
-    <div className="flex h-9 shrink-0 items-center border-b border-border bg-card">
+    <div className="flex h-9 shrink-0 items-center border-b border-border bg-card" data-tour="tab-bar">
       <div className="flex flex-1 items-center overflow-x-auto">
         {tabs.map((tab) => {
           const badge = PROTOCOL_BADGES[tab.protocolTab];
@@ -45,10 +45,15 @@ export function TabBar({ onCycleProtocol }: TabBarProps) {
             <div
               key={tab.id}
               className={cn(
-                "group flex shrink-0 items-center gap-1.5 border-r border-border px-3 py-1.5",
-                isActive && "bg-accent"
+                "group relative flex shrink-0 items-center gap-1.5 border-r border-border px-3 py-1.5 transition-colors",
+                isActive
+                  ? "bg-background text-foreground"
+                  : "bg-card text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50"
               )}
             >
+              {isActive && (
+                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary" />
+              )}
               <button
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
@@ -57,13 +62,25 @@ export function TabBar({ onCycleProtocol }: TabBarProps) {
                 <span
                   className={cn(
                     "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
-                    badge.className
+                    isActive ? badge.className : "opacity-50"
                   )}
                 >
                   <Icon className="h-2.5 w-2.5" />
                   {badge.label}
                 </span>
-                <span className="truncate text-xs">{label}</span>
+                <span className={cn("truncate text-xs", isActive && "font-medium")}>{label}</span>
+                {tab.origin === "history" && (
+                  <span className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-medium bg-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0">
+                    <History className="h-2 w-2" />
+                    History
+                  </span>
+                )}
+                {tab.origin === "saved" && (
+                  <span className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-medium bg-sky-500/20 text-sky-600 dark:text-sky-400 shrink-0">
+                    <Bookmark className="h-2 w-2" />
+                    Saved
+                  </span>
+                )}
               </button>
               {tabs.length > 1 && (
                 <button
@@ -95,7 +112,7 @@ export function TabBar({ onCycleProtocol }: TabBarProps) {
           size="icon"
           className="h-7 w-7"
           onClick={onCycleProtocol}
-          title="Cycle protocol (⌘E) / 切换协议"
+          title="Cycle protocol (⌘ +E) / 切换协议"
         >
           {activeTab && (
             <>

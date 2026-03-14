@@ -72,6 +72,22 @@ export interface HistoryEntry {
   url: string;
   metadata: MetadataEntry[];
   requestBody: string;
+  selectedMethod?: ProtoMethod | null;
+}
+
+export interface SavedRequest {
+  id: string;
+  name: string;
+  savedAt: number;
+  protocol: ProtocolTab;
+  methodFullName: string;
+  serviceName: string;
+  packageName: string;
+  url: string;
+  metadata: MetadataEntry[];
+  requestBody: string;
+  response: ResponseState | null;
+  selectedMethod: ProtoMethod | null;
 }
 
 export type ProtocolTab = "grpc-web" | "grpc" | "sdk";
@@ -102,6 +118,8 @@ export interface ResponseState {
   error?: string;
 }
 
+export type TabOrigin = "history" | "saved" | null;
+
 export interface RequestTab {
   id: string;
   protocolTab: ProtocolTab;
@@ -113,25 +131,33 @@ export interface RequestTab {
   selectedMethod: ProtoMethod | null;
   response: ResponseState | null;
   isLoading: boolean;
+  origin: TabOrigin;
 }
 
 // --- Helpers ---
 
-function createTab(): RequestTab {
+const _defaultHeaders = loadDefaultHeaders();
+
+function createTab(origin: TabOrigin = null): RequestTab {
+  const protocol: ProtocolTab = "grpc-web";
+  let headers: MetadataEntry[];
+  try {
+    headers = useAppStore.getState().defaultHeaders[protocol];
+  } catch {
+    headers = _defaultHeaders[protocol];
+  }
   return {
     id: `tab_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    protocolTab: "grpc-web",
+    protocolTab: protocol,
     targetUrl: "{{URL}}",
     requestBody: "{}",
-    metadata: [
-      { key: "Authorization", value: "Bearer ", enabled: true },
-      { key: "eId", value: "", enabled: true },
-    ],
+    metadata: headers.map((h) => ({ ...h })),
     selectedPackage: null,
     selectedService: null,
     selectedMethod: null,
     response: null,
     isLoading: false,
+    origin,
   };
 }
 
@@ -188,9 +214,14 @@ export interface AppState {
 
   isInstallerOpen: boolean;
   setInstallerOpen: (open: boolean) => void;
+  installerPrefill: string;
+  setInstallerPrefill: (value: string) => void;
   installLog: string[];
   addInstallLog: (line: string) => void;
   clearInstallLog: () => void;
+
+  searchPrefill: string;
+  setSearchPrefill: (value: string) => void;
 
   showTutorial: boolean;
   setShowTutorial: (show: boolean) => void;
@@ -201,6 +232,17 @@ export interface AppState {
   history: HistoryEntry[];
   addHistory: (entry: HistoryEntry) => void;
   clearHistory: () => void;
+
+  savedRequests: SavedRequest[];
+  saveRequest: (entry: SavedRequest) => void;
+  deleteSavedRequest: (id: string) => void;
+  renameSavedRequest: (id: string, name: string) => void;
+
+  maxHistorySize: number;
+  setMaxHistorySize: (size: number) => void;
+
+  defaultHeaders: Record<ProtocolTab, MetadataEntry[]>;
+  setDefaultHeaders: (protocol: ProtocolTab, headers: MetadataEntry[]) => void;
 }
 
 const THEME_KEY = "pengvi-theme";
@@ -209,7 +251,46 @@ const USERNAME_KEY = "pengvi-username";
 const TABS_KEY = "pengvi-tabs";
 const ACTIVE_TAB_KEY = "pengvi-active-tab";
 const HISTORY_KEY = "pengvi-history";
-const MAX_HISTORY = 200;
+const MAX_HISTORY_KEY = "pengvi-max-history";
+const DEFAULT_MAX_HISTORY = 500;
+const SAVED_REQUESTS_KEY = "pengvi-saved-requests";
+const DEFAULT_HEADERS_KEY = "pengvi-default-headers";
+
+function loadMaxHistorySize(): number {
+  if (typeof window === "undefined") return DEFAULT_MAX_HISTORY;
+  const raw = localStorage.getItem(MAX_HISTORY_KEY);
+  if (raw) {
+    const n = parseInt(raw, 10);
+    if (!isNaN(n) && n > 0) return n;
+  }
+  return DEFAULT_MAX_HISTORY;
+}
+
+function loadDefaultHeaders(): Record<ProtocolTab, MetadataEntry[]> {
+  const fallback: Record<ProtocolTab, MetadataEntry[]> = {
+    "grpc-web": [
+      { key: "Authorization", value: "Bearer ", enabled: true },
+      { key: "eId", value: "", enabled: true },
+    ],
+    grpc: [
+      { key: "Authorization", value: "Bearer ", enabled: true },
+      { key: "eId", value: "", enabled: true },
+    ],
+    sdk: [
+      { key: "Authorization", value: "Bearer ", enabled: true },
+      { key: "eId", value: "", enabled: true },
+    ],
+  };
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = localStorage.getItem(DEFAULT_HEADERS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return { ...fallback, ...parsed };
+    }
+  } catch { /* corrupted */ }
+  return fallback;
+}
 
 function loadUserName(): string {
   if (typeof window === "undefined") return "";
@@ -221,7 +302,10 @@ function loadTabs(): { tabs: RequestTab[]; activeTabId: string | null } {
   try {
     const raw = localStorage.getItem(TABS_KEY);
     if (raw) {
-      const tabs: RequestTab[] = JSON.parse(raw);
+      const tabs: RequestTab[] = JSON.parse(raw).map((t: RequestTab) => ({
+        ...t,
+        origin: t.origin ?? null,
+      }));
       if (Array.isArray(tabs) && tabs.length > 0) {
         const activeTabId =
           localStorage.getItem(ACTIVE_TAB_KEY) ?? tabs[0].id;
@@ -232,10 +316,15 @@ function loadTabs(): { tabs: RequestTab[]; activeTabId: string | null } {
   return { tabs: [], activeTabId: null };
 }
 
+let _saveTabsTimer: ReturnType<typeof setTimeout> | null = null;
 function saveTabs(tabs: RequestTab[], activeTabId: string | null) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(TABS_KEY, JSON.stringify(tabs));
-  if (activeTabId) localStorage.setItem(ACTIVE_TAB_KEY, activeTabId);
+  if (_saveTabsTimer) clearTimeout(_saveTabsTimer);
+  _saveTabsTimer = setTimeout(() => {
+    localStorage.setItem(TABS_KEY, JSON.stringify(tabs));
+    if (activeTabId) localStorage.setItem(ACTIVE_TAB_KEY, activeTabId);
+    _saveTabsTimer = null;
+  }, 300);
 }
 
 function loadHistory(): HistoryEntry[] {
@@ -250,9 +339,37 @@ function loadHistory(): HistoryEntry[] {
   return [];
 }
 
-function saveHistory(entries: HistoryEntry[]) {
+let _saveHistoryTimer: ReturnType<typeof setTimeout> | null = null;
+function saveHistory(entries: HistoryEntry[], maxSize?: number) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, MAX_HISTORY)));
+  if (_saveHistoryTimer) clearTimeout(_saveHistoryTimer);
+  const limit = maxSize ?? useAppStore.getState().maxHistorySize;
+  _saveHistoryTimer = setTimeout(() => {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, limit)));
+    _saveHistoryTimer = null;
+  }, 500);
+}
+
+function loadSavedRequests(): SavedRequest[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(SAVED_REQUESTS_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return arr;
+    }
+  } catch { /* corrupted */ }
+  return [];
+}
+
+let _saveSavedTimer: ReturnType<typeof setTimeout> | null = null;
+function saveSavedRequests(entries: SavedRequest[]) {
+  if (typeof window === "undefined") return;
+  if (_saveSavedTimer) clearTimeout(_saveSavedTimer);
+  _saveSavedTimer = setTimeout(() => {
+    localStorage.setItem(SAVED_REQUESTS_KEY, JSON.stringify(entries));
+    _saveSavedTimer = null;
+  }, 500);
 }
 
 function loadTheme(): AppTheme {
@@ -421,11 +538,16 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     isInstallerOpen: false,
-    setInstallerOpen: (open) => set({ isInstallerOpen: open }),
+    setInstallerOpen: (open) => set({ isInstallerOpen: open, installerPrefill: open ? get().installerPrefill : "" }),
+    installerPrefill: "",
+    setInstallerPrefill: (value) => set({ installerPrefill: value }),
     installLog: [],
     addInstallLog: (line) =>
       set((s) => ({ installLog: [...s.installLog, line] })),
     clearInstallLog: () => set({ installLog: [] }),
+
+    searchPrefill: "",
+    setSearchPrefill: (value) => set({ searchPrefill: value }),
 
     showTutorial: loadShowTutorial(),
     setShowTutorial: (show) => {
@@ -443,20 +565,75 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ userName: name });
     },
 
-    history: loadHistory(),
+    history: [],
     addHistory: (entry) => {
       set((s) => {
-        const next = [entry, ...s.history].slice(0, MAX_HISTORY);
-        saveHistory(next);
+        const next = [entry, ...s.history].slice(0, s.maxHistorySize);
+        saveHistory(next, s.maxHistorySize);
         return { history: next };
       });
     },
     clearHistory: () => {
-      saveHistory([]);
+      saveHistory([], DEFAULT_MAX_HISTORY);
       set({ history: [] });
+    },
+
+    savedRequests: [],
+    saveRequest: (entry) => {
+      set((s) => {
+        const next = [entry, ...s.savedRequests];
+        saveSavedRequests(next);
+        return { savedRequests: next };
+      });
+    },
+    deleteSavedRequest: (id) => {
+      set((s) => {
+        const next = s.savedRequests.filter((r) => r.id !== id);
+        saveSavedRequests(next);
+        return { savedRequests: next };
+      });
+    },
+    renameSavedRequest: (id, name) => {
+      set((s) => {
+        const next = s.savedRequests.map((r) =>
+          r.id === id ? { ...r, name } : r
+        );
+        saveSavedRequests(next);
+        return { savedRequests: next };
+      });
+    },
+
+    maxHistorySize: loadMaxHistorySize(),
+    setMaxHistorySize: (size) => {
+      localStorage.setItem(MAX_HISTORY_KEY, String(size));
+      set((s) => {
+        const trimmed = s.history.slice(0, size);
+        saveHistory(trimmed, size);
+        return { maxHistorySize: size, history: trimmed };
+      });
+    },
+
+    defaultHeaders: loadDefaultHeaders(),
+    setDefaultHeaders: (protocol, headers) => {
+      set((s) => {
+        const next = { ...s.defaultHeaders, [protocol]: headers };
+        localStorage.setItem(DEFAULT_HEADERS_KEY, JSON.stringify(next));
+        return { defaultHeaders: next };
+      });
     },
   };
 });
+
+// Defer loading heavy data until after initial render
+if (typeof window !== "undefined") {
+  requestAnimationFrame(() => {
+    const history = loadHistory();
+    const savedRequests = loadSavedRequests();
+    if (history.length > 0 || savedRequests.length > 0) {
+      useAppStore.setState({ history, savedRequests });
+    }
+  });
+}
 
 export function useActiveTab(): RequestTab | null {
   const activeTabId = useAppStore((s) => s.activeTabId);

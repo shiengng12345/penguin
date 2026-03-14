@@ -12,7 +12,7 @@
 
 | Component / 组件 | Technology / 技术 |
 |---|---|
-| Runtime / 运行时 | Tauri 2 (Rust backend + webview frontend / Rust 后端 + webview 前端) |
+| Runtime / 运行时 | Tauri 2 (Rust backend +webview frontend / Rust 后端 +webview 前端) |
 | Frontend / 前端 | React 19, TypeScript, Vite, shadcn/ui, Tailwind CSS v4 |
 | Proto Parsing / Proto 解析 | protobufjs (dynamic runtime parsing / 动态运行时解析) |
 | gRPC-Web | @connectrpc/connect-web (browser transport / 浏览器传输层) |

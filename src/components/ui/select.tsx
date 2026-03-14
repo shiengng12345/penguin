@@ -58,7 +58,7 @@ const Select = React.forwardRef<HTMLDivElement, SelectProps>(
         setHighlightIdx(idx >= 0 ? idx : 0);
         setTimeout(() => {
           if (!listRef.current) return;
-          const el = listRef.current.children[idx >= 0 ? idx + (placeholder ? 1 : 0) : 0] as HTMLElement | undefined;
+          const el = listRef.current.children[idx >= 0 ? idx +(placeholder ? 1 : 0) : 0] as HTMLElement | undefined;
           el?.scrollIntoView({ block: "nearest" });
         }, 0);
       }
@@ -89,9 +89,9 @@ const Select = React.forwardRef<HTMLDivElement, SelectProps>(
           setOpen(true);
         } else {
           setHighlightIdx((prev) => {
-            const next = Math.min(prev + 1, options.length - 1);
+            const next = Math.min(prev +1, options.length - 1);
             const offset = placeholder ? 1 : 0;
-            const el = listRef.current?.children[next + offset] as HTMLElement | undefined;
+            const el = listRef.current?.children[next +offset] as HTMLElement | undefined;
             el?.scrollIntoView({ block: "nearest" });
             return next;
           });
@@ -103,7 +103,7 @@ const Select = React.forwardRef<HTMLDivElement, SelectProps>(
           setHighlightIdx((prev) => {
             const next = Math.max(prev - 1, 0);
             const offset = placeholder ? 1 : 0;
-            const el = listRef.current?.children[next + offset] as HTMLElement | undefined;
+            const el = listRef.current?.children[next +offset] as HTMLElement | undefined;
             el?.scrollIntoView({ block: "nearest" });
             return next;
           });

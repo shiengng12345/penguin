@@ -24,7 +24,7 @@ console.warn = (...args) => { sdkLogs.push(['warn', args.map(stringify).join(' '
 console.info = (...args) => { sdkLogs.push(['info', args.map(stringify).join(' ')]); };
 
 function stringify(v) {
-  if (v instanceof Error) return v.message + (v.stack ? '\\n' + v.stack : '');
+  if (v instanceof Error) return v.message +(v.stack ? '\\n' +v.stack : '');
   if (typeof v === 'object' && v !== null) return JSON.stringify(v);
   return String(v);
 }
@@ -35,7 +35,7 @@ async function run() {
 
   const sdkEntry = path.join(packagesDir, 'node_modules', '@snsoft', 'js-sdk', 'dist', 'bundle.esm.js');
     if (!fs.existsSync(sdkEntry)) {
-    process.stdout.write(JSON.stringify({ error: 'SDK not found at ' + sdkEntry, statusCode: 0, body: '', headers: {}, sdkLogs }) + '\\n');
+    process.stdout.write(JSON.stringify({ error: 'SDK not found at ' +sdkEntry, statusCode: 0, body: '', headers: {}, sdkLogs }) +'\\n');
     process.exit(0);
   }
 
@@ -72,8 +72,8 @@ async function run() {
           host.includes('fpms99') || host.includes('fpms10') ||
           host.includes('client8') || host.includes('client9') ||
           host.includes('casinoplus') || host.includes('fpms-nt')) {
-        const rewritten = targetOrigin + parsed.pathname + parsed.search;
-        sdkLogs.push(['fetch-rewrite', host + parsed.pathname + ' -> ' + rewritten]);
+        const rewritten = targetOrigin +parsed.pathname +parsed.search;
+        sdkLogs.push(['fetch-rewrite', host +parsed.pathname +' -> ' +rewritten]);
         return origFetch(rewritten, opts);
       }
     } catch (_) {}
@@ -89,7 +89,7 @@ async function run() {
     if (GC && typeof GC.init === 'function') {
       await GC.init(
         {
-          uniqueKey: 'pengvi-' + Date.now(),
+          uniqueKey: 'pengvi-' +Date.now(),
           platformId: '50',
           deviceType: 1,
           isNT: true,
@@ -121,11 +121,11 @@ async function run() {
       GC.setPlayerAuthInfo({ playerId, token: token || undefined });
     }
 
-    sdkLogs.push(['config', 'playerId=' + (GC?.playerId || '(empty)') + ' defaultEId=' + (GC?.defaultEId || '(empty)') + ' token=' + (GC?.token ? '***' : '(empty)')]);
+    sdkLogs.push(['config', 'playerId=' +(GC?.playerId || '(empty)') +' defaultEId=' +(GC?.defaultEId || '(empty)') +' token=' +(GC?.token ? '***' : '(empty)')]);
 
     const ServiceClass = sdk[serviceName] || sdkMod[serviceName];
     if (!ServiceClass) {
-      process.stdout.write(JSON.stringify({ error: 'Service not found: ' + serviceName, statusCode: 0, body: '', headers: {}, sdkLogs }) + '\\n');
+      process.stdout.write(JSON.stringify({ error: 'Service not found: ' +serviceName, statusCode: 0, body: '', headers: {}, sdkLogs }) +'\\n');
       process.exit(0);
     }
 
@@ -139,24 +139,24 @@ async function run() {
           .replace(/'/g, '"');
         reqBody = JSON.parse(fixed);
       } catch (_2) {
-        sdkLogs.push(['warn', 'Failed to parse request body: ' + body]);
+        sdkLogs.push(['warn', 'Failed to parse request body: ' +body]);
       }
     }
-    sdkLogs.push(['request', 'service=' + serviceName + ' method=' + methodName + ' body=' + JSON.stringify(reqBody)]);
+    sdkLogs.push(['request', 'service=' +serviceName +' method=' +methodName +' body=' +JSON.stringify(reqBody)]);
 
     let result;
     let instance;
     try {
       instance = typeof ServiceClass === 'function' ? new ServiceClass() : ServiceClass;
     } catch (initErr) {
-      process.stdout.write(JSON.stringify({ error: 'Failed to create service instance: ' + (initErr.message || initErr), statusCode: 0, body: '', headers: {}, sdkLogs }) + '\\n');
+      process.stdout.write(JSON.stringify({ error: 'Failed to create service instance: ' +(initErr.message || initErr), statusCode: 0, body: '', headers: {}, sdkLogs }) +'\\n');
       process.exit(0);
     }
 
     const method = instance[methodName];
     if (typeof method !== 'function') {
       const available = Object.getOwnPropertyNames(instance).filter(k => typeof instance[k] === 'function' && !k.startsWith('_'));
-      process.stdout.write(JSON.stringify({ error: 'Method not found: ' + methodName + '. Available: ' + available.join(', '), statusCode: 0, body: '', headers: {}, sdkLogs }) + '\\n');
+      process.stdout.write(JSON.stringify({ error: 'Method not found: ' +methodName +'. Available: ' +available.join(', '), statusCode: 0, body: '', headers: {}, sdkLogs }) +'\\n');
       process.exit(0);
     }
 
@@ -185,12 +185,12 @@ async function run() {
       headers: {},
       sdkLogs,
       error: errorMsg || undefined,
-    }) + '\\n');
+    }) +'\\n');
   } catch (err) {
     const errObj = err && typeof err === 'object' ? err : { message: String(err) };
     const msg = errObj.message || errObj.msg || errObj.error || JSON.stringify(errObj);
     const code = errObj.status ?? errObj.statusCode ?? errObj.code ?? 0;
-    process.stdout.write(JSON.stringify({ error: msg, statusCode: code, body: '', headers: {}, sdkLogs }) + '\\n');
+    process.stdout.write(JSON.stringify({ error: msg, statusCode: code, body: '', headers: {}, sdkLogs }) +'\\n');
   }
   process.exit(0);
 }

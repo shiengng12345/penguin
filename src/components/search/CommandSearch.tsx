@@ -48,6 +48,7 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
   const grpcWebPackages = useAppStore((s) => s.grpcWebPackages);
   const grpcPackages = useAppStore((s) => s.grpcPackages);
   const sdkPackages = useAppStore((s) => s.sdkPackages);
+  const showTutorial = useAppStore((s) => s.showTutorial);
 
   const [query, setQuery] = useState("");
   const [protocolFilter, setProtocolFilter] = useState<ProtocolTab | "all">("all");
@@ -145,7 +146,7 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
   const cycleProtocolFilter = () => {
     const order: (ProtocolTab | "all")[] = ["all", "grpc-web", "grpc", "sdk"];
     const idx = order.indexOf(protocolFilter);
-    setProtocolFilter(order[(idx + 1) % order.length]);
+    setProtocolFilter(order[(idx +1) % order.length]);
   };
 
   const selectResult = (result: SearchResult) => {
@@ -184,12 +185,28 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
   };
 
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    const prefill = useAppStore.getState().searchPrefill;
+    if (prefill) {
+      setQuery(prefill);
+      useAppStore.getState().setSearchPrefill("");
+    } else {
       setQuery("");
-      setProtocolFilter("all");
-      setSelectedIndex(0);
-      setTimeout(() => inputRef.current?.focus(), 0);
     }
+    setProtocolFilter("all");
+    setSelectedIndex(0);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const unsub = useAppStore.subscribe((state, prev) => {
+      if (state.searchPrefill && state.searchPrefill !== prev.searchPrefill) {
+        setQuery(state.searchPrefill);
+        useAppStore.getState().setSearchPrefill("");
+      }
+    });
+    return unsub;
   }, [open]);
 
   useEffect(() => {
@@ -211,7 +228,7 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
       }
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedIndex((i) => Math.min(i + 1, filteredResults.length - 1));
+        setSelectedIndex((i) => Math.min(i +1, filteredResults.length - 1));
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
@@ -283,6 +300,9 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
             filteredResults.map((r, i) => {
               const badge = PROTOCOL_BADGES[r.protocol];
               const Icon = badge.icon;
+              const isTutorialTarget =
+                showTutorial &&
+                query.toLowerCase().includes(r.method.name.toLowerCase());
               return (
                 <button
                   key={`${r.packageName}-${r.method.fullName}`}
@@ -290,7 +310,9 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
                   onClick={() => selectResult(r)}
                   className={cn(
                     "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition-colors",
-                    i === selectedIndex ? "bg-accent" : "hover:bg-accent/50"
+                    i === selectedIndex ? "bg-accent" : "hover:bg-accent/50",
+                    isTutorialTarget &&
+                      "animate-pulse ring-2 ring-primary ring-offset-1 ring-offset-popover bg-primary/10"
                   )}
                 >
                   <span
@@ -302,12 +324,20 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
                     <Icon className="h-2.5 w-2.5" />
                     {badge.label}
                   </span>
-                  <span className="truncate font-mono text-xs text-foreground">
+                  <span className={cn(
+                    "truncate font-mono text-xs",
+                    isTutorialTarget ? "text-primary font-bold" : "text-foreground"
+                  )}>
                     {r.method.name}
                   </span>
                   <span className="truncate text-[10px] text-muted-foreground">
                     {r.serviceName}
                   </span>
+                  {isTutorialTarget && (
+                    <span className="ml-auto shrink-0 text-[10px] font-medium text-primary animate-bounce">
+                      ← Click this
+                    </span>
+                  )}
                 </button>
               );
             })

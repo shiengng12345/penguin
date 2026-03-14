@@ -85,7 +85,7 @@ export async function callGrpcWeb(
       );
     }
 
-    const methodNameLower = methodName[0].toLowerCase() + methodName.slice(1);
+    const methodNameLower = methodName[0].toLowerCase() +methodName.slice(1);
     const resolvedMethodName =
       serviceDef.methods[methodName] ? methodName
       : serviceDef.methods[methodNameLower] ? methodNameLower
