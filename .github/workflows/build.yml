@@ -72,50 +72,76 @@ jobs:
         with:
           merge-multiple: true
 
-      - name: List artifacts
-        run: find . -type f | head -20
+      - name: List all downloaded artifacts
+        run: find . -type f
 
-      - name: Read signatures and generate latest.json
+      - name: Generate latest.json
         run: |
+          set -euo pipefail
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
           REPO="shiengng12345/penguin"
           BASE_URL="https://github.com/$REPO/releases/download/$TAG"
 
-          AARCH64_TAR=$(find . -name '*aarch64*.tar.gz' ! -name '*.sig' | head -1)
-          X86_TAR=$(find . -name '*x86_64*.tar.gz' ! -name '*.sig' | head -1)
-          AARCH64_SIG=$(cat "${AARCH64_TAR}.sig")
-          X86_SIG=$(cat "${X86_TAR}.sig")
+          echo "Looking for artifacts..."
+          find . -type f -name "*.tar.gz*" -o -name "*.dmg"
 
+          AARCH64_TAR=$(find . -name '*.app.tar.gz' ! -name '*.sig' | grep -i aarch64 | head -1 || true)
+          X86_TAR=$(find . -name '*.app.tar.gz' ! -name '*.sig' | grep -i x86_64 | head -1 || true)
+
+          # If no arch-specific names, the DMG names have arch but .app.tar.gz may not
+          # Fall back to finding sig files by any .sig
+          AARCH64_SIG_FILE=$(find . -name '*.tar.gz.sig' | grep -i aarch64 | head -1 || true)
+          X86_SIG_FILE=$(find . -name '*.tar.gz.sig' | grep -i x86_64 | head -1 || true)
+
+          # If tar.gz files don't have arch in name, they might just be Penguin.app.tar.gz
+          # In that case, find them from the directory structure
+          if [ -z "$AARCH64_TAR" ]; then
+            AARCH64_TAR=$(find . -path '*aarch64*' -name '*.app.tar.gz' | head -1 || true)
+          fi
+          if [ -z "$X86_TAR" ]; then
+            X86_TAR=$(find . -path '*x86_64*' -name '*.app.tar.gz' | head -1 || true)
+          fi
+          if [ -z "$AARCH64_SIG_FILE" ]; then
+            AARCH64_SIG_FILE=$(find . -path '*aarch64*' -name '*.tar.gz.sig' | head -1 || true)
+          fi
+          if [ -z "$X86_SIG_FILE" ]; then
+            X86_SIG_FILE=$(find . -path '*x86_64*' -name '*.tar.gz.sig' | head -1 || true)
+          fi
+
+          echo "AARCH64_TAR: $AARCH64_TAR"
+          echo "X86_TAR: $X86_TAR"
+          echo "AARCH64_SIG_FILE: $AARCH64_SIG_FILE"
+          echo "X86_SIG_FILE: $X86_SIG_FILE"
+
+          AARCH64_SIG_CONTENT=$(cat "$AARCH64_SIG_FILE")
+          X86_SIG_CONTENT=$(cat "$X86_SIG_FILE")
           AARCH64_NAME=$(basename "$AARCH64_TAR")
           X86_NAME=$(basename "$X86_TAR")
 
           NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          python3 -c "
+          python3 << PYEOF
           import json
           data = {
-            'version': '$VERSION',
-            'notes': 'Penguin $TAG',
-            'pub_date': '$NOW',
-            'platforms': {
-              'darwin-aarch64': {
-                'signature': '''$AARCH64_SIG''',
-                'url': '$BASE_URL/$AARCH64_NAME'
-              },
-              'darwin-x86_64': {
-                'signature': '''$X86_SIG''',
-                'url': '$BASE_URL/$X86_NAME'
+              "version": "$VERSION",
+              "notes": "Penguin $TAG",
+              "pub_date": "$NOW",
+              "platforms": {
+                  "darwin-aarch64": {
+                      "signature": "$AARCH64_SIG_CONTENT",
+                      "url": "$BASE_URL/$AARCH64_NAME"
+                  },
+                  "darwin-x86_64": {
+                      "signature": "$X86_SIG_CONTENT",
+                      "url": "$BASE_URL/$X86_NAME"
+                  }
               }
-            }
           }
+          with open("latest.json", "w") as f:
+              json.dump(data, f, indent=2)
           print(json.dumps(data, indent=2))
-          with open('latest.json', 'w') as f:
-            json.dump(data, f, indent=2)
-          "
-
-          echo "--- latest.json ---"
-          cat latest.json
+          PYEOF
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
