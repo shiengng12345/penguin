@@ -52,7 +52,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: export CI=false && pnpm tauri build ${{ matrix.args }}
+        run: CI=false node_modules/.bin/tauri build ${{ matrix.args }}
 
       - name: Upload release artifacts
         uses: softprops/action-gh-release@v2
