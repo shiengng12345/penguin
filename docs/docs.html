@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Penguin | Docs</title>
+    <meta
+      name="description"
+      content="Full product documentation for Penguin."
+    />
+    <link rel="stylesheet" href="./assets/style.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="site-header">
+        <div class="container header-inner">
+          <a class="brand" href="./">Penguin</a>
+          <nav class="site-nav">
+            <a href="./">
+              <span class="lang lang-en">Overview</span>
+              <span class="lang lang-zh">概览</span>
+            </a>
+            <a href="./tutorial.html">Tutorial</a>
+            <a href="./docs.html">Docs</a>
+            <button class="lang-toggle" id="langToggle" type="button">
+              <span id="langToggleText">中文</span>
+            </button>
+          </nav>
+        </div>
+      </header>
+
+      <main class="container doc-layout">
+        <aside class="toc">
+          <h2>Docs</h2>
+          <a href="#overview">
+            <span class="lang lang-en">Product overview</span>
+            <span class="lang lang-zh">产品概览</span>
+          </a>
+          <a href="#ui">
+            <span class="lang lang-en">UI structure</span>
+            <span class="lang lang-zh">界面结构</span>
+          </a>
+          <a href="#protocols">
+            <span class="lang lang-en">Protocols</span>
+            <span class="lang lang-zh">协议</span>
+          </a>
+          <a href="#packages">
+            <span class="lang lang-en">Packages and discovery</span>
+            <span class="lang lang-zh">Packages 和解析</span>
+          </a>
+          <a href="#environments">
+            <span class="lang lang-en">Environments and headers</span>
+            <span class="lang lang-zh">环境和 headers</span>
+          </a>
+          <a href="#tools">
+            <span class="lang lang-en">Built-in tools</span>
+            <span class="lang lang-zh">内建工具</span>
+          </a>
+          <a href="#settings">
+            <span class="lang lang-en">Settings and persistence</span>
+            <span class="lang lang-zh">设置和存储</span>
+          </a>
+          <a href="#config">
+            <span class="lang lang-en">Config file</span>
+            <span class="lang lang-zh">配置文件</span>
+          </a>
+          <a href="#updates">
+            <span class="lang lang-en">Updates</span>
+            <span class="lang lang-zh">更新</span>
+          </a>
+          <a href="#shortcuts">
+            <span class="lang lang-en">Keyboard shortcuts</span>
+            <span class="lang lang-zh">快捷键</span>
+          </a>
+        </aside>
+
+        <article class="doc-content">
+          <section class="doc-hero" id="overview">
+            <div class="eyebrow">
+              <span class="lang lang-en">Full reference</span>
+              <span class="lang lang-zh">完整参考</span>
+            </div>
+            <h1>
+              <span class="lang lang-en">Everything the app includes, in one place.</span>
+              <span class="lang lang-zh">把这个 app 有什么、怎么运作，集中放在一页。</span>
+            </h1>
+            <p>
+              <span class="lang lang-en">
+                Penguin is a desktop client for package-driven API testing across gRPC-Web, native gRPC, and SDK workflows.
+              </span>
+              <span class="lang lang-zh">
+                Penguin 是一个桌面 API client，重点是 package 驱动的 gRPC-Web、原生 gRPC、SDK 测试流程。
+              </span>
+            </p>
+          </section>
+
+          <section class="doc-card" id="ui">
+            <h2>
+              <span class="lang lang-en">UI structure</span>
+              <span class="lang lang-zh">界面结构</span>
+            </h2>
+            <div class="card-grid two-up">
+              <div class="card compact">
+                <h3>
+                  <span class="lang lang-en">Sidebar</span>
+                  <span class="lang lang-zh">侧边栏</span>
+                </h3>
+                <p>
+                  <span class="lang lang-en">Installed packages, service tree, and method selection.</span>
+                  <span class="lang lang-zh">已安装 packages、service tree、method 选择。</span>
+                </p>
+              </div>
+              <div class="card compact">
+                <h3>
+                  <span class="lang lang-en">Tab bar</span>
+                  <span class="lang lang-zh">标签栏</span>
+                </h3>
+                <p>
+                  <span class="lang lang-en">Independent workspaces with protocol state per tab.</span>
+                  <span class="lang lang-zh">每个 tab 都是独立工作区，协议状态各自保存。</span>
+                </p>
+              </div>
+              <div class="card compact">
+                <h3>
+                  <span class="lang lang-en">URL bar</span>
+                  <span class="lang lang-zh">URL 栏</span>
+                </h3>
+                <p>
+                  <span class="lang lang-en">Target URL with environment interpolation support.</span>
+                  <span class="lang lang-zh">目标 URL，支持环境变量插值。</span>
+                </p>
+              </div>
+              <div class="card compact">
+                <h3>
+                  <span class="lang lang-en">Split panels</span>
+                  <span class="lang lang-zh">左右面板</span>
+                </h3>
+                <p>
+                  <span class="lang lang-en">Left side for request editing, right side for response inspection.</span>
+                  <span class="lang lang-zh">左边编辑请求，右边查看响应。</span>
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section class="doc-card" id="protocols">
+            <h2>
+              <span class="lang lang-en">Protocols</span>
+              <span class="lang lang-zh">协议</span>
+            </h2>
+            <div class="card-grid three-up">
+              <div class="card compact">
+                <h3>gRPC-Web</h3>
+                <p>
+                  <span class="lang lang-en">Uses ConnectRPC plus a Rust HTTP proxy.</span>
+                  <span class="lang lang-zh">使用 ConnectRPC，再加 Rust HTTP proxy。</span>
+                </p>
+              </div>
+              <div class="card compact">
+                <h3>gRPC</h3>
+                <p>
+                  <span class="lang lang-en">Uses a Node sidecar for native gRPC execution.</span>
+                  <span class="lang lang-zh">通过 Node sidecar 跑原生 gRPC。</span>
+                </p>
+              </div>
+              <div class="card compact">
+                <h3>SDK</h3>
+                <p>
+                  <span class="lang lang-en">Loads and executes SDK methods from a package bundle.</span>
+                  <span class="lang lang-zh">从 package bundle 载入并执行 SDK 方法。</span>
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section class="doc-card" id="packages">
+            <h2>
+              <span class="lang lang-en">Packages and discovery</span>
+              <span class="lang lang-zh">Packages 和解析</span>
+            </h2>
+            <ul>
+              <li>
+                <span class="lang lang-en">Packages are installed per protocol under</span>
+                <span class="lang lang-zh">Packages 会按协议安装在</span>
+                <code>~/.pengvi/&lt;protocol&gt;/</code>
+              </li>
+              <li>
+                <span class="lang lang-en">Supported types:</span>
+                <span class="lang lang-zh">支持类型：</span>
+                <code>@snsoft/*-grpc-web</code>,
+                <code>@snsoft/*-grpc</code>,
+                <code>@snsoft/js-sdk</code>
+              </li>
+              <li>
+                <span class="lang lang-en">Proto files, connect typings, and SDK typings are parsed into a service/method model.</span>
+                <span class="lang lang-zh">Proto、connect typings、SDK typings 会被解析成 service/method model。</span>
+              </li>
+            </ul>
+          </section>
+
+          <section class="doc-card" id="environments">
+            <h2>
+              <span class="lang lang-en">Environments and headers</span>
+              <span class="lang lang-zh">环境和 headers</span>
+            </h2>
+            <ul>
+              <li>
+                <span class="lang lang-en">Each protocol keeps its own environment list and active selection.</span>
+                <span class="lang lang-zh">每个协议都有自己的 environment list 和当前选择。</span>
+              </li>
+              <li>
+                <span class="lang lang-en">Variables use</span>
+                <span class="lang lang-zh">变量格式是</span>
+                <code>{{VAR}}</code>
+              </li>
+              <li>
+                <span class="lang lang-en">Default headers are configurable per protocol.</span>
+                <span class="lang lang-zh">默认 headers 可以按协议分别设置。</span>
+              </li>
+            </ul>
+          </section>
+
+          <section class="doc-card" id="tools">
+            <h2>
+              <span class="lang lang-en">Built-in tools</span>
+              <span class="lang lang-zh">内建工具</span>
+            </h2>
+            <ul>
+              <li>
+                <span class="lang lang-en">Request documentation dialog</span>
+                <span class="lang lang-zh">请求文档对话框</span>
+              </li>
+              <li>
+                <span class="lang lang-en">Proto viewer for request/response definitions</span>
+                <span class="lang lang-zh">查看请求/响应定义的 proto viewer</span>
+              </li>
+              <li>
+                <span class="lang lang-en">Network check and speed test</span>
+                <span class="lang lang-zh">网络检查和测速</span>
+              </li>
+              <li>
+                <span class="lang lang-en">Import from cURL</span>
+                <span class="lang lang-zh">从 cURL 导入</span>
+              </li>
+              <li>
+                <span class="lang lang-en">Copy current request as cURL</span>
+                <span class="lang lang-zh">把当前请求复制成 cURL</span>
+              </li>
+            </ul>
+          </section>
+
+          <section class="doc-card" id="settings">
+            <h2>
+              <span class="lang lang-en">Settings and persistence</span>
+              <span class="lang lang-zh">设置和存储</span>
+            </h2>
+            <ul>
+              <li>
+                <span class="lang lang-en">Themes, display name, max history size, default headers.</span>
+                <span class="lang lang-zh">主题、显示名称、历史容量、默认 headers。</span>
+              </li>
+              <li>
+                <span class="lang lang-en">Export/import environments, history, saved requests, and defaults.</span>
+                <span class="lang lang-zh">导出/导入环境、历史、保存请求和默认值。</span>
+              </li>
+              <li>
+                <span class="lang lang-en">Local UI state is persisted in localStorage.</span>
+                <span class="lang lang-zh">本地 UI 状态保存在 localStorage。</span>
+              </li>
+            </ul>
+          </section>
+
+          <section class="doc-card" id="config">
+            <h2>
+              <span class="lang lang-en">Config file</span>
+              <span class="lang lang-zh">配置文件</span>
+            </h2>
+            <p>
+              <span class="lang lang-en">A config file can predefine environments and packages.</span>
+              <span class="lang lang-zh">配置文件可以预先定义 environments 和 packages。</span>
+            </p>
+            <pre><code>{
+  "grpc-web": {
+    "environments": [
+      {
+        "name": "UAT",
+        "color": "amber",
+        "variables": {
+          "URL": "https://example.com",
+          "TOKEN": ""
+        }
+      }
+    ],
+    "packages": ["@snsoft/player-grpc-web@1.2.3"]
+  }
+}</code></pre>
+            <p>
+              <a id="openConfig" href="#" rel="noreferrer">
+                <span class="lang lang-en">Open default config in repo</span>
+                <span class="lang lang-zh">打开 repo 里的默认配置</span>
+              </a>
+            </p>
+          </section>
+
+          <section class="doc-card" id="updates">
+            <h2>
+              <span class="lang lang-en">Updates</span>
+              <span class="lang lang-zh">更新</span>
+            </h2>
+            <p>
+              <span class="lang lang-en">
+                Penguin supports in-app update checks and installation through Tauri updater.
+              </span>
+              <span class="lang lang-zh">
+                Penguin 支持通过 Tauri updater 在 app 内检查更新和安装更新。
+              </span>
+            </p>
+          </section>
+
+          <section class="doc-card" id="shortcuts">
+            <h2>
+              <span class="lang lang-en">Keyboard shortcuts</span>
+              <span class="lang lang-zh">快捷键</span>
+            </h2>
+            <p>
+              <span class="lang lang-en">This is the single reference table for shortcuts on the site.</span>
+              <span class="lang lang-zh">这是网站上唯一一份 shortcut 参考表。</span>
+            </p>
+            <div id="shortcutsRoot"></div>
+          </section>
+        </article>
+      </main>
+
+      <footer class="site-footer">
+        <div class="container footer-inner">
+          <div>Penguin</div>
+          <div class="footer-links">
+            <a href="./">Overview</a>
+            <a href="./tutorial.html">Tutorial</a>
+            <a id="repoLink" href="#" rel="noreferrer">GitHub</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+
+    <script src="./assets/app.js"></script>
+  </body>
+</html>

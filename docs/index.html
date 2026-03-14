@@ -1,324 +1,409 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Penguin — Desktop API Client</title>
+    <title>Penguin | Desktop API Client</title>
     <meta
       name="description"
-      content="Penguin is a modern desktop API client for gRPC-Web, native gRPC, and SDK testing — built with Tauri, React, and Rust."
+      content="Penguin is a desktop API client for gRPC-Web, native gRPC, and SDK testing."
     />
-    <style>
-      :root {
-        --bg: #0b1020;
-        --card: rgba(255, 255, 255, 0.06);
-        --card2: rgba(255, 255, 255, 0.08);
-        --text: rgba(255, 255, 255, 0.92);
-        --muted: rgba(255, 255, 255, 0.72);
-        --muted2: rgba(255, 255, 255, 0.58);
-        --border: rgba(255, 255, 255, 0.12);
-        --brand: #5dd8ff;
-        --brand2: #b08cff;
-        --good: #34d399;
-        --warn: #f59e0b;
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        color: var(--text);
-        background:
-          radial-gradient(900px 500px at 20% 0%, rgba(93, 216, 255, 0.22), transparent 60%),
-          radial-gradient(900px 500px at 90% 10%, rgba(176, 140, 255, 0.18), transparent 60%),
-          radial-gradient(700px 450px at 60% 110%, rgba(52, 211, 153, 0.10), transparent 55%),
-          var(--bg);
-        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-        line-height: 1.45;
-      }
-      a { color: inherit; }
-      .wrap { max-width: 1024px; margin: 0 auto; padding: 28px 18px 64px; }
-      header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 12px 0;
-      }
-      .brand {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        font-weight: 700;
-        letter-spacing: 0.2px;
-      }
-      .logo {
-        width: 34px;
-        height: 34px;
-        border-radius: 10px;
-        background: linear-gradient(135deg, rgba(93, 216, 255, 0.9), rgba(176, 140, 255, 0.9));
-        box-shadow: 0 10px 25px rgba(93, 216, 255, 0.18);
-      }
-      .toplinks { display: flex; gap: 10px; flex-wrap: wrap; }
-      .pill {
-        padding: 8px 10px;
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.04);
-        border-radius: 999px;
-        text-decoration: none;
-        font-size: 13px;
-        color: var(--muted);
-      }
-      .pill:hover { background: rgba(255, 255, 255, 0.07); color: var(--text); }
-
-      .hero {
-        display: grid;
-        grid-template-columns: 1.2fr 0.8fr;
-        gap: 18px;
-        margin-top: 18px;
-      }
-      @media (max-width: 900px) {
-        .hero { grid-template-columns: 1fr; }
-      }
-      .card {
-        border: 1px solid var(--border);
-        background: var(--card);
-        border-radius: 18px;
-        padding: 18px;
-        box-shadow: 0 18px 50px rgba(0,0,0,0.25);
-        backdrop-filter: blur(10px);
-      }
-      h1 {
-        margin: 0 0 8px;
-        font-size: 38px;
-        line-height: 1.1;
-        letter-spacing: -0.02em;
-      }
-      .subtitle { margin: 0 0 14px; color: var(--muted); font-size: 15px; }
-      .badges { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 18px; }
-      .badge {
-        font-size: 12px;
-        padding: 6px 10px;
-        border-radius: 999px;
-        border: 1px solid var(--border);
-        color: var(--muted);
-        background: rgba(255,255,255,0.03);
-      }
-      .ctaRow { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-      .btn {
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.06);
-        color: var(--text);
-        padding: 11px 14px;
-        border-radius: 12px;
-        text-decoration: none;
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        font-weight: 650;
-        font-size: 14px;
-        cursor: pointer;
-      }
-      .btn:hover { background: rgba(255, 255, 255, 0.09); }
-      .btn.primary {
-        border-color: rgba(93, 216, 255, 0.45);
-        background: linear-gradient(135deg, rgba(93,216,255,0.22), rgba(176,140,255,0.18));
-      }
-      .btn.primary:hover {
-        background: linear-gradient(135deg, rgba(93,216,255,0.30), rgba(176,140,255,0.22));
-      }
-      .hint { margin-top: 10px; color: var(--muted2); font-size: 12px; }
-      .hint strong { color: var(--text); font-weight: 650; }
-
-      .side {
-        display: grid;
-        gap: 12px;
-        align-content: start;
-      }
-      .shot {
-        width: 100%;
-        border-radius: 14px;
-        border: 1px solid var(--border);
-        background: var(--card2);
-        overflow: hidden;
-        display: block;
-      }
-      .shot img { width: 100%; display: block; }
-      .mini { font-size: 12px; color: var(--muted2); margin-top: 10px; }
-
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 12px;
-        margin-top: 14px;
-      }
-      @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
-      .feature h3 { margin: 0 0 6px; font-size: 14px; }
-      .feature p { margin: 0; color: var(--muted); font-size: 13px; }
-      .k { display: inline-block; padding: 1px 7px; border: 1px solid var(--border); border-radius: 7px; font-size: 12px; color: var(--muted); background: rgba(255,255,255,0.03); }
-
-      .faq { margin-top: 18px; }
-      details {
-        border: 1px solid var(--border);
-        background: rgba(255,255,255,0.04);
-        border-radius: 14px;
-        padding: 12px 14px;
-      }
-      details + details { margin-top: 10px; }
-      summary { cursor: pointer; font-weight: 650; }
-      details p, details ul { color: var(--muted); font-size: 13px; }
-      footer {
-        margin-top: 18px;
-        color: var(--muted2);
-        font-size: 12px;
-        display: flex;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 8px;
-      }
-      code { color: rgba(255,255,255,0.88); }
-      .ok { color: var(--good); font-weight: 650; }
-      .warn { color: var(--warn); font-weight: 650; }
-    </style>
+    <link rel="stylesheet" href="./assets/style.css" />
   </head>
   <body>
-    <div class="wrap">
-      <header>
-        <div class="brand">
-          <div class="logo" aria-hidden="true"></div>
-          <div>Penguin</div>
+    <div class="page-shell">
+      <header class="site-header">
+        <div class="container header-inner">
+          <a class="brand" href="./">Penguin</a>
+          <nav class="site-nav">
+            <a href="#overview">
+              <span class="lang lang-en">Overview</span>
+              <span class="lang lang-zh">概览</span>
+            </a>
+            <a href="#workflow">
+              <span class="lang lang-en">Workflow</span>
+              <span class="lang lang-zh">流程</span>
+            </a>
+            <a href="#protocols">
+              <span class="lang lang-en">Protocols</span>
+              <span class="lang lang-zh">协议</span>
+            </a>
+            <a href="./tutorial.html">Tutorial</a>
+            <a href="./docs.html">Docs</a>
+            <button class="lang-toggle" id="langToggle" type="button">
+              <span id="langToggleText">中文</span>
+            </button>
+          </nav>
         </div>
-        <nav class="toplinks">
-          <a class="pill" id="releasesLink" href="#" rel="noreferrer">Releases</a>
-          <a class="pill" id="repoLink" href="#" rel="noreferrer">GitHub Repo</a>
-        </nav>
       </header>
 
-      <section class="hero">
-        <div class="card">
-          <h1>Desktop API client for gRPC-Web, gRPC & SDK</h1>
-          <p class="subtitle">
-            Built with Tauri + React + Rust. Install packages, browse services/methods, send requests, view responses, save history.
-          </p>
-
-          <div class="badges">
-            <span class="badge">macOS</span>
-            <span class="badge">Tauri 2</span>
-            <span class="badge">React 19</span>
-            <span class="badge">Auto-updates</span>
-          </div>
-
-          <div class="ctaRow">
-            <a class="btn primary" id="btnRecommended" href="#" rel="noreferrer">
-              Download (Recommended)
-              <span class="k" id="chipTag">detecting…</span>
-            </a>
-            <a class="btn" id="btnM" href="#" rel="noreferrer">Download for Apple Silicon (M1/M2/M3)</a>
-            <a class="btn" id="btnIntel" href="#" rel="noreferrer">Download for Intel (x86_64)</a>
-          </div>
-
-          <div class="hint">
-            Buttons download the <strong>latest release</strong> from GitHub.
-            If direct download is blocked by browser, open the <a href="#" id="openLatest">latest release page</a>.
-          </div>
-
-          <div class="grid">
-            <div class="card feature">
-              <h3>Multi-protocol</h3>
-              <p><span class="k">gRPC-Web</span> via ConnectRPC + Rust HTTP proxy, <span class="k">gRPC</span> via Node sidecar, <span class="k">SDK</span> via Node runner.</p>
-            </div>
-            <div class="card feature">
-              <h3>Package-driven</h3>
-              <p>Install <code>@snsoft/*</code> packages, auto-discover protos/typings, browse services & methods in sidebar.</p>
-            </div>
-            <div class="card feature">
-              <h3>Productivity</h3>
-              <p>Environments with <code>{{VAR}}</code> interpolation, request history, saved requests, keyboard shortcuts.</p>
-            </div>
-          </div>
-
-          <div class="faq">
-            <details>
-              <summary>macOS blocked the app on first launch (Gatekeeper). What to do?</summary>
-              <p>
-                This is normal for apps downloaded outside App Store.
+      <main class="container">
+        <section class="hero" id="overview">
+          <div class="hero-grid">
+            <div class="hero-main">
+              <div class="eyebrow">
+                <span class="lang lang-en">Desktop API Client</span>
+                <span class="lang lang-zh">桌面 API Client</span>
+              </div>
+              <h1 class="hero-title">
+                <span class="lang lang-en">One workspace for gRPC-Web, gRPC, and SDK testing.</span>
+                <span class="lang lang-zh">把 gRPC-Web、gRPC、SDK 测试放进同一个工作区。</span>
+              </h1>
+              <p class="hero-copy">
+                <span class="lang lang-en">
+                  Penguin is built for QA and developers who need to install packages, browse services and methods,
+                  edit JSON bodies, send requests, inspect responses, and reuse requests quickly.
+                </span>
+                <span class="lang lang-zh">
+                  Penguin 适合 QA 和开发者：安装 package、浏览 service/method、编辑 JSON body、发送请求、查看响应、快速复用请求。
+                </span>
               </p>
-              <ul>
-                <li>Option A (fast): right-click the app → <span class="ok">Open</span> → confirm.</li>
-                <li>Option B: System Settings → Privacy &amp; Security → find “blocked app” → <span class="ok">Open Anyway</span>.</li>
-              </ul>
-              <p class="mini"><span class="warn">Tip:</span> If you plan to distribute publicly, consider notarization to reduce blocks.</p>
-            </details>
-            <details>
-              <summary>Which download do I pick?</summary>
-              <ul>
-                <li>Apple Silicon: M1 / M2 / M3 / M4 Macs → download <strong>aarch64</strong>.</li>
-                <li>Intel Macs → download <strong>x86_64</strong>.</li>
-              </ul>
-            </details>
-            <details>
-              <summary>Do you support Windows / Linux?</summary>
-              <p>Not yet. Current builds target macOS only.</p>
-            </details>
-          </div>
-
-          <footer>
-            <div>© <span id="year"></span> Penguin</div>
-            <div class="mini">Powered by GitHub Pages • <span class="mini">v<span id="versionText">latest</span></span></div>
-          </footer>
-        </div>
-
-        <div class="side">
-          <div class="card">
-            <div class="shot">
-              <img
-                alt="Penguin screenshot"
-                src="https://raw.githubusercontent.com/shiengng12345/penguin/main/penguin.png"
-              />
+              <div class="tag-row">
+                <span class="tag">gRPC-Web</span>
+                <span class="tag">gRPC</span>
+                <span class="tag">SDK</span>
+                <span class="tag">JSON Editor</span>
+                <span class="tag">Saved Requests</span>
+                <span class="tag">History</span>
+                <span class="tag">cURL Import</span>
+                <span class="tag">Auto Update</span>
+              </div>
+              <div class="hero-links">
+                <a class="button primary" href="./tutorial.html">
+                  <span class="lang lang-en">Read Tutorial</span>
+                  <span class="lang lang-zh">看 Tutorial</span>
+                </a>
+                <a class="button" href="./docs.html">
+                  <span class="lang lang-en">Open Full Docs</span>
+                  <span class="lang lang-zh">打开完整 Docs</span>
+                </a>
+              </div>
             </div>
-            <div class="mini">
-              Screenshot loaded from the repository.
-            </div>
+
+            <aside class="hero-aside">
+              <div class="feature-panel">
+                <div class="panel-kicker">
+                  <span class="lang lang-en">Inside the app</span>
+                  <span class="lang lang-zh">App 里面有什么</span>
+                </div>
+                <div class="fact-list">
+                  <div class="fact-row">
+                    <strong>3</strong>
+                    <span>
+                      <span class="lang lang-en">protocol modes in one UI</span>
+                      <span class="lang lang-zh">种协议模式共用一套界面</span>
+                    </span>
+                  </div>
+                  <div class="fact-row">
+                    <strong>1</strong>
+                    <span>
+                      <span class="lang lang-en">request workflow across tabs, history, and saved requests</span>
+                      <span class="lang lang-zh">套请求工作流串起 tabs、history、saved requests</span>
+                    </span>
+                  </div>
+                  <div class="fact-row">
+                    <strong>∞</strong>
+                    <span>
+                      <span class="lang lang-en">package-based APIs you can load and inspect</span>
+                      <span class="lang lang-zh">个基于 package 的 API 可被加载和查看</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="feature-panel alt">
+                <div class="panel-kicker">
+                  <span class="lang lang-en">Best for</span>
+                  <span class="lang lang-zh">适合</span>
+                </div>
+                <ul class="panel-list">
+                  <li>
+                    <span class="lang lang-en">QA smoke tests and repeated verification flows</span>
+                    <span class="lang lang-zh">QA smoke test 和重复验证流程</span>
+                  </li>
+                  <li>
+                    <span class="lang lang-en">Developers switching between gRPC-Web, native gRPC, and SDK calls</span>
+                    <span class="lang lang-zh">开发者在 gRPC-Web、原生 gRPC、SDK 之间切换</span>
+                  </li>
+                  <li>
+                    <span class="lang lang-en">Teams that want package install, search, docs, and reuse in one place</span>
+                    <span class="lang lang-zh">希望把安装、搜索、文档、复用集中在一处的团队</span>
+                  </li>
+                </ul>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <h2>
+              <span class="lang lang-en">Core capabilities</span>
+              <span class="lang lang-zh">核心能力</span>
+            </h2>
+            <p>
+              <span class="lang lang-en">What the app gives you day to day.</span>
+              <span class="lang lang-zh">这个 app 日常能帮你做什么。</span>
+            </p>
+          </div>
+          <div class="card-grid three-up">
+            <article class="card">
+              <h3>
+                <span class="lang lang-en">Package-driven browser</span>
+                <span class="lang lang-zh">包驱动浏览器</span>
+              </h3>
+              <p>
+                <span class="lang lang-en">
+                  Install packages and explore services and methods from the sidebar.
+                </span>
+                <span class="lang lang-zh">
+                  安装 packages 后，直接在侧边栏浏览 services 和 methods。
+                </span>
+              </p>
+            </article>
+            <article class="card">
+              <h3>
+                <span class="lang lang-en">Structured request editor</span>
+                <span class="lang lang-zh">结构化请求编辑</span>
+              </h3>
+              <p>
+                <span class="lang lang-en">
+                  Edit headers and JSON body, format/reset content, and auto-fill defaults from definitions.
+                </span>
+                <span class="lang lang-zh">
+                  编辑 headers 和 JSON body，可格式化、重置，并从定义自动填默认值。
+                </span>
+              </p>
+            </article>
+            <article class="card">
+              <h3>
+                <span class="lang lang-en">Response inspection</span>
+                <span class="lang lang-zh">响应查看</span>
+              </h3>
+              <p>
+                <span class="lang lang-en">
+                  Inspect status, headers, and body with handling for large payloads.
+                </span>
+                <span class="lang lang-zh">
+                  查看 status、headers、body，并对大响应做更稳的展示。
+                </span>
+              </p>
+            </article>
+            <article class="card">
+              <h3>
+                <span class="lang lang-en">Environment switching</span>
+                <span class="lang lang-zh">环境切换</span>
+              </h3>
+              <p>
+                <span class="lang lang-en">
+                  Use per-protocol environments with <code>{{URL}}</code> interpolation for repeated testing.
+                </span>
+                <span class="lang lang-zh">
+                  每个协议都有独立环境，支持 <code>{{URL}}</code> 变量插值。
+                </span>
+              </p>
+            </article>
+            <article class="card">
+              <h3>
+                <span class="lang lang-en">Reusable workflow</span>
+                <span class="lang lang-zh">可复用工作流</span>
+              </h3>
+              <p>
+                <span class="lang lang-en">
+                  Save requests, reopen from history, copy as cURL, and keep common test flows close.
+                </span>
+                <span class="lang lang-zh">
+                  保存请求、从历史重新打开、复制成 cURL，把常用测试流程留在手边。
+                </span>
+              </p>
+            </article>
+            <article class="card">
+              <h3>
+                <span class="lang lang-en">Built-in tools</span>
+                <span class="lang lang-zh">内建工具</span>
+              </h3>
+              <p>
+                <span class="lang lang-en">
+                  Network check, cURL import, request docs, proto viewer, updater, and more.
+                </span>
+                <span class="lang lang-zh">
+                  网络检查、cURL 导入、请求文档、proto 查看、更新检查等都内建。
+                </span>
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section" id="workflow">
+          <div class="section-head">
+            <h2>
+              <span class="lang lang-en">Daily workflow</span>
+              <span class="lang lang-zh">日常流程</span>
+            </h2>
+            <p>
+              <span class="lang lang-en">The typical path through the app.</span>
+              <span class="lang lang-zh">你平时在 app 里大概会这样走。</span>
+            </p>
+          </div>
+          <div class="timeline">
+            <article class="timeline-item">
+              <div class="timeline-number">1</div>
+              <div>
+                <h3>
+                  <span class="lang lang-en">Choose a protocol and package</span>
+                  <span class="lang lang-zh">选协议和 package</span>
+                </h3>
+                <p>
+                  <span class="lang lang-en">Start in gRPC-Web, gRPC, or SDK, then install or select a package.</span>
+                  <span class="lang lang-zh">先决定走 gRPC-Web、gRPC 还是 SDK，然后安装或选择 package。</span>
+                </p>
+              </div>
+            </article>
+            <article class="timeline-item">
+              <div class="timeline-number">2</div>
+              <div>
+                <h3>
+                  <span class="lang lang-en">Pick a service and method</span>
+                  <span class="lang lang-zh">选 service 和 method</span>
+                </h3>
+                <p>
+                  <span class="lang lang-en">Use the sidebar tree or search to load the method into the current tab.</span>
+                  <span class="lang lang-zh">用侧边栏或搜索，把 method 载入当前 tab。</span>
+                </p>
+              </div>
+            </article>
+            <article class="timeline-item">
+              <div class="timeline-number">3</div>
+              <div>
+                <h3>
+                  <span class="lang lang-en">Prepare request data</span>
+                  <span class="lang lang-zh">准备请求资料</span>
+                </h3>
+                <p>
+                  <span class="lang lang-en">Set URL, switch environment, adjust headers, and edit the JSON body.</span>
+                  <span class="lang lang-zh">设置 URL、切环境、调整 headers、编辑 JSON body。</span>
+                </p>
+              </div>
+            </article>
+            <article class="timeline-item">
+              <div class="timeline-number">4</div>
+              <div>
+                <h3>
+                  <span class="lang lang-en">Send and inspect</span>
+                  <span class="lang lang-zh">发送并查看</span>
+                </h3>
+                <p>
+                  <span class="lang lang-en">Send the request, inspect the response panel, and compare headers/body.</span>
+                  <span class="lang lang-zh">发送请求后，在响应面板检查结果、headers 和 body。</span>
+                </p>
+              </div>
+            </article>
+            <article class="timeline-item">
+              <div class="timeline-number">5</div>
+              <div>
+                <h3>
+                  <span class="lang lang-en">Save or branch the flow</span>
+                  <span class="lang lang-zh">保存或分支测试流程</span>
+                </h3>
+                <p>
+                  <span class="lang lang-en">Save the request, open a new tab, or reuse a history item for the next test.</span>
+                  <span class="lang lang-zh">保存请求、开新 tab，或从 history 继续往下测。</span>
+                </p>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="section" id="protocols">
+          <div class="section-head">
+            <h2>
+              <span class="lang lang-en">Protocol modes</span>
+              <span class="lang lang-zh">协议模式</span>
+            </h2>
+            <p>
+              <span class="lang lang-en">Three ways to call APIs, one interface.</span>
+              <span class="lang lang-zh">三种调用方式，共用一套界面。</span>
+            </p>
+          </div>
+          <div class="card-grid three-up">
+            <article class="card">
+              <h3>gRPC-Web</h3>
+              <p>
+                <span class="lang lang-en">
+                  ConnectRPC transport with a Rust proxy for browser-friendly gRPC-Web traffic.
+                </span>
+                <span class="lang lang-zh">
+                  ConnectRPC 搭配 Rust proxy，适合处理浏览器风格的 gRPC-Web。
+                </span>
+              </p>
+            </article>
+            <article class="card">
+              <h3>gRPC</h3>
+              <p>
+                <span class="lang lang-en">
+                  Native gRPC executed through a Node sidecar using grpc-js and proto-loader.
+                </span>
+                <span class="lang lang-zh">
+                  通过 Node sidecar 跑 grpc-js 和 proto-loader，直接打原生 gRPC。
+                </span>
+              </p>
+            </article>
+            <article class="card">
+              <h3>SDK</h3>
+              <p>
+                <span class="lang lang-en">
+                  SDK method execution through a Node runtime that imports the package bundle directly.
+                </span>
+                <span class="lang lang-zh">
+                  通过 Node runtime 直接载入 SDK bundle，然后执行方法。
+                </span>
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <h2>
+              <span class="lang lang-en">Read next</span>
+              <span class="lang lang-zh">继续看</span>
+            </h2>
+            <p>
+              <span class="lang lang-en">Use Tutorial for workflow, Docs for full reference.</span>
+              <span class="lang lang-zh">Tutorial 讲操作流程，Docs 放完整参考资料。</span>
+            </p>
+          </div>
+          <div class="card-grid two-up">
+            <a class="card card-link" href="./tutorial.html">
+              <h3>Tutorial</h3>
+              <p>
+                <span class="lang lang-en">Step-by-step product walkthrough based on the app flow.</span>
+                <span class="lang lang-zh">按 app 实际使用流程拆解的逐步教学。</span>
+              </p>
+            </a>
+            <a class="card card-link" href="./docs.html">
+              <h3>Docs</h3>
+              <p>
+                <span class="lang lang-en">Full reference for features, tools, configuration, persistence, and shortcuts.</span>
+                <span class="lang lang-zh">功能、工具、配置、数据存储、快捷键的完整参考。</span>
+              </p>
+            </a>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <div class="container footer-inner">
+          <div>Penguin</div>
+          <div class="footer-links">
+            <a href="./tutorial.html">Tutorial</a>
+            <a href="./docs.html">Docs</a>
+            <a id="repoLink" href="#" rel="noreferrer">GitHub</a>
           </div>
         </div>
-      </section>
+      </footer>
     </div>
 
-    <script>
-      const OWNER = "shiengng12345";
-      const REPO = "penguin";
-
-      const releasesUrl = `https://github.com/${OWNER}/${REPO}/releases`;
-      const repoUrl = `https://github.com/${OWNER}/${REPO}`;
-      const latestReleaseUrl = `https://github.com/${OWNER}/${REPO}/releases/latest`;
-
-      // Stable direct download URLs (require CI to publish fixed asset names)
-      const dmgM = `https://github.com/${OWNER}/${REPO}/releases/latest/download/Penguin_aarch64.dmg`;
-      const dmgIntel = `https://github.com/${OWNER}/${REPO}/releases/latest/download/Penguin_x86_64.dmg`;
-
-      document.getElementById("releasesLink").href = releasesUrl;
-      document.getElementById("repoLink").href = repoUrl;
-      document.getElementById("openLatest").href = latestReleaseUrl;
-      document.getElementById("btnM").href = dmgM;
-      document.getElementById("btnIntel").href = dmgIntel;
-      document.getElementById("year").textContent = new Date().getFullYear();
-
-      function detectChipTag() {
-        // Browsers differ: this is best-effort.
-        const platform = navigator.platform || "";
-        const ua = navigator.userAgent || "";
-        const isMac = /Mac/i.test(platform) || /Macintosh/i.test(ua);
-        const isIntelLike = /x86_64|x64|Intel/i.test(ua) || /Intel/i.test(platform);
-        const isArmLike = /arm|aarch64/i.test(ua);
-
-        if (!isMac) return { label: "macOS only", href: latestReleaseUrl };
-        if (isArmLike && !isIntelLike) return { label: "Apple Silicon", href: dmgM };
-        if (isIntelLike) return { label: "Intel", href: dmgIntel };
-        return { label: "Choose", href: latestReleaseUrl };
-      }
-
-      const rec = detectChipTag();
-      document.getElementById("chipTag").textContent = rec.label;
-      document.getElementById("btnRecommended").href = rec.href;
-    </script>
+    <script src="./assets/app.js"></script>
   </body>
 </html>
-

@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Penguin | Tutorial</title>
+    <meta
+      name="description"
+      content="Step-by-step tutorial for using Penguin as a desktop API client."
+    />
+    <link rel="stylesheet" href="./assets/style.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="site-header">
+        <div class="container header-inner">
+          <a class="brand" href="./">Penguin</a>
+          <nav class="site-nav">
+            <a href="./">
+              <span class="lang lang-en">Overview</span>
+              <span class="lang lang-zh">概览</span>
+            </a>
+            <a href="./tutorial.html">Tutorial</a>
+            <a href="./docs.html">Docs</a>
+            <button class="lang-toggle" id="langToggle" type="button">
+              <span id="langToggleText">中文</span>
+            </button>
+          </nav>
+        </div>
+      </header>
+
+      <main class="container doc-layout">
+        <aside class="toc">
+          <h2>
+            <span class="lang lang-en">Tutorial</span>
+            <span class="lang lang-zh">教学</span>
+          </h2>
+          <a href="#sidebar">
+            <span class="lang lang-en">Packages sidebar</span>
+            <span class="lang lang-zh">Packages 侧边栏</span>
+          </a>
+          <a href="#install">
+            <span class="lang lang-en">Install a package</span>
+            <span class="lang lang-zh">安装 package</span>
+          </a>
+          <a href="#tabs">
+            <span class="lang lang-en">Tabs and protocols</span>
+            <span class="lang lang-zh">Tabs 和协议</span>
+          </a>
+          <a href="#url">
+            <span class="lang lang-en">URL and environments</span>
+            <span class="lang lang-zh">URL 和环境</span>
+          </a>
+          <a href="#editor">
+            <span class="lang lang-en">Request editor</span>
+            <span class="lang lang-zh">请求编辑器</span>
+          </a>
+          <a href="#search">
+            <span class="lang lang-en">Search and select</span>
+            <span class="lang lang-zh">搜索和选择</span>
+          </a>
+          <a href="#send">
+            <span class="lang lang-en">Send and inspect</span>
+            <span class="lang lang-zh">发送和查看</span>
+          </a>
+          <a href="#reuse">
+            <span class="lang lang-en">History and saved</span>
+            <span class="lang lang-zh">历史和保存</span>
+          </a>
+          <a href="#tools">
+            <span class="lang lang-en">Built-in tools</span>
+            <span class="lang lang-zh">内建工具</span>
+          </a>
+        </aside>
+
+        <article class="doc-content">
+          <section class="doc-hero">
+            <div class="eyebrow">
+              <span class="lang lang-en">Guided workflow</span>
+              <span class="lang lang-zh">引导流程</span>
+            </div>
+            <h1>
+              <span class="lang lang-en">How to use Penguin from an empty tab to a working request.</span>
+              <span class="lang lang-zh">从空白 tab 到成功发出一条请求，Penguin 怎么用。</span>
+            </h1>
+            <p>
+              <span class="lang lang-en">
+                This follows the same mental model as the in-app interactive tutorial, but in a static reference format.
+              </span>
+              <span class="lang lang-zh">
+                这页按 app 里的 interactive tutorial 逻辑整理，但用静态文档方式呈现。
+              </span>
+            </p>
+          </section>
+
+          <section class="doc-card" id="sidebar">
+            <h2>
+              <span class="lang lang-en">1. Packages sidebar</span>
+              <span class="lang lang-zh">1. Packages 侧边栏</span>
+            </h2>
+            <p>
+              <span class="lang lang-en">
+                The sidebar is where installed packages, services, and methods appear. This is your API browser.
+              </span>
+              <span class="lang lang-zh">
+                侧边栏会显示已安装的 packages、services、methods。这里就是你的 API 浏览器。
+              </span>
+            </p>
+          </section>
+
+          <section class="doc-card" id="install">
+            <h2>
+              <span class="lang lang-en">2. Install a package</span>
+              <span class="lang lang-zh">2. 安装 package</span>
+            </h2>
+            <p>
+              <span class="lang lang-en">Open the installer with</span>
+              <span class="lang lang-zh">按</span>
+              <code>Cmd + S</code>
+              <span class="lang lang-en">and install one of these types:</span>
+              <span class="lang lang-zh">打开安装器，然后可安装这些类型：</span>
+            </p>
+            <ul>
+              <li><code>@snsoft/*-grpc-web@version</code></li>
+              <li><code>@snsoft/*-grpc@version</code></li>
+              <li><code>@snsoft/js-sdk@version</code></li>
+            </ul>
+            <p>
+              <span class="lang lang-en">
+                After installation, Penguin parses proto files or typings and builds the service tree automatically.
+              </span>
+              <span class="lang lang-zh">
+                安装后，Penguin 会自动解析 proto 或 typings，生成 service tree。
+              </span>
+            </p>
+          </section>
+
+          <section class="doc-card" id="tabs">
+            <h2>
+              <span class="lang lang-en">3. Tabs and protocols</span>
+              <span class="lang lang-zh">3. Tabs 和协议</span>
+            </h2>
+            <p>
+              <span class="lang lang-en">
+                Each tab is an independent workspace. You can cycle protocol with <code>Cmd + E</code> and open more tabs with <code>Cmd + N</code>.
+              </span>
+              <span class="lang lang-zh">
+                每个 tab 都是独立工作区。你可以用 <code>Cmd + E</code> 切协议，用 <code>Cmd + N</code> 开新 tab。
+              </span>
+            </p>
+          </section>
+
+          <section class="doc-card" id="url">
+            <h2>
+              <span class="lang lang-en">4. URL and environments</span>
+              <span class="lang lang-zh">4. URL 和环境</span>
+            </h2>
+            <p>
+              <span class="lang lang-en">
+                The URL bar supports environment interpolation like <code>{{URL}}</code>. Each protocol keeps its own environments and active selection.
+              </span>
+              <span class="lang lang-zh">
+                URL bar 支持像 <code>{{URL}}</code> 这样的环境变量插值。每个协议都有独立环境和当前选择。
+              </span>
+            </p>
+          </section>
+
+          <section class="doc-card" id="editor">
+            <h2>
+              <span class="lang lang-en">5. Request editor</span>
+              <span class="lang lang-zh">5. 请求编辑器</span>
+            </h2>
+            <p>
+              <span class="lang lang-en">
+                Edit request headers and JSON body in the left panel. If Penguin knows the request schema, it can auto-fill a default body for you.
+              </span>
+              <span class="lang lang-zh">
+                左边面板用来编辑 request headers 和 JSON body。如果 Penguin 知道 schema，就能自动填默认 body。
+              </span>
+            </p>
+            <ul>
+              <li>
+                <span class="lang lang-en">Format body</span>
+                <span class="lang lang-zh">格式化 body</span>
+              </li>
+              <li>
+                <span class="lang lang-en">Reset to default</span>
+                <span class="lang lang-zh">重置成默认值</span>
+              </li>
+              <li>
+                <span class="lang lang-en">Copy raw request body</span>
+                <span class="lang lang-zh">复制原始请求 body</span>
+              </li>
+            </ul>
+          </section>
+
+          <section class="doc-card" id="search">
+            <h2>
+              <span class="lang lang-en">6. Search and select a method</span>
+              <span class="lang lang-zh">6. 搜索并选择 method</span>
+            </h2>
+            <p>
+              <span class="lang lang-en">
+                Use <code>Cmd + F</code> to search services and methods across the current package set, then load the method into the active tab.
+              </span>
+              <span class="lang lang-zh">
+                用 <code>Cmd + F</code> 搜索 services 和 methods，然后把方法载入当前 tab。
+              </span>
+            </p>
+          </section>
+
+          <section class="doc-card" id="send">
+            <h2>
+              <span class="lang lang-en">7. Send and inspect</span>
+              <span class="lang lang-zh">7. 发送并查看</span>
+            </h2>
+            <p>
+              <span class="lang lang-en">
+                Send with <code>Cmd + Enter</code>. If the request is in flight, cancel with <code>Esc</code>. The right panel shows status, timing, headers, and response body.
+              </span>
+              <span class="lang lang-zh">
+                用 <code>Cmd + Enter</code> 发送；发送中可用 <code>Esc</code> 取消。右边面板会显示状态、耗时、headers 和响应 body。
+              </span>
+            </p>
+          </section>
+
+          <section class="doc-card" id="reuse">
+            <h2>
+              <span class="lang lang-en">8. History, saved requests, and reuse</span>
+              <span class="lang lang-zh">8. 历史、保存请求、复用</span>
+            </h2>
+            <p>
+              <span class="lang lang-en">
+                Save the current request with <code>Cmd + Shift + S</code>, open history with <code>Cmd + H</code>, and open saved requests with <code>Cmd + O</code>.
+              </span>
+              <span class="lang lang-zh">
+                用 <code>Cmd + Shift + S</code> 保存当前请求，用 <code>Cmd + H</code> 打开历史，用 <code>Cmd + O</code> 打开 saved requests。
+              </span>
+            </p>
+          </section>
+
+          <section class="doc-card" id="tools">
+            <h2>
+              <span class="lang lang-en">9. Built-in tools</span>
+              <span class="lang lang-zh">9. 内建工具</span>
+            </h2>
+            <ul>
+              <li>
+                <code>Cmd + D</code>
+                <span class="lang lang-en"> for request documentation</span>
+                <span class="lang lang-zh"> 查看请求文档</span>
+              </li>
+              <li>
+                <code>Cmd + P</code>
+                <span class="lang lang-en"> for proto definitions</span>
+                <span class="lang lang-zh"> 查看 proto 定义</span>
+              </li>
+              <li>
+                <code>Cmd + I</code>
+                <span class="lang lang-en"> for network check and speed test</span>
+                <span class="lang lang-zh"> 做网络检查和测速</span>
+              </li>
+              <li>
+                <code>Cmd + Shift + I</code>
+                <span class="lang lang-en"> to import from cURL</span>
+                <span class="lang lang-zh"> 从 cURL 导入</span>
+              </li>
+            </ul>
+          </section>
+
+          <section class="doc-card">
+            <h2>
+              <span class="lang lang-en">Next step</span>
+              <span class="lang lang-zh">下一步</span>
+            </h2>
+            <p>
+              <span class="lang lang-en">
+                Open the full docs for the complete feature reference and the single shortcut table.
+              </span>
+              <span class="lang lang-zh">
+                接着去完整 Docs，看全功能说明和唯一一份 shortcut table。
+              </span>
+            </p>
+            <div class="hero-links">
+              <a class="button primary" href="./docs.html">Docs</a>
+              <a class="button" href="./">
+                <span class="lang lang-en">Back to overview</span>
+                <span class="lang lang-zh">回到概览</span>
+              </a>
+            </div>
+          </section>
+        </article>
+      </main>
+
+      <footer class="site-footer">
+        <div class="container footer-inner">
+          <div>Penguin</div>
+          <div class="footer-links">
+            <a href="./">Overview</a>
+            <a href="./docs.html">Docs</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+
+    <script src="./assets/app.js"></script>
+  </body>
+</html>
