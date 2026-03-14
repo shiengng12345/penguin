@@ -1,1 +1,193 @@
-/Users/shieng/Desktop/Pengvi/.pengvi.config.json
+{
+  "grpc": {
+    "environments": [
+      {
+        "name": "auth-local",
+        "color": "green",
+        "variables": {
+          "URL": "http://0.0.0.0:5004",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "player-local",
+        "color": "blue",
+        "variables": {
+          "URL": "http://0.0.0.0:5000",
+          "TOKEN": ""
+        }
+      }
+    ],
+    "packages": []
+  },
+  "grpc-web": {
+    "environments": [
+      {
+        "name": "QAT1",
+        "color": "blue",
+        "variables": {
+          "URL": "https://fpms-nt.platform88.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "QAT2",
+        "color": "blue",
+        "variables": {
+          "URL": "https://fpms-nt2.platform88.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "QAT3",
+        "color": "blue",
+        "variables": {
+          "URL": "https://fpms-nt3.platform88.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "QAT4",
+        "color": "blue",
+        "variables": {
+          "URL": "https://fpms-nt4.platform88.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "QAT5",
+        "color": "blue",
+        "variables": {
+          "URL": "https://fpms-nt5.platform88.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "QAT6",
+        "color": "blue",
+        "variables": {
+          "URL": "https://fpms-nt6.platform88.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "UAT1",
+        "color": "amber",
+        "variables": {
+          "URL": "https://fpms-nt.platform99.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "UAT2",
+        "color": "amber",
+        "variables": {
+          "URL": "https://fpms-nt2.platform99.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "UAT3",
+        "color": "amber",
+        "variables": {
+          "URL": "https://fpms-nt3.platform99.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "UAT-STABLE",
+        "color": "purple",
+        "variables": {
+          "URL": "https://fpms-nt-st.platform99.me",
+          "TOKEN": ""
+        }
+      }
+    ],
+    "packages": []
+  },
+  "sdk": {
+    "environments": [
+      {
+        "name": "QAT1",
+        "color": "blue",
+        "variables": {
+          "URL": "https://fpms-nt.platform88.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "QAT2",
+        "color": "blue",
+        "variables": {
+          "URL": "https://fpms-nt2.platform88.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "QAT3",
+        "color": "blue",
+        "variables": {
+          "URL": "https://fpms-nt3.platform88.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "QAT4",
+        "color": "blue",
+        "variables": {
+          "URL": "https://fpms-nt4.platform88.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "QAT5",
+        "color": "blue",
+        "variables": {
+          "URL": "https://fpms-nt5.platform88.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "QAT6",
+        "color": "blue",
+        "variables": {
+          "URL": "https://fpms-nt6.platform88.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "UAT1",
+        "color": "amber",
+        "variables": {
+          "URL": "https://fpms-nt.platform99.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "UAT2",
+        "color": "amber",
+        "variables": {
+          "URL": "https://fpms-nt2.platform99.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "UAT3",
+        "color": "amber",
+        "variables": {
+          "URL": "https://fpms-nt3.platform99.me",
+          "TOKEN": ""
+        }
+      },
+      {
+        "name": "UAT-STABLE",
+        "color": "purple",
+        "variables": {
+          "URL": "https://fpms-nt-st.platform99.me",
+          "TOKEN": ""
+        }
+      }
+    ],
+    "packages": []
+  }
+}

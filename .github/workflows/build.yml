@@ -48,15 +48,6 @@ jobs:
       - name: Copy config
         run: mkdir -p ~/.pengvi && cp .pengvi.config.json ~/.pengvi/config.json
 
-      - name: Debug environment
-        run: |
-          echo "Node: $(node --version)"
-          echo "pnpm: $(pnpm --version)"
-          echo "CI var: [$CI]"
-          pnpm exec tauri --version
-          ls -la node_modules/.bin/tauri* || true
-          which tauri || true
-
       - name: Build Tauri app
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -91,7 +82,6 @@ jobs:
           VERSION="${TAG#v}"
           REPO="shiengng12345/penguin"
 
-          # Wait for draft release assets to be available
           sleep 10
 
           RELEASE_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
@@ -157,7 +147,6 @@ jobs:
 
           cat latest.json
 
-          # Upload latest.json to the release
           curl -s -X POST \
             -H "Authorization: token $GITHUB_TOKEN" \
             -H "Content-Type: application/json" \
