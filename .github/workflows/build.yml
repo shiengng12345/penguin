@@ -49,13 +49,16 @@ jobs:
         run: mkdir -p ~/.pengvi && cp .pengvi.config.json ~/.pengvi/config.json
 
       - name: Build Tauri app
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         shell: bash
         run: |
-          unset CI
-          pnpm exec tauri build ${{ matrix.args }}
+          env CI=false \
+            TAURI_SIGNING_PRIVATE_KEY="${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" \
+            TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" \
+            HOME="$HOME" \
+            PATH="$PATH" \
+            CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" \
+            RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" \
+            pnpm exec tauri build ${{ matrix.args }}
 
       - name: Upload release artifacts
         uses: softprops/action-gh-release@v2
