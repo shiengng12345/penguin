@@ -87,8 +87,13 @@ export function SettingsDialog({
         setUpdateStatus("up-to-date");
       }
     } catch (err) {
-      setUpdateError(err instanceof Error ? err.message : String(err));
-      setUpdateStatus("error");
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("fetch") || msg.includes("release") || msg.includes("remote")) {
+        setUpdateStatus("up-to-date");
+      } else {
+        setUpdateError(msg);
+        setUpdateStatus("error");
+      }
     }
   }, []);
 
