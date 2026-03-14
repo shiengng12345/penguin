@@ -54,6 +54,17 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: env -u CI pnpm exec tauri build ${{ matrix.args }}
 
+      - name: Rename updater artifacts with arch
+        run: |
+          BUNDLE_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/macos"
+          if [ -f "$BUNDLE_DIR/Penguin.app.tar.gz" ]; then
+            mv "$BUNDLE_DIR/Penguin.app.tar.gz" "$BUNDLE_DIR/Penguin_${{ matrix.arch }}.app.tar.gz"
+          fi
+          if [ -f "$BUNDLE_DIR/Penguin.app.tar.gz.sig" ]; then
+            mv "$BUNDLE_DIR/Penguin.app.tar.gz.sig" "$BUNDLE_DIR/Penguin_${{ matrix.arch }}.app.tar.gz.sig"
+          fi
+          ls -la "$BUNDLE_DIR/"
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -83,42 +94,20 @@ jobs:
           REPO="shiengng12345/penguin"
           BASE_URL="https://github.com/$REPO/releases/download/$TAG"
 
-          echo "Looking for artifacts..."
-          find . -type f -name "*.tar.gz*" -o -name "*.dmg"
-
-          AARCH64_TAR=$(find . -name '*.app.tar.gz' ! -name '*.sig' | grep -i aarch64 | head -1 || true)
-          X86_TAR=$(find . -name '*.app.tar.gz' ! -name '*.sig' | grep -i x86_64 | head -1 || true)
-
-          # If no arch-specific names, the DMG names have arch but .app.tar.gz may not
-          # Fall back to finding sig files by any .sig
-          AARCH64_SIG_FILE=$(find . -name '*.tar.gz.sig' | grep -i aarch64 | head -1 || true)
-          X86_SIG_FILE=$(find . -name '*.tar.gz.sig' | grep -i x86_64 | head -1 || true)
-
-          # If tar.gz files don't have arch in name, they might just be Penguin.app.tar.gz
-          # In that case, find them from the directory structure
-          if [ -z "$AARCH64_TAR" ]; then
-            AARCH64_TAR=$(find . -path '*aarch64*' -name '*.app.tar.gz' | head -1 || true)
-          fi
-          if [ -z "$X86_TAR" ]; then
-            X86_TAR=$(find . -path '*x86_64*' -name '*.app.tar.gz' | head -1 || true)
-          fi
-          if [ -z "$AARCH64_SIG_FILE" ]; then
-            AARCH64_SIG_FILE=$(find . -path '*aarch64*' -name '*.tar.gz.sig' | head -1 || true)
-          fi
-          if [ -z "$X86_SIG_FILE" ]; then
-            X86_SIG_FILE=$(find . -path '*x86_64*' -name '*.tar.gz.sig' | head -1 || true)
-          fi
+          AARCH64_TAR=$(find . -name '*aarch64*.app.tar.gz' ! -name '*.sig' | head -1)
+          X86_TAR=$(find . -name '*x86_64*.app.tar.gz' ! -name '*.sig' | head -1)
+          AARCH64_SIG_FILE=$(find . -name '*aarch64*.app.tar.gz.sig' | head -1)
+          X86_SIG_FILE=$(find . -name '*x86_64*.app.tar.gz.sig' | head -1)
 
           echo "AARCH64_TAR: $AARCH64_TAR"
           echo "X86_TAR: $X86_TAR"
-          echo "AARCH64_SIG_FILE: $AARCH64_SIG_FILE"
-          echo "X86_SIG_FILE: $X86_SIG_FILE"
+          echo "AARCH64_SIG: $AARCH64_SIG_FILE"
+          echo "X86_SIG: $X86_SIG_FILE"
 
           AARCH64_SIG_CONTENT=$(cat "$AARCH64_SIG_FILE")
           X86_SIG_CONTENT=$(cat "$X86_SIG_FILE")
           AARCH64_NAME=$(basename "$AARCH64_TAR")
           X86_NAME=$(basename "$X86_TAR")
-
           NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           python3 << PYEOF
