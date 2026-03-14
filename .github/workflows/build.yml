@@ -50,10 +50,9 @@ jobs:
 
       - name: Build Tauri app
         env:
-          CI: true
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: pnpm tauri build ${{ matrix.args }}
+        run: CI=false pnpm tauri build --ci false ${{ matrix.args }}
 
       - name: Upload release artifacts
         uses: softprops/action-gh-release@v2
