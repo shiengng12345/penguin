@@ -3,6 +3,7 @@ import {
   useAppStore,
   type ProtocolTab,
   type SavedRequest,
+  getDefaultHeadersForProtocol,
 } from "@/lib/store";
 import { Input } from "@/components/ui/input";
 import {
@@ -117,10 +118,7 @@ export function SavedRequestsPanel({
       metadata:
         entry.metadata.length > 0
           ? entry.metadata
-          : [
-              { key: "Authorization", value: "Bearer ", enabled: true },
-              { key: "eId", value: "", enabled: true },
-            ],
+          : getDefaultHeadersForProtocol(entry.protocol),
       requestBody: entry.requestBody,
       selectedPackage: entry.packageName || null,
       selectedService: entry.serviceName || null,

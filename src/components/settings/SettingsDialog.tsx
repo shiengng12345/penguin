@@ -1,5 +1,8 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { useAppStore, type ProtocolTab, type MetadataEntry } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +21,9 @@ import {
   Box,
   User,
   Pencil,
+  RefreshCw,
+  ArrowDownToLine,
+  RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -56,6 +62,65 @@ export function SettingsDialog({
   const defaultHeaders = useAppStore((s) => s.defaultHeaders);
   const setDefaultHeaders = useAppStore((s) => s.setDefaultHeaders);
   const historyCount = useAppStore((s) => s.history.length);
+
+  const [appVersion, setAppVersion] = useState<string>("");
+  const [updateStatus, setUpdateStatus] = useState<
+    "idle" | "checking" | "available" | "up-to-date" | "downloading" | "ready" | "error"
+  >("idle");
+  const [updateInfo, setUpdateInfo] = useState<Update | null>(null);
+  const [updateError, setUpdateError] = useState<string>("");
+  const [downloadProgress, setDownloadProgress] = useState(0);
+
+  useState(() => {
+    getVersion().then(setAppVersion).catch(() => setAppVersion("unknown"));
+  });
+
+  const handleCheckUpdate = useCallback(async () => {
+    setUpdateStatus("checking");
+    setUpdateError("");
+    try {
+      const update = await check();
+      if (update) {
+        setUpdateInfo(update);
+        setUpdateStatus("available");
+      } else {
+        setUpdateStatus("up-to-date");
+      }
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : String(err));
+      setUpdateStatus("error");
+    }
+  }, []);
+
+  const handleDownloadAndInstall = useCallback(async () => {
+    if (!updateInfo) return;
+    setUpdateStatus("downloading");
+    setDownloadProgress(0);
+    try {
+      let totalLen = 0;
+      let downloaded = 0;
+      await updateInfo.downloadAndInstall((event) => {
+        if (event.event === "Started" && event.data.contentLength) {
+          totalLen = event.data.contentLength;
+        } else if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+          if (totalLen > 0) {
+            setDownloadProgress(Math.round((downloaded / totalLen) * 100));
+          }
+        } else if (event.event === "Finished") {
+          setDownloadProgress(100);
+        }
+      });
+      setUpdateStatus("ready");
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : String(err));
+      setUpdateStatus("error");
+    }
+  }, [updateInfo]);
+
+  const handleRelaunch = useCallback(async () => {
+    await relaunch();
+  }, []);
 
   const currentHeaders = defaultHeaders[headerProtocol];
 
@@ -248,6 +313,118 @@ export function SettingsDialog({
                 </Button>
               </div>
             )}
+          </div>
+
+          {/* App Updates */}
+          <div className="rounded-lg border border-border bg-muted/20 p-4">
+            <h3 className="text-sm font-medium text-foreground flex items-center gap-1.5">
+              <ArrowDownToLine className="h-3.5 w-3.5" />
+              App Updates / 应用更新
+            </h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Current version: <span className="font-mono">{appVersion || "..."}</span>
+            </p>
+
+            <div className="mt-3">
+              {updateStatus === "idle" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={handleCheckUpdate}
+                >
+                  <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                  Check for Updates
+                </Button>
+              )}
+
+              {updateStatus === "checking" && (
+                <Button variant="outline" size="sm" className="w-full" disabled>
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  Checking...
+                </Button>
+              )}
+
+              {updateStatus === "up-to-date" && (
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-xs text-green-500">
+                    <CheckCircle className="h-3.5 w-3.5" />
+                    You're up to date!
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs text-muted-foreground"
+                    onClick={handleCheckUpdate}
+                  >
+                    Check again
+                  </Button>
+                </div>
+              )}
+
+              {updateStatus === "available" && updateInfo && (
+                <div className="space-y-2">
+                  <p className="text-xs text-foreground">
+                    New version <span className="font-mono font-semibold">{updateInfo.version}</span> is available.
+                  </p>
+                  <Button
+                    size="sm"
+                    className="w-full"
+                    onClick={handleDownloadAndInstall}
+                  >
+                    <Download className="mr-1.5 h-3.5 w-3.5" />
+                    Download & Install
+                  </Button>
+                </div>
+              )}
+
+              {updateStatus === "downloading" && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
+                    <span className="text-xs text-foreground">
+                      Downloading... {downloadProgress}%
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all duration-300"
+                      style={{ width: `${downloadProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {updateStatus === "ready" && (
+                <div className="space-y-2">
+                  <p className="flex items-center gap-1.5 text-xs text-green-500">
+                    <CheckCircle className="h-3.5 w-3.5" />
+                    Update installed! Restart to apply.
+                  </p>
+                  <Button size="sm" className="w-full" onClick={handleRelaunch}>
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                    Restart Now
+                  </Button>
+                </div>
+              )}
+
+              {updateStatus === "error" && (
+                <div className="space-y-2">
+                  <p className="text-xs text-destructive">
+                    Update check failed: {updateError}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={handleCheckUpdate}
+                  >
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                    Try Again
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Max History Size */}

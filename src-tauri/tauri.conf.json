@@ -27,7 +27,8 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["app", "dmg"],
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -38,5 +39,13 @@
     "resources": [
       "../.pengvi.config.json"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRDNkE0MDlDRjM5MjE2MEUKUldRT0ZwTHpuRUJxVEdzaVY0L0dKWUk2b1dDNjRHOWREVjNCNW11Ti9HbmhJOGU3bWxDSzE4TXIK",
+      "endpoints": [
+        "https://github.com/shiengng12345/penguin/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

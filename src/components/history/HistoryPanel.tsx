@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useAppStore, type ProtocolTab, type HistoryEntry } from "@/lib/store";
+import { useAppStore, type ProtocolTab, type HistoryEntry, getDefaultHeadersForProtocol } from "@/lib/store";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { History, Trash2, Globe, Server, Box } from "lucide-react";
@@ -96,10 +96,7 @@ export function HistoryPanel({ open, onClose }: HistoryPanelProps) {
       targetUrl: entry.url,
       metadata: entry.metadata.length > 0
         ? entry.metadata
-        : [
-            { key: "Authorization", value: "Bearer ", enabled: true },
-            { key: "eId", value: "", enabled: true },
-          ],
+        : getDefaultHeadersForProtocol(entry.protocol),
       requestBody: entry.requestBody,
       selectedPackage: entry.packageName || null,
       selectedService: entry.serviceName || null,

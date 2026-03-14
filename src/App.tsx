@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState, lazy, Suspense } from "react";
-import { useAppStore, useActiveTab, createTab } from "@/lib/store";
+import { useAppStore, useActiveTab, createTab, getDefaultHeadersForProtocol } from "@/lib/store";
 import { usePackages } from "@/hooks/usePackages";
 import { useEnvironments } from "@/hooks/useEnvironments";
 import { interpolate } from "@/lib/environment-store";
@@ -92,16 +92,19 @@ export default function App() {
       }
     }
 
+    const newMetadata = getDefaultHeadersForProtocol(nextProtocol);
     if (matchedMethod) {
       updateActiveTab({
         protocolTab: nextProtocol,
         selectedPackage: matchedPkg,
         selectedService: matchedSvc,
         selectedMethod: matchedMethod,
+        metadata: newMetadata,
       });
     } else {
       updateActiveTab({
         protocolTab: nextProtocol,
+        metadata: newMetadata,
       });
     }
   }, [activeTabId, activeTab, updateActiveTab]);
@@ -166,10 +169,7 @@ export default function App() {
             selectedMethod: null,
             selectedService: null,
             selectedPackage: null,
-            metadata: [
-              { key: "Authorization", value: "Bearer ", enabled: true },
-              { key: "eId", value: "", enabled: true },
-            ],
+            metadata: getDefaultHeadersForProtocol(activeTab?.protocolTab ?? "grpc-web"),
           });
           refresh();
           document.dispatchEvent(new CustomEvent("pengvi:collapse-sidebar"));

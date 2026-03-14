@@ -138,8 +138,7 @@ export interface RequestTab {
 
 const _defaultHeaders = loadDefaultHeaders();
 
-function createTab(origin: TabOrigin = null): RequestTab {
-  const protocol: ProtocolTab = "grpc-web";
+function createTab(origin: TabOrigin = null, protocol: ProtocolTab = "grpc-web"): RequestTab {
   let headers: MetadataEntry[];
   try {
     headers = useAppStore.getState().defaultHeaders[protocol];
@@ -159,6 +158,14 @@ function createTab(origin: TabOrigin = null): RequestTab {
     isLoading: false,
     origin,
   };
+}
+
+export function getDefaultHeadersForProtocol(protocol: ProtocolTab): MetadataEntry[] {
+  try {
+    return useAppStore.getState().defaultHeaders[protocol].map((h) => ({ ...h }));
+  } catch {
+    return _defaultHeaders[protocol].map((h) => ({ ...h }));
+  }
 }
 
 export { createTab };
