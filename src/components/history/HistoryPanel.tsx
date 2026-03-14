@@ -31,6 +31,8 @@ interface HistoryPanelProps {
   onClose: () => void;
 }
 
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 function formatTime(ts: number): string {
   const d = new Date(ts);
   const now = new Date();
@@ -39,13 +41,14 @@ function formatTime(ts: number): string {
     minute: "2-digit",
     hour12: true,
   });
+  const day = DAY_NAMES[d.getDay()];
 
   const isToday =
     d.getDate() === now.getDate() &&
     d.getMonth() === now.getMonth() &&
     d.getFullYear() === now.getFullYear();
 
-  if (isToday) return time;
+  if (isToday) return `Today ${time}`;
 
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
@@ -56,7 +59,10 @@ function formatTime(ts: number): string {
 
   if (isYesterday) return `Yesterday ${time}`;
 
-  return `${d.getMonth() +1}/${d.getDate()} ${time}`;
+  const withinWeek = now.getTime() - d.getTime() < 7 * 24 * 60 * 60 * 1000;
+  if (withinWeek) return `${day} ${time}`;
+
+  return `${d.getMonth() + 1}/${d.getDate()} ${day} ${time}`;
 }
 
 function getMethodShortName(fullName: string): string {

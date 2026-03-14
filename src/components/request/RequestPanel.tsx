@@ -3,7 +3,7 @@ import { useAppStore, useActiveTab, type MetadataEntry, type HistoryEntry, type 
 import { useEnvironments } from "@/hooks/useEnvironments";
 import { interpolate } from "@/lib/environment-store";
 import { Button } from "@/components/ui/button";
-import { Send, Plus, X, RotateCcw, Copy, Braces, Bookmark, Check, FileText, Terminal } from "lucide-react";
+import { Send, Plus, X, RotateCcw, Copy, Braces, Bookmark, Check, FileText, Terminal, Ban, Code2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const LazyJsonEditor = lazy(() => import("@/components/ui/json-editor").then(m => ({ default: m.JsonEditor })));
@@ -14,6 +14,7 @@ export function RequestPanel() {
   const { activeEnv } = useEnvironments();
   const sendRef = useRef<() => void>(() => {});
   const saveRef = useRef<() => void>(() => {});
+  const abortRef = useRef<AbortController | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
   const [curlFlash, setCurlFlash] = useState(false);
   const [offlineFlash, setOfflineFlash] = useState(false);
@@ -21,15 +22,41 @@ export function RequestPanel() {
   useEffect(() => {
     const sendHandler = () => sendRef.current();
     const saveHandler = () => saveRef.current();
+    const cancelHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
+    };
     document.addEventListener("pengvi:send-request", sendHandler);
     document.addEventListener("pengvi:save-request", saveHandler);
+    document.addEventListener("keydown", cancelHandler);
     return () => {
       document.removeEventListener("pengvi:send-request", sendHandler);
       document.removeEventListener("pengvi:save-request", saveHandler);
+      document.removeEventListener("keydown", cancelHandler);
     };
   }, []);
 
   if (!tab) return null;
+
+  const handleCancel = () => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    updateActiveTab({
+      isLoading: false,
+      response: {
+        status: "CANCELLED",
+        statusCode: 0,
+        body: "",
+        headers: {},
+        duration: 0,
+        error: "Request cancelled",
+      },
+    });
+  };
 
   const handleSend = async () => {
     if (!tab.selectedMethod || !tab.targetUrl.trim()) return;
@@ -39,6 +66,10 @@ export function RequestPanel() {
       setTimeout(() => setOfflineFlash(false), 3000);
       return;
     }
+
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     const resolvedUrl = interpolate(tab.targetUrl, activeEnv);
     updateActiveTab({ isLoading: true, response: null });
@@ -60,6 +91,8 @@ export function RequestPanel() {
     try {
       const protocol = tab.protocolTab;
       let result;
+
+      if (controller.signal.aborted) return;
 
       if (protocol === "grpc-web") {
         const typeName = tab.selectedMethod.fullName.substring(
@@ -116,8 +149,12 @@ export function RequestPanel() {
         });
       }
 
+      if (controller.signal.aborted) return;
+      abortRef.current = null;
       updateActiveTab({ response: result, isLoading: false });
     } catch (error) {
+      if (controller.signal.aborted) return;
+      abortRef.current = null;
       updateActiveTab({
         response: {
           status: "ERROR",
@@ -377,15 +414,27 @@ export function RequestPanel() {
       </div>
 
       <div className="border-t border-border px-3 py-2 flex gap-1.5">
-        <Button
-          onClick={handleSend}
-          disabled={tab.isLoading || !tab.selectedMethod}
-          className="flex-1 h-8"
-          size="sm"
-        >
-          <Send className="mr-1.5 h-3.5 w-3.5" />
-          {tab.isLoading ? "Sending..." : "Send"}
-        </Button>
+        {tab.isLoading ? (
+          <Button
+            onClick={handleCancel}
+            variant="destructive"
+            className="flex-1 h-8"
+            size="sm"
+          >
+            <Ban className="mr-1.5 h-3.5 w-3.5" />
+            Cancel (Esc)
+          </Button>
+        ) : (
+          <Button
+            onClick={handleSend}
+            disabled={!tab.selectedMethod}
+            className="flex-1 h-8"
+            size="sm"
+          >
+            <Send className="mr-1.5 h-3.5 w-3.5" />
+            Send
+          </Button>
+        )}
         <Button
           variant={savedFlash ? "default" : "outline"}
           size="sm"
@@ -427,6 +476,16 @@ export function RequestPanel() {
           ) : (
             <Terminal className="h-3.5 w-3.5" />
           )}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 px-2.5"
+          onClick={() => document.dispatchEvent(new CustomEvent("pengvi:open-proto"))}
+          disabled={!tab.selectedMethod}
+          title="View Proto ⌘ + P"
+        >
+          <Code2 className="h-3.5 w-3.5" />
         </Button>
         <Button
           variant="outline"

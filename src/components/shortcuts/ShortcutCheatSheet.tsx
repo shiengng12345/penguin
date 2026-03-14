@@ -11,8 +11,10 @@ const SHORTCUTS = [
     category: "Request",
     items: [
       { keys: "⌘ + Enter", description: "Send request" },
+      { keys: "Esc", description: "Cancel in-flight request" },
       { keys: "⌘ + Shift + S", description: "Save current request" },
       { keys: "⌘ + D", description: "Request as documentation" },
+      { keys: "⌘ + P", description: "View proto definitions (request & response)" },
       { keys: "⌘ + E", description: "Cycle protocol (gRPC-Web → gRPC → SDK)" },
     ],
   },

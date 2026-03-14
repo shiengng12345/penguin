@@ -21,6 +21,7 @@ const RequestDocDialog = lazy(() => import("@/components/request/RequestDocDialo
 const ShortcutCheatSheet = lazy(() => import("@/components/shortcuts/ShortcutCheatSheet").then(m => ({ default: m.ShortcutCheatSheet })));
 const NetworkCheck = lazy(() => import("@/components/network/NetworkCheck").then(m => ({ default: m.NetworkCheck })));
 const CurlImport = lazy(() => import("@/components/environment/CurlImport").then(m => ({ default: m.CurlImport })));
+const ProtoViewer = lazy(() => import("@/components/request/ProtoViewer").then(m => ({ default: m.ProtoViewer })));
 const InteractiveTutorial = lazy(() => import("@/components/onboarding/InteractiveTutorial").then(m => ({ default: m.InteractiveTutorial })));
 const Welcome = lazy(() => import("@/components/onboarding/Welcome").then(m => ({ default: m.Welcome })));
 
@@ -49,6 +50,7 @@ export default function App() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [networkOpen, setNetworkOpen] = useState(false);
   const [curlImportOpen, setCurlImportOpen] = useState(false);
+  const [protoViewerOpen, setProtoViewerOpen] = useState(false);
 
   const displayPackages = packages;
 
@@ -206,6 +208,10 @@ export default function App() {
           e.preventDefault();
           setShortcutsOpen((o) => !o);
           break;
+        case "p":
+          e.preventDefault();
+          setProtoViewerOpen((o) => !o);
+          break;
         case "i":
           e.preventDefault();
           if (e.shiftKey) {
@@ -230,8 +236,13 @@ export default function App() {
 
   useEffect(() => {
     const openDoc = () => setDocOpen(true);
+    const openProto = () => setProtoViewerOpen(true);
     document.addEventListener("pengvi:open-doc", openDoc);
-    return () => document.removeEventListener("pengvi:open-doc", openDoc);
+    document.addEventListener("pengvi:open-proto", openProto);
+    return () => {
+      document.removeEventListener("pengvi:open-doc", openDoc);
+      document.removeEventListener("pengvi:open-proto", openProto);
+    };
   }, []);
 
   useEffect(() => {
@@ -246,6 +257,7 @@ export default function App() {
       setShortcutsOpen(false);
       setNetworkOpen(false);
       setCurlImportOpen(false);
+      setProtoViewerOpen(false);
     };
     document.addEventListener("pengvi:close-all-dialogs", closeAll);
     return () => document.removeEventListener("pengvi:close-all-dialogs", closeAll);
@@ -311,6 +323,7 @@ export default function App() {
         {shortcutsOpen && <ShortcutCheatSheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />}
         {networkOpen && <NetworkCheck open={networkOpen} onClose={() => setNetworkOpen(false)} />}
         {curlImportOpen && <CurlImport open={curlImportOpen} onClose={() => setCurlImportOpen(false)} />}
+        {protoViewerOpen && <ProtoViewer open={protoViewerOpen} onClose={() => setProtoViewerOpen(false)} />}
         <Welcome />
         <InteractiveTutorial />
       </Suspense>

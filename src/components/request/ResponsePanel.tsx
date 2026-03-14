@@ -199,6 +199,7 @@ export function ResponsePanel() {
         <div className="text-center space-y-1">
           <p className="text-xs">Sending request...</p>
           <p className="text-xs">发送请求中...</p>
+          <p className="text-[10px] text-muted-foreground/50 mt-2">Press Esc to cancel</p>
         </div>
       </div>
     );

@@ -26,6 +26,7 @@ const URL_PATTERNS: [RegExp, string][] = [
   [/fpms-nt\.platforma8\.me/, "UAT"],
   [/localhost/i, "LOCAL"],
   [/127\.0\.0\.1/, "LOCAL"],
+  [/0\.0\.0\.0/, "LOCAL"],
   [/staging/i, "STAGING"],
   [/production/i, "PROD"],
   [/dev\./i, "DEV"],
