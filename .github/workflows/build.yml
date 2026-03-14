@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -15,9 +18,11 @@ jobs:
           - platform: macos-latest
             args: --target aarch64-apple-darwin
             target: aarch64-apple-darwin
+            arch: aarch64
           - platform: macos-latest
             args: --target x86_64-apple-darwin
             target: x86_64-apple-darwin
+            arch: x86_64
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -44,15 +49,108 @@ jobs:
         run: mkdir -p ~/.pengvi && cp .pengvi.config.json ~/.pengvi/config.json
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build ${{ matrix.args }}
+
+      - name: Upload release artifacts
+        uses: softprops/action-gh-release@v2
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Penguin ${{ github.ref_name }}'
-          releaseBody: 'Download the installer for your platform below.'
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
+          draft: true
+          tag_name: ${{ github.ref_name }}
+          name: 'Penguin ${{ github.ref_name }}'
+          body: 'Download the installer for your platform below.'
+          files: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-update:
+    needs: build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          REPO="shiengng12345/penguin"
+
+          # Wait for draft release assets to be available
+          sleep 10
+
+          RELEASE_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$REPO/releases/tags/$TAG" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))")
+
+          ASSETS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$REPO/releases/$RELEASE_ID/assets")
+
+          AARCH64_URL=$(echo "$ASSETS" | python3 -c "
+          import json,sys
+          for a in json.load(sys.stdin):
+            if 'aarch64' in a['name'] and a['name'].endswith('.tar.gz'):
+              print(a['browser_download_url'])
+              break
+          ")
+
+          X86_URL=$(echo "$ASSETS" | python3 -c "
+          import json,sys
+          for a in json.load(sys.stdin):
+            if 'x86_64' in a['name'] and a['name'].endswith('.tar.gz'):
+              print(a['browser_download_url'])
+              break
+          ")
+
+          AARCH64_SIG=$(echo "$ASSETS" | python3 -c "
+          import json,sys
+          for a in json.load(sys.stdin):
+            if 'aarch64' in a['name'] and a['name'].endswith('.sig'):
+              print(a['browser_download_url'])
+              break
+          ")
+
+          X86_SIG=$(echo "$ASSETS" | python3 -c "
+          import json,sys
+          for a in json.load(sys.stdin):
+            if 'x86_64' in a['name'] and a['name'].endswith('.sig'):
+              print(a['browser_download_url'])
+              break
+          ")
+
+          AARCH64_SIG_CONTENT=$(curl -sL "$AARCH64_SIG")
+          X86_SIG_CONTENT=$(curl -sL "$X86_SIG")
+
+          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          cat > latest.json << ENDJSON
+          {
+            "version": "$VERSION",
+            "notes": "Penguin $TAG",
+            "pub_date": "$NOW",
+            "platforms": {
+              "darwin-aarch64": {
+                "signature": "$AARCH64_SIG_CONTENT",
+                "url": "$AARCH64_URL"
+              },
+              "darwin-x86_64": {
+                "signature": "$X86_SIG_CONTENT",
+                "url": "$X86_URL"
+              }
+            }
+          }
+          ENDJSON
+
+          cat latest.json
+
+          # Upload latest.json to the release
+          curl -s -X POST \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://uploads.github.com/repos/$REPO/releases/$RELEASE_ID/assets?name=latest.json" \
+            --data-binary @latest.json
