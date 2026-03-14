@@ -42,7 +42,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRDNkE0MDlDRjM5MjE2MEUKUldRT0ZwTHpuRUJxVEdzaVY0L0dKWUk2b1dDNjRHOWREVjNCNW11Ti9HbmhJOGU3bWxDSzE4TXIK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRGRkVBRTY3Nzk4QUEyRDIKUldUU29vcDVaNjcrVHo4T2JXM0RMUC9rTGNJeUNZM0wyZXhjZHlYODZIZXc3OVZaaEc2YnNLcEwK",
       "endpoints": [
         "https://github.com/shiengng12345/penguin/releases/latest/download/latest.json"
       ]
