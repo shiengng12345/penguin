@@ -1,0 +1,20 @@
+[package]
+name = "__RUST_CRATE_NAME__"
+version = "0.1.0"
+description = "__APP_DESCRIPTION__"
+authors = ["__REPO_OWNER__"]
+edition = "2021"
+
+[lib]
+name = "__RUST_CRATE_NAME__"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-process = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-updater = "2"
+
