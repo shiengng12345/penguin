@@ -4,6 +4,7 @@ import { useEnvironments } from "@/hooks/useEnvironments";
 import { useGreeting } from "@/hooks/useGreeting";
 import { useClock } from "@/hooks/useClock";
 import { openPenguinSite } from "@/lib/external-links";
+import { getWorkspaceModuleDefinition, type WorkspaceModule } from "@/lib/workspace-modules";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Palette, Settings, Clock, BookOpenText } from "lucide-react";
@@ -11,6 +12,7 @@ import { cn } from "@/lib/utils";
 
 interface HeaderProps {
   onOpenSettings: () => void;
+  activeModule: WorkspaceModule;
 }
 
 const PROTOCOL_LABELS: Record<string, string> = {
@@ -50,7 +52,7 @@ const PenguinBrand = memo(function PenguinBrand() {
   );
 });
 
-export function Header({ onOpenSettings }: HeaderProps) {
+export function Header({ onOpenSettings, activeModule }: HeaderProps) {
   const { theme, setTheme } = useAppStore();
   const {
     environments,
@@ -62,6 +64,7 @@ export function Header({ onOpenSettings }: HeaderProps) {
   const [themePopoverOpen, setThemePopoverOpen] = useState(false);
 
   const protocolName = PROTOCOL_LABELS[protocol] ?? protocol;
+  const activeModuleDef = getWorkspaceModuleDefinition(activeModule);
   const envOptions = useMemo(
     () =>
       environments.map((e) => ({
@@ -78,16 +81,24 @@ export function Header({ onOpenSettings }: HeaderProps) {
 
       <div className="flex items-center gap-2">
         <span className="rounded-md border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-          {protocolName}
+          {activeModuleDef.label}
         </span>
 
-        <Select
-          value={activeEnvId ?? ""}
-          onChange={(e) => setActiveEnvId(e.target.value || null)}
-          options={envOptions}
-          placeholder="Environment / 环境"
-          className="w-36"
-        />
+        {activeModule === "api" && (
+          <>
+            <span className="rounded-md border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {protocolName}
+            </span>
+
+            <Select
+              value={activeEnvId ?? ""}
+              onChange={(e) => setActiveEnvId(e.target.value || null)}
+              options={envOptions}
+              placeholder="Environment / 环境"
+              className="w-36"
+            />
+          </>
+        )}
 
         <div className="relative">
           <Button

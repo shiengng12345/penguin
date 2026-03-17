@@ -1,12 +1,24 @@
 import { useEffect } from "react";
 import { Keyboard, X } from "lucide-react";
 
+export interface ShortcutItem {
+  keys: string;
+  description: string;
+}
+
+export interface ShortcutSection {
+  category: string;
+  items: ShortcutItem[];
+}
+
 interface ShortcutCheatSheetProps {
   open: boolean;
   onClose: () => void;
+  title?: string;
+  shortcuts?: ShortcutSection[];
 }
 
-const SHORTCUTS = [
+const DEFAULT_SHORTCUTS: ShortcutSection[] = [
   {
     category: "Request",
     items: [
@@ -48,9 +60,14 @@ const SHORTCUTS = [
       { keys: "⌘ + /", description: "Keyboard shortcuts (this)" },
     ],
   },
-] as const;
+];
 
-export function ShortcutCheatSheet({ open, onClose }: ShortcutCheatSheetProps) {
+export function ShortcutCheatSheet({
+  open,
+  onClose,
+  title = "Keyboard Shortcuts",
+  shortcuts = DEFAULT_SHORTCUTS,
+}: ShortcutCheatSheetProps) {
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -80,7 +97,7 @@ export function ShortcutCheatSheet({ open, onClose }: ShortcutCheatSheetProps) {
             className="flex items-center gap-2 text-sm font-semibold"
           >
             <Keyboard className="h-4 w-4 shrink-0 text-muted-foreground" />
-            Keyboard Shortcuts
+            {title}
           </h2>
           <button
             type="button"
@@ -94,7 +111,7 @@ export function ShortcutCheatSheet({ open, onClose }: ShortcutCheatSheetProps) {
 
         <div className="p-4 overflow-y-auto max-h-[70vh]">
           <table className="w-full text-sm border border-border rounded-md overflow-hidden">
-            {SHORTCUTS.map(({ category, items }) => (
+            {shortcuts.map(({ category, items }) => (
               <tbody key={category}>
                 <tr>
                   <td

@@ -55,6 +55,93 @@ async function shellCmd(script: string, cwd: string) {
   return Command.create("zsh-login", ["-l", "-c", `cd ${JSON.stringify(cwd)} && ${script}`]);
 }
 
+interface CommandRunResult {
+  ok: boolean;
+  exitCode: number | null;
+  output: string;
+}
+
+async function runLoggedCommand(
+  script: string,
+  cwd: string,
+  onLog: (line: string) => void,
+  timeoutMessage: string
+): Promise<CommandRunResult> {
+  const cmd = await shellCmd(script, cwd);
+
+  let finished = false;
+  let output = "";
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  const appendOutput = (data: string) => {
+    output += data;
+    if (data.trim()) onLog(data.trimEnd());
+  };
+
+  cmd.stdout.on("data", appendOutput);
+  cmd.stderr.on("data", appendOutput);
+
+  const result = new Promise<CommandRunResult>((resolve) => {
+    const resolveOnce = (value: CommandRunResult) => {
+      if (finished) return;
+      finished = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      resolve(value);
+    };
+
+    cmd.on("close", (ev) => {
+      resolveOnce({
+        ok: ev.code === 0,
+        exitCode: ev.code,
+        output,
+      });
+    });
+
+    cmd.on("error", (err) => {
+      onLog(`Error: ${err}`);
+      resolveOnce({
+        ok: false,
+        exitCode: null,
+        output: output + String(err),
+      });
+    });
+  });
+
+  const child = await cmd.spawn();
+
+  timeoutId = setTimeout(() => {
+    if (finished) return;
+    onLog(timeoutMessage);
+    child.kill();
+  }, INSTALL_TIMEOUT_MS);
+
+  return result;
+}
+
+function isLikelyStalePackument(result: CommandRunResult): boolean {
+  return (
+    result.output.includes("ETARGET") ||
+    result.output.includes("No matching version found")
+  );
+}
+
+function npmInstallScript(packageSpec: string, preferOffline: boolean): string {
+  const args = [
+    "npm",
+    "install",
+    "--save",
+    "--no-audit",
+    "--no-fund",
+  ];
+
+  if (preferOffline) {
+    args.push("--prefer-offline");
+  }
+
+  args.push(JSON.stringify(packageSpec));
+  return args.join(" ");
+}
+
 export async function installPackage(
   protocol: ProtocolTab,
   packageSpec: string,
@@ -65,46 +152,30 @@ export async function installPackage(
   onLog(`Protocol: ${protocol.toUpperCase()}`);
   onLog(`Target: ${dir}`);
 
-  const cmd = await shellCmd(
-    `npm install --save --prefer-offline --no-audit --no-fund ${JSON.stringify(packageSpec)}`,
-    dir
+  let result = await runLoggedCommand(
+    npmInstallScript(packageSpec, true),
+    dir,
+    onLog,
+    "Installation timed out (5 min). Killing process..."
   );
 
-  let finished = false;
+  if (!result.ok && isLikelyStalePackument(result)) {
+    onLog("Registry metadata may be stale. Retrying without --prefer-offline...");
+    result = await runLoggedCommand(
+      npmInstallScript(packageSpec, false),
+      dir,
+      onLog,
+      "Retry timed out (5 min). Killing process..."
+    );
+  }
 
-  const logLine = (data: string) => {
-    if (data.trim()) onLog(data.trimEnd());
-  };
-  cmd.stdout.on("data", logLine);
-  cmd.stderr.on("data", logLine);
+  if (result.ok) {
+    onLog("Installation complete!");
+    return true;
+  }
 
-  const result = new Promise<boolean>((resolve) => {
-    cmd.on("close", (ev) => {
-      finished = true;
-      if (ev.code === 0) {
-        onLog("Installation complete!");
-      } else {
-        onLog(`Installation failed (exit code ${ev.code})`);
-      }
-      resolve(ev.code === 0);
-    });
-    cmd.on("error", (err) => {
-      finished = true;
-      onLog(`Error: ${err}`);
-      resolve(false);
-    });
-  });
-
-  const child = await cmd.spawn();
-
-  setTimeout(() => {
-    if (!finished) {
-      onLog("Installation timed out (5 min). Killing process...");
-      child.kill();
-    }
-  }, INSTALL_TIMEOUT_MS);
-
-  return result;
+  onLog(`Installation failed (exit code ${result.exitCode ?? "unknown"})`);
+  return false;
 }
 
 export async function uninstallPackage(
@@ -115,41 +186,15 @@ export async function uninstallPackage(
   const dir = await ensurePackagesDir(protocol);
   onLog(`Removing ${packageName}...`);
 
-  const cmd = await shellCmd(
+  const result = await runLoggedCommand(
     `npm uninstall --no-audit --no-fund ${JSON.stringify(packageName)}`,
-    dir
+    dir,
+    onLog,
+    "Uninstall timed out (5 min). Killing process..."
   );
 
-  let finished = false;
+  if (result.ok) onLog("Package removed!");
+  else onLog(`Removal failed (exit code ${result.exitCode ?? "unknown"})`);
 
-  const logLine = (data: string) => {
-    if (data.trim()) onLog(data.trimEnd());
-  };
-  cmd.stdout.on("data", logLine);
-  cmd.stderr.on("data", logLine);
-
-  const result = new Promise<boolean>((resolve) => {
-    cmd.on("close", (ev) => {
-      finished = true;
-      if (ev.code === 0) onLog("Package removed!");
-      else onLog(`Removal failed (exit code ${ev.code})`);
-      resolve(ev.code === 0);
-    });
-    cmd.on("error", (err) => {
-      finished = true;
-      onLog(`Error: ${err}`);
-      resolve(false);
-    });
-  });
-
-  const child = await cmd.spawn();
-
-  setTimeout(() => {
-    if (!finished) {
-      onLog("Uninstall timed out (5 min). Killing process...");
-      child.kill();
-    }
-  }, INSTALL_TIMEOUT_MS);
-
-  return result;
+  return result.ok;
 }
