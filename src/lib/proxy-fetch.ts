@@ -73,6 +73,9 @@ export async function proxyFetch(
   });
 
   if (resp.error) {
+    // proxyFetch implements the standard fetch() contract for ConnectRPC's
+    // transport layer, which expects exceptions on network failure. Returning
+    // a synthetic Response would misrepresent transport state to the gRPC client.
     throw new Error(resp.error);
   }
 

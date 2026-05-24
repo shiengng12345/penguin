@@ -27,6 +27,17 @@ function cleanProtoResponse(result: unknown): string {
   }
 }
 
+function buildErrorResponse(message: string, startTime: number): ResponseState {
+  return {
+    status: "ERROR",
+    statusCode: 0,
+    body: "",
+    headers: {},
+    duration: Math.round(performance.now() - startTime),
+    error: message,
+  };
+}
+
 const serviceCache = new Map<string, ConnectServiceDef>();
 
 async function ensureServiceLoaded(
@@ -53,83 +64,99 @@ export async function callGrpcWeb(
   const startTime = performance.now();
   const { url, servicePath, body, metadata, packageName } = params;
 
+  // Validate JSON body — caller pasted this directly from the editor.
+  let parsedBody: Record<string, unknown>;
   try {
-    let parsedBody: Record<string, unknown>;
-    try {
-      parsedBody = JSON.parse(body);
-    } catch {
-      throw new Error("Invalid JSON request body / 无效的 JSON 请求体");
-    }
+    parsedBody = JSON.parse(body);
+  } catch {
+    return buildErrorResponse("Invalid JSON request body / 无效的 JSON 请求体", startTime);
+  }
 
-    const pathParts = servicePath.replace(/^\//, "").split("/");
-    if (pathParts.length < 3) {
-      throw new Error(
-        `Invalid service path: ${servicePath}. Expected /<package>/<typeName>/<method>`
+  // Service path must contain at least package, type, and method segments.
+  const pathParts = servicePath.replace(/^\//, "").split("/");
+  const isPathTooShort = pathParts.length < 3;
+  if (isPathTooShort) {
+    return buildErrorResponse(
+      `Invalid service path: ${servicePath}. Expected /<package>/<typeName>/<method>`,
+      startTime,
+    );
+  }
+
+  const protoPackage = pathParts[0];
+  const typeName = pathParts.slice(1, -1).join(".");
+  const methodName = pathParts[pathParts.length - 1];
+
+  // gRPC-Web needs the package name to load the generated client module.
+  if (!packageName) {
+    return buildErrorResponse(
+      "Package name is required for gRPC-Web calls. Select a method from an installed package.",
+      startTime,
+    );
+  }
+
+  const serviceDef = await ensureServiceLoaded(packageName, typeName);
+  if (!serviceDef) {
+    return buildErrorResponse(
+      `Service definition not found: ${typeName}. Ensure the package is installed and contains this service.`,
+      startTime,
+    );
+  }
+
+  const methodNameLower = methodName[0].toLowerCase() +methodName.slice(1);
+  const resolvedMethodName =
+    serviceDef.methods[methodName] ? methodName
+    : serviceDef.methods[methodNameLower] ? methodNameLower
+    : Object.keys(serviceDef.methods).find(
+        (k) => k.toLowerCase() === methodName.toLowerCase()
       );
-    }
 
-    const protoPackage = pathParts[0];
-    const typeName = pathParts.slice(1, -1).join(".");
-    const methodName = pathParts[pathParts.length - 1];
+  const methodMissingOnDef = !resolvedMethodName || !serviceDef.methods[resolvedMethodName];
+  if (methodMissingOnDef) {
+    return buildErrorResponse(
+      `Method ${methodName} not found on service ${typeName}. Available: ${Object.keys(serviceDef.methods).join(", ")}`,
+      startTime,
+    );
+  }
 
-    if (!packageName) {
-      throw new Error(
-        "Package name is required for gRPC-Web calls. Select a method from an installed package."
-      );
-    }
+  const baseUrl = `${url.replace(/\/$/, "")}/${protoPackage}`;
 
-    const serviceDef = await ensureServiceLoaded(packageName, typeName);
-    if (!serviceDef) {
-      throw new Error(
-        `Service definition not found: ${typeName}. Ensure the package is installed and contains this service.`
-      );
-    }
-
-    const methodNameLower = methodName[0].toLowerCase() +methodName.slice(1);
-    const resolvedMethodName =
-      serviceDef.methods[methodName] ? methodName
-      : serviceDef.methods[methodNameLower] ? methodNameLower
-      : Object.keys(serviceDef.methods).find(
-          (k) => k.toLowerCase() === methodName.toLowerCase()
-        );
-
-    if (!resolvedMethodName || !serviceDef.methods[resolvedMethodName]) {
-      throw new Error(
-        `Method ${methodName} not found on service ${typeName}. Available: ${Object.keys(serviceDef.methods).join(", ")}`
-      );
-    }
-
-    const baseUrl = `${url.replace(/\/$/, "")}/${protoPackage}`;
-
-    const headerInterceptor: Interceptor = (next) => async (req) => {
-      for (const entry of metadata) {
-        if (entry.enabled && entry.key.trim()) {
-          req.header.set(entry.key, entry.value);
-        }
+  const headerInterceptor: Interceptor = (next) => async (req) => {
+    for (const entry of metadata) {
+      if (entry.enabled && entry.key.trim()) {
+        req.header.set(entry.key, entry.value);
       }
-      return await next(req);
-    };
-
-    const transport = createGrpcWebTransport({
-      baseUrl,
-      interceptors: [headerInterceptor],
-      fetch: proxyFetch,
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const client = createClient(serviceDef as any, transport);
-    const dynamicClient = client as Record<
-      string,
-      ((data?: unknown) => Promise<unknown>) | undefined
-    >;
-
-    const clientMethod = dynamicClient[resolvedMethodName];
-    if (!clientMethod) {
-      throw new Error(`Method ${resolvedMethodName} does not exist on the generated client`);
     }
+    return await next(req);
+  };
 
-    const isEmpty =
-      !parsedBody || Object.keys(parsedBody).length === 0;
+  const transport = createGrpcWebTransport({
+    baseUrl,
+    interceptors: [headerInterceptor],
+    fetch: proxyFetch,
+  });
+
+  // ConnectRPC service definition types are not exported publicly; the cast
+  // bridges our discovered shape to its internal expected shape.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const client = createClient(serviceDef as any, transport);
+  const dynamicClient = client as Record<
+    string,
+    ((data?: unknown) => Promise<unknown>) | undefined
+  >;
+
+  const clientMethod = dynamicClient[resolvedMethodName!];
+  if (!clientMethod) {
+    return buildErrorResponse(
+      `Method ${resolvedMethodName} does not exist on the generated client`,
+      startTime,
+    );
+  }
+
+  // Only the network call is wrapped in try/catch — everything above is
+  // pre-validation and now returns early. Errors here are gRPC ConnectErrors
+  // (which carry .code and .rawMessage) or transport failures from proxyFetch.
+  try {
+    const isEmpty = !parsedBody || Object.keys(parsedBody).length === 0;
     const result = isEmpty
       ? await clientMethod()
       : await clientMethod(parsedBody);

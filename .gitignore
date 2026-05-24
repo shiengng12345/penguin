@@ -25,3 +25,6 @@ Thumbs.db
 # Temp
 .temp
 .tmp
+
+# TS incremental build cache
+*.tsbuildinfo

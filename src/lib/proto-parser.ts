@@ -1,4 +1,5 @@
 import protobuf from "protobufjs";
+import { logger } from "./logger";
 import type { ProtoService, ProtoMethod, FieldInfo } from "./store";
 
 export function parseProtoContent(
@@ -29,8 +30,8 @@ function parseRawProtos(
   for (const file of files) {
     try {
       protobuf.parse(file.content, root, { keepCase: true });
-    } catch {
-      console.warn(`Failed to parse ${file.name}, skipping`);
+    } catch (err) {
+      logger.warn("proto-parser", "skip unparseable proto", { file: file.name, error: String(err) });
     }
   }
 

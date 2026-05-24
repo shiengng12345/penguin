@@ -171,6 +171,7 @@ export function Sidebar({ packages, onInstallClick, onUninstall, onUpdate }: Sid
       selectedService: svcFullName,
       selectedMethod: method,
       requestBody: body,
+      pathOverride: null,
     });
   };
 

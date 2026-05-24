@@ -1,9 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 
+// Structural shape of @connectrpc-generated service method descriptors. We
+// only rely on typeName for routing; `fields` is the runtime protobuf-es
+// descriptor and is opaque from our perspective — typed loosely on purpose.
 export interface ConnectMethodDef {
   name?: string;
   kind?: number;
-  I?: { typeName: string; fields: unknown };
+  I?: { typeName: string; fields: Record<string, unknown> };
   O?: { typeName: string };
 }
 
@@ -12,6 +15,10 @@ export interface ConnectServiceDef {
   methods: Record<string, ConnectMethodDef>;
 }
 
+// Dynamically imported npm package — shape is unknowable at compile time
+// because it depends on whichever @snsoft package the user installs at runtime.
+// Index signature with `unknown` is the documented escape hatch in the
+// coding-standards "If the type genuinely cannot be known" rule.
 interface PackageExports {
   [key: string]: unknown;
 }

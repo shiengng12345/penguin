@@ -2,8 +2,9 @@ import ReactDOM from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
 import App from "./App";
 import "./index.css";
+import pkg from "../package.json";
 
-const APP_VERSION = __APP_VERSION__;
+const APP_VERSION = pkg.version;
 const CACHE_VERSION_KEY = "pengvi-cache-version";
 const lastVersion = localStorage.getItem(CACHE_VERSION_KEY);
 

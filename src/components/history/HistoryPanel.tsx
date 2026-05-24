@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { History, Trash2, Globe, Server, Box } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { tryFormatJson } from "@/lib/json-utils";
 
 const PROTOCOL_BADGES: Record<
   ProtocolTab,
@@ -293,17 +294,7 @@ export function HistoryPanel({ open, onClose }: HistoryPanelProps) {
                           Body
                         </span>
                         <pre className="mt-0.5 max-h-24 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-foreground/80">
-                          {(() => {
-                            try {
-                              return JSON.stringify(
-                                JSON.parse(entry.requestBody),
-                                null,
-                                2
-                              );
-                            } catch {
-                              return entry.requestBody;
-                            }
-                          })()}
+                          {tryFormatJson(entry.requestBody)}
                         </pre>
                       </div>
                     </div>

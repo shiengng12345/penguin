@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState, lazy, Suspense } from "react";
-import { useAppStore, useActiveTab, type MetadataEntry, type HistoryEntry, type SavedRequest } from "@/lib/store";
+import { useAppStore, useActiveTab, mergeWithDefaultHeaders, type MetadataEntry, type HistoryEntry, type SavedRequest } from "@/lib/store";
 import { useEnvironments } from "@/hooks/useEnvironments";
 import { interpolate } from "@/lib/environment-store";
+import { logger } from "@/lib/logger";
 import { Button } from "@/components/ui/button";
 import { Send, Plus, X, RotateCcw, Copy, Braces, Bookmark, Check, FileText, Terminal, Ban, Code2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+// Pattern matches any `{{VAR}}` template that survived interpolation —
+// signals the active env is missing the variable. Sending such a header
+// would leak template syntax to the server, so we drop it and log loud.
+const UNRESOLVED_TEMPLATE_PATTERN = /\{\{\s*\w+\s*\}\}/;
 
 const LazyJsonEditor = lazy(() => import("@/components/ui/json-editor").then(m => ({ default: m.JsonEditor })));
 
@@ -74,6 +80,26 @@ export function RequestPanel() {
     const resolvedUrl = interpolate(tab.targetUrl, activeEnv);
     updateActiveTab({ isLoading: true, response: null });
 
+    // Merge default headers (Settings) with tab-specific metadata so newly
+    // added defaults reach already-open tabs. Tab entries take precedence.
+    // Then resolve {{VAR}} templates in each value against the active env so
+    // headers like `x-env-tag: {{X_ENV_TAG}}` switch automatically with env.
+    // Any header whose template can't be resolved (env missing the variable)
+    // is dropped — sending `{{X_ENV_TAG}}` literal would break server routing.
+    const mergedMetadata = mergeWithDefaultHeaders(tab.metadata, tab.protocolTab)
+      .map((m) => ({ ...m, value: interpolate(m.value, activeEnv) }))
+      .filter((m) => {
+        const isUnresolved = m.enabled && m.key.trim() !== "" && UNRESOLVED_TEMPLATE_PATTERN.test(m.value);
+        if (isUnresolved) {
+          logger.warn("RequestPanel", "header dropped — unresolved template", {
+            key: m.key,
+            value: m.value,
+            envName: activeEnv?.name ?? "(none)",
+          });
+        }
+        return !isUnresolved;
+      });
+
     const entry: HistoryEntry = {
       id: `hist_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       timestamp: Date.now(),
@@ -82,7 +108,7 @@ export function RequestPanel() {
       serviceName: tab.selectedService ?? "",
       packageName: tab.selectedPackage ?? "",
       url: tab.targetUrl,
-      metadata: tab.metadata.filter((m) => m.enabled && m.key),
+      metadata: mergedMetadata.filter((m) => m.enabled && m.key),
       requestBody: tab.requestBody,
       selectedMethod: tab.selectedMethod,
     };
@@ -102,13 +128,13 @@ export function RequestPanel() {
           tab.selectedMethod.fullName.lastIndexOf(".") +1
         );
         const protoPackage = typeName.split(".")[0];
-        const servicePath = `/${protoPackage}/${typeName}/${methodName}`;
+        const servicePath = tab.pathOverride ?? `/${protoPackage}/${typeName}/${methodName}`;
         const { callGrpcWeb } = await import("@/lib/grpc-web-client");
         result = await callGrpcWeb({
           url: resolvedUrl,
           servicePath,
           body: tab.requestBody,
-          metadata: tab.metadata,
+          metadata: mergedMetadata,
           packageName: tab.selectedPackage ?? undefined,
         });
       } else if (protocol === "grpc") {
@@ -119,7 +145,7 @@ export function RequestPanel() {
           tab.selectedMethod.fullName.lastIndexOf(".") +1
         );
         const protoPackage = typeName.split(".")[0];
-        const servicePath = `/${protoPackage}/${typeName}/${methodName}`;
+        const servicePath = tab.pathOverride ?? `/${protoPackage}/${typeName}/${methodName}`;
         const { getPackagesDir } = await import("@/lib/package-manager");
         const packagesDir = await getPackagesDir("grpc");
         const { callGrpcNative } = await import("@/lib/grpc-native-client");
@@ -127,7 +153,7 @@ export function RequestPanel() {
           url: resolvedUrl,
           servicePath,
           body: tab.requestBody,
-          metadata: tab.metadata,
+          metadata: mergedMetadata,
           packagesDir,
         });
       } else {
@@ -144,7 +170,7 @@ export function RequestPanel() {
           serviceName,
           methodName,
           body: tab.requestBody,
-          metadata: tab.metadata,
+          metadata: mergedMetadata,
           packagesDir,
         });
       }
@@ -249,11 +275,14 @@ export function RequestPanel() {
       tab.selectedMethod.fullName.lastIndexOf(".") +1
     );
     const protoPackage = typeName.split(".")[0];
-    const servicePath = `/${protoPackage}/${typeName}/${methodName}`;
+    const servicePath = tab.pathOverride ?? `/${protoPackage}/${typeName}/${methodName}`;
     const fullUrl = `${resolvedUrl.replace(/\/$/, "")}${servicePath}`;
 
-    const headers = tab.metadata
+    // Mirror the live send path: merge defaults, interpolate, drop unresolved templates.
+    const headers = mergeWithDefaultHeaders(tab.metadata, tab.protocolTab)
       .filter((m) => m.enabled && m.key)
+      .map((m) => ({ key: m.key, value: interpolate(m.value, activeEnv) }))
+      .filter((m) => !UNRESOLVED_TEMPLATE_PATTERN.test(m.value))
       .map((m) => `  -H '${m.key}: ${m.value}'`)
       .join(" \\\n");
 

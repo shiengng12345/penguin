@@ -124,6 +124,7 @@ export interface RequestTab {
   id: string;
   protocolTab: ProtocolTab;
   targetUrl: string;
+  pathOverride: string | null;
   requestBody: string;
   metadata: MetadataEntry[];
   selectedPackage: string | null;
@@ -135,6 +136,24 @@ export interface RequestTab {
 }
 
 // --- Helpers ---
+
+// Backend routes all UAT/QAT traffic through one shared URL per group;
+// x-env-tag is the routing signal. Value left empty so the user fills it in
+// (literal "QAT"/"UAT" or a `{{VAR}}` template) — no implicit template default.
+// Declared here (above _defaultHeaders) because loadDefaultHeaders runs at
+// module load time and reads this in its fallback object — a later const
+// declaration would put it in TDZ at first use.
+const X_ENV_TAG_DEFAULT: MetadataEntry = {
+  key: "x-env-tag",
+  value: "",
+  enabled: true,
+};
+
+const PLATFORM_ID_DEFAULT: MetadataEntry = {
+  key: "platform-id",
+  value: "",
+  enabled: true,
+};
 
 const _defaultHeaders = loadDefaultHeaders();
 
@@ -149,6 +168,7 @@ function createTab(origin: TabOrigin = null, protocol: ProtocolTab = "grpc-web")
     id: `tab_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     protocolTab: protocol,
     targetUrl: "{{URL}}",
+    pathOverride: null,
     requestBody: "{}",
     metadata: headers.map((h) => ({ ...h })),
     selectedPackage: null,
@@ -166,6 +186,26 @@ export function getDefaultHeadersForProtocol(protocol: ProtocolTab): MetadataEnt
   } catch {
     return _defaultHeaders[protocol].map((h) => ({ ...h }));
   }
+}
+
+// Returns the headers that should actually be sent for a tab: tab.metadata
+// takes precedence (including when an entry is present-but-disabled — the user
+// has explicitly opted out), and any default header whose key the tab hasn't
+// touched is appended. Header keys compare case-insensitively per HTTP semantics.
+export function mergeWithDefaultHeaders(
+  tabMetadata: MetadataEntry[],
+  protocol: ProtocolTab,
+): MetadataEntry[] {
+  const tabKeys = new Set(
+    tabMetadata
+      .map((entry) => entry.key.trim().toLowerCase())
+      .filter((key) => key.length > 0),
+  );
+  const inherited = getDefaultHeadersForProtocol(protocol).filter((entry) => {
+    const key = entry.key.trim().toLowerCase();
+    return key.length > 0 && !tabKeys.has(key);
+  });
+  return [...tabMetadata, ...inherited];
 }
 
 export { createTab };
@@ -278,22 +318,53 @@ function loadDefaultHeaders(): Record<ProtocolTab, MetadataEntry[]> {
     "grpc-web": [
       { key: "Authorization", value: "Bearer ", enabled: true },
       { key: "eId", value: "", enabled: true },
+      { ...X_ENV_TAG_DEFAULT },
+      { ...PLATFORM_ID_DEFAULT },
     ],
     grpc: [
       { key: "Authorization", value: "Bearer ", enabled: true },
       { key: "eId", value: "", enabled: true },
+      { ...X_ENV_TAG_DEFAULT },
+      { ...PLATFORM_ID_DEFAULT },
     ],
     sdk: [
       { key: "Authorization", value: "Bearer ", enabled: true },
       { key: "eId", value: "", enabled: true },
+      { ...X_ENV_TAG_DEFAULT },
+      { ...PLATFORM_ID_DEFAULT },
     ],
   };
   if (typeof window === "undefined") return fallback;
   try {
     const raw = localStorage.getItem(DEFAULT_HEADERS_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw);
-      return { ...fallback, ...parsed };
+      const parsed = JSON.parse(raw) as Record<ProtocolTab, MetadataEntry[]>;
+      const merged = { ...fallback, ...parsed };
+      // One-time migration: existing users predate x-env-tag; if their stored
+      // default headers don't include it, append it without disturbing other entries.
+      const protocols: ProtocolTab[] = ["grpc-web", "grpc", "sdk"];
+      let migrated = false;
+      for (const protocol of protocols) {
+        const current = merged[protocol] ?? [];
+        const hasXEnvTag = current.some(
+          (entry) => entry.key.trim().toLowerCase() === "x-env-tag",
+        );
+        if (!hasXEnvTag) {
+          merged[protocol] = [...current, { ...X_ENV_TAG_DEFAULT }];
+          migrated = true;
+        }
+        const hasPlatformId = merged[protocol].some(
+          (entry) => entry.key.trim().toLowerCase() === "platform-id",
+        );
+        if (!hasPlatformId) {
+          merged[protocol] = [...merged[protocol], { ...PLATFORM_ID_DEFAULT }];
+          migrated = true;
+        }
+      }
+      if (migrated) {
+        localStorage.setItem(DEFAULT_HEADERS_KEY, JSON.stringify(merged));
+      }
+      return merged;
     }
   } catch { /* corrupted */ }
   return fallback;

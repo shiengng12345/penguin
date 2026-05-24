@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { openPenguinSite } from "@/lib/external-links";
+import { logger } from "@/lib/logger";
 import { useAppStore, type ProtocolTab, type MetadataEntry } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,7 +25,6 @@ import {
   RefreshCw,
   ArrowDownToLine,
   RotateCcw,
-  BookOpenText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -137,7 +136,7 @@ export function SettingsDialog({
     setCleared(false);
     localStorage.clear();
     invoke<string>("clear_all_packages").catch((err) =>
-      console.error("Failed to clear packages:", err),
+      logger.error("SettingsDialog", "clear_all_packages failed", err),
     );
     window.location.reload();
   };
@@ -164,6 +163,8 @@ export function SettingsDialog({
 
   const buildExportData = () => {
     const s = useAppStore.getState();
+    // intentionally excludes savedRequests + history — those bloat the export
+    // (history embeds full ProtoMethod schema per entry) and aren't "config"
     return JSON.stringify(
       {
         version: 1,
@@ -177,8 +178,6 @@ export function SettingsDialog({
           grpc: s.grpcActiveEnvId,
           sdk: s.sdkActiveEnvId,
         },
-        savedRequests: s.savedRequests,
-        history: s.history,
         defaultHeaders: s.defaultHeaders,
         maxHistorySize: s.maxHistorySize,
         theme: s.theme,
@@ -533,7 +532,7 @@ export function SettingsDialog({
               Export / Import Config
             </h3>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Transfer environments, saved requests, history, and settings.
+              Transfer environments, default headers, and app settings (history &amp; saved requests are not included).
             </p>
             {exportMode === "idle" && (
               <div className="mt-3 flex gap-2">
@@ -592,7 +591,7 @@ export function SettingsDialog({
                     ) : (
                       <>
                         <Copy className="mr-1.5 h-3.5 w-3.5" />
-                        Copy All
+                        Copy Config
                       </>
                     )}
                   </Button>
@@ -655,25 +654,6 @@ export function SettingsDialog({
           >
             Manage Environments / 管理环境
           </Button>
-
-          <div className="rounded-lg border border-border bg-muted/20 p-4">
-            <h3 className="text-sm font-medium text-foreground flex items-center gap-1.5">
-              <BookOpenText className="h-3.5 w-3.5" />
-              Guide Website / 文档站
-            </h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Open the Penguin website for overview, tutorial, and full docs.
-            </p>
-            <Button
-              variant="outline"
-              className="mt-3 w-full"
-              onClick={() => {
-                void openPenguinSite();
-              }}
-            >
-              Open Penguin Website
-            </Button>
-          </div>
 
           {/* Clear Cache */}
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">

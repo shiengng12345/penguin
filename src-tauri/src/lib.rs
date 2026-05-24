@@ -447,6 +447,39 @@ fn clear_all_packages() -> Result<String, String> {
     Ok(format!("Cleared packages for: {}", cleared.join(", ")))
 }
 
+#[tauri::command]
+fn copy_png_to_clipboard(base64_data: String) -> Result<(), String> {
+    use base64::Engine;
+    let png_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&base64_data)
+        .map_err(|e| e.to_string())?;
+
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let tmp_path = format!("/tmp/pengvi-doc-{}.png", millis);
+
+    std::fs::write(&tmp_path, &png_bytes).map_err(|e| e.to_string())?;
+
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(format!(
+            "set the clipboard to (read (POSIX file \"{}\") as \u{00AB}class PNGf\u{00BB})",
+            tmp_path
+        ))
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    let _ = std::fs::remove_file(&tmp_path);
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -461,6 +494,7 @@ pub fn run() {
             http_proxy,
             read_package_bundle,
             clear_all_packages,
+            copy_png_to_clipboard,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

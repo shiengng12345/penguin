@@ -50,9 +50,17 @@ export async function listInstalledPackages(
 
 const INSTALL_TIMEOUT_MS = 300_000;
 
+const NODE_PATH_SETUP = [
+  'export NVM_DIR="$HOME/.nvm"',
+  '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"',
+  'export VOLTA_HOME="$HOME/.volta"',
+  'export PATH="$VOLTA_HOME/bin:$HOME/.fnm:/opt/homebrew/bin:/usr/local/bin:$PATH"',
+  'command -v fnm >/dev/null 2>&1 && eval "$(fnm env 2>/dev/null)"',
+].join("; ");
+
 async function shellCmd(script: string, cwd: string) {
   const { Command } = await import("@tauri-apps/plugin-shell");
-  return Command.create("zsh-login", ["-l", "-c", `cd ${JSON.stringify(cwd)} && ${script}`]);
+  return Command.create("zsh-login", ["-l", "-c", `${NODE_PATH_SETUP}; cd ${JSON.stringify(cwd)} && ${script}`]);
 }
 
 interface CommandRunResult {

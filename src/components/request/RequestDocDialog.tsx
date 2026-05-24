@@ -8,10 +8,11 @@ import {
 } from "@/lib/store";
 import { useEnvironments } from "@/hooks/useEnvironments";
 import { interpolate } from "@/lib/environment-store";
-import { Command } from "@tauri-apps/plugin-shell";
+import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
 import { Copy, Check, FileText, X, ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { tryFormatJson } from "@/lib/json-utils";
 
 interface RequestDocDialogProps {
   open: boolean;
@@ -67,24 +68,12 @@ function buildFullProto(typeName: string, fields: FieldInfo[]): string {
   return main +nested;
 }
 
-function formatJson(raw: string): string {
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2);
-  } catch {
-    return raw;
-  }
-}
-
 function formatResponseBody(resp: ResponseState): string {
   if (resp.body && resp.body !== "" && resp.body !== "{}" && resp.body !== "null") {
-    return formatJson(resp.body);
+    return tryFormatJson(resp.body);
   }
   if (resp.error) {
-    try {
-      return JSON.stringify(JSON.parse(resp.error), null, 2);
-    } catch {
-      return resp.error;
-    }
+    return tryFormatJson(resp.error);
   }
   return "(empty)";
 }
@@ -151,7 +140,7 @@ function buildDocText(opts: {
   lines.push(`${divider}`);
   lines.push("REQUEST BODY");
   lines.push(`${divider}`);
-  lines.push(formatJson(opts.requestBody));
+  lines.push(tryFormatJson(opts.requestBody));
 
   lines.push("");
   lines.push(`${divider}`);
@@ -253,7 +242,7 @@ export function RequestDocDialog({ open, onClose }: RequestDocDialogProps) {
     method.fullName.lastIndexOf(".") +1
   );
   const protoPackage = typeName.split(".")[0];
-  const servicePath = `/${protoPackage}/${typeName}/${methodName}`;
+  const servicePath = tab.pathOverride ?? `/${protoPackage}/${typeName}/${methodName}`;
   const fullUrl = `${resolvedUrl.replace(/\/$/, "")}${servicePath}`;
 
   const allPkgs =
@@ -352,7 +341,7 @@ export function RequestDocDialog({ open, onClose }: RequestDocDialogProps) {
       },
       {
         title: "REQUEST BODY",
-        lines: formatJson(tab.requestBody).split("\n"),
+        lines: tryFormatJson(tab.requestBody).split("\n"),
       },
       {
         title: `RESPONSE MESSAGE — ${method.responseType}`,
@@ -510,23 +499,9 @@ export function RequestDocDialog({ open, onClose }: RequestDocDialogProps) {
 
     const dataUrl = canvas.toDataURL("image/png");
     const base64 = dataUrl.replace(/^data:image\/png;base64,/, "");
-    const tmpB64 = `/tmp/pengvi-doc-${Date.now()}.b64`;
-    const tmpPng = `/tmp/pengvi-doc-${Date.now()}.png`;
-
-    const chunkSize = 50000;
-    const chunks: string[] = [];
-    for (let i = 0; i < base64.length; i += chunkSize) {
-      chunks.push(base64.slice(i, i +chunkSize));
-    }
-    const printfArgs = chunks.map((c) => `printf '%s' "${c}" >> ${tmpB64}`).join(" && ");
 
     try {
-      const cmd = Command.create("zsh-login", [
-        "-l",
-        "-c",
-        `rm -f ${tmpB64} ${tmpPng} && ${printfArgs} && base64 -d < ${tmpB64} > ${tmpPng} && osascript -e 'set the clipboard to (read (POSIX file "${tmpPng}") as «class PNGf»)' && rm -f ${tmpB64} ${tmpPng}`,
-      ]);
-      await cmd.execute();
+      await invoke("copy_png_to_clipboard", { base64Data: base64 });
       setImgCopied(true);
       setTimeout(() => setImgCopied(false), 1500);
     } catch {
@@ -663,7 +638,7 @@ export function RequestDocDialog({ open, onClose }: RequestDocDialogProps) {
           {/* Request Body */}
           <DocSection title="Request Body">
             <pre className="font-mono text-[11px] leading-relaxed text-foreground/80 whitespace-pre-wrap break-all select-all">
-              {formatJson(tab.requestBody)}
+              {tryFormatJson(tab.requestBody)}
             </pre>
           </DocSection>
 

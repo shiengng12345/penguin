@@ -1,39 +1,46 @@
 import { useAppStore, useActiveTab } from "@/lib/store";
 import { EnvInput } from "@/components/ui/env-input";
 import { Badge } from "@/components/ui/badge";
-import { Send, Globe, Server } from "lucide-react";
+import { Send, Globe, Server, RotateCcw, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 interface UrlBarProps {
   resolvedUrl: string | null;
 }
 
+function computeAutoPath(fullName: string): string {
+  const typeName = fullName.substring(0, fullName.lastIndexOf("."));
+  const methodName = fullName.substring(fullName.lastIndexOf(".") + 1);
+  const [pkgRaw, ...rest] = typeName.split(".");
+  // proto package segment is force-lowercased so URL routing stays case-stable
+  // even when the .proto declares the package in mixed case
+  const protoPackage = pkgRaw.toLowerCase();
+  const normalizedType = [protoPackage, ...rest].join(".");
+  return `/${protoPackage}/${normalizedType}/${methodName}`;
+}
+
 export function UrlBar({ resolvedUrl }: UrlBarProps) {
   const { updateActiveTab } = useAppStore();
   const tab = useActiveTab();
+
   if (!tab) return null;
 
-  const servicePath = tab.selectedMethod
-    ? (() => {
-        const typeName = tab.selectedMethod.fullName.substring(0, tab.selectedMethod.fullName.lastIndexOf("."));
-        const methodName = tab.selectedMethod.fullName.substring(tab.selectedMethod.fullName.lastIndexOf(".") +1);
-        const protoPackage = typeName.split(".")[0];
-        return `/${protoPackage}/${typeName}/${methodName}`;
-      })()
-    : null;
-
+  const autoPath = tab.selectedMethod ? computeAutoPath(tab.selectedMethod.fullName) : null;
+  const effectivePath = tab.pathOverride ?? autoPath;
+  const isOverridden = tab.pathOverride !== null;
   const displayUrl = resolvedUrl ?? tab.targetUrl;
-  const fullRequestUrl = servicePath && displayUrl
-    ? `${displayUrl.replace(/\/$/, "")}${servicePath}`
-    : null;
+
+  const handlePathChange = (value: string) => {
+    const newOverride = value === "" || value === autoPath ? null : value;
+    updateActiveTab({ pathOverride: newOverride });
+  };
 
   return (
     <div className="border-b border-border bg-card" data-tour="url-bar">
+      {/* Base URL row */}
       <div className="flex items-center gap-2 px-4 py-2">
-        <Badge
-          variant="outline"
-          className="shrink-0 font-mono text-[10px] gap-1"
-        >
+        <Badge variant="outline" className="shrink-0 font-mono text-[10px] gap-1">
           {tab.protocolTab === "grpc-web" ? (
             <Globe className="h-3 w-3" />
           ) : (
@@ -50,9 +57,7 @@ export function UrlBar({ resolvedUrl }: UrlBarProps) {
         />
 
         <Button
-          onClick={() => {
-            document.dispatchEvent(new CustomEvent("pengvi:send-request"));
-          }}
+          onClick={() => document.dispatchEvent(new CustomEvent("pengvi:send-request"))}
           disabled={tab.isLoading || !tab.targetUrl.trim() || !tab.selectedMethod}
           size="default"
           data-tour="send-btn"
@@ -62,15 +67,49 @@ export function UrlBar({ resolvedUrl }: UrlBarProps) {
         </Button>
       </div>
 
-      {fullRequestUrl && (
-        <div className="flex items-center gap-2 px-4 pb-1.5 -mt-0.5">
-          <span className="text-[10px] text-muted-foreground">POST</span>
-          <span className="font-mono text-[10px] text-primary truncate select-all">
-            {fullRequestUrl}
+      {/* Path row — always-on editable input */}
+      {autoPath && (
+        <div className="flex items-center gap-1.5 px-4 pb-2 -mt-0.5 min-w-0">
+          <span className="text-[10px] text-muted-foreground shrink-0">POST</span>
+          <span className="font-mono text-[10px] text-muted-foreground/50 shrink-0 truncate max-w-[200px]">
+            {displayUrl.replace(/\/$/, "")}
           </span>
+          <div className={cn(
+            "flex items-center flex-1 min-w-0 rounded px-1.5 py-0.5 border gap-1",
+            "bg-muted/20 transition-colors",
+            isOverridden
+              ? "border-amber-400/50 hover:border-amber-400"
+              : "border-border/50 hover:border-border focus-within:border-primary/60"
+          )}>
+            <Pencil className={cn(
+              "h-2.5 w-2.5 shrink-0",
+              isOverridden ? "text-amber-400/70" : "text-muted-foreground/50"
+            )} />
+            <input
+              className={cn(
+                "font-mono text-[10px] bg-transparent focus:outline-none flex-1 min-w-0",
+                isOverridden ? "text-amber-400" : "text-primary"
+              )}
+              value={effectivePath ?? ""}
+              onChange={(e) => handlePathChange(e.target.value)}
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="off"
+            />
+            {isOverridden && (
+              <button
+                onClick={() => updateActiveTab({ pathOverride: null })}
+                className="shrink-0 text-muted-foreground/60 hover:text-foreground"
+                title="Reset to auto-generated path"
+              >
+                <RotateCcw className="h-2.5 w-2.5" />
+              </button>
+            )}
+          </div>
         </div>
       )}
 
+      {/* Method info row */}
       {tab.selectedMethod && (
         <div className="flex items-center gap-2 px-4 pb-2 -mt-0.5">
           <span className="text-[10px] text-muted-foreground">Method:</span>

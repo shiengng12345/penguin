@@ -130,12 +130,14 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
       return pi === p.length ? score : -1;
     };
 
+    const ql = q.toLowerCase();
     return allResults
       .map((r) => {
         const mScore = fuzzyMatch(r.method.name, q);
         const sScore = fuzzyMatch(r.serviceName, q);
-        const pScore = fuzzyMatch(r.packageName, q);
-        const best = Math.max(mScore, sScore, pScore);
+        const methodHit = r.method.name.toLowerCase().includes(ql) ? 10000 : 0;
+        const serviceHit = r.serviceName.toLowerCase().includes(ql) ? 5000 : 0;
+        const best = Math.max(mScore + methodHit, sScore + serviceHit);
         return { result: r, score: best };
       })
       .filter((r) => r.score > 0)

@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { tryFormatJson } from "@/lib/json-utils";
 
 const PROTOCOL_BADGES: Record<
   ProtocolTab,
@@ -400,17 +401,7 @@ export function SavedRequestsPanel({
                           Request Body
                         </span>
                         <pre className="mt-0.5 max-h-24 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-foreground/80">
-                          {(() => {
-                            try {
-                              return JSON.stringify(
-                                JSON.parse(entry.requestBody),
-                                null,
-                                2
-                              );
-                            } catch {
-                              return entry.requestBody;
-                            }
-                          })()}
+                          {tryFormatJson(entry.requestBody)}
                         </pre>
                       </div>
                       {entry.response && (
@@ -450,15 +441,7 @@ export function SavedRequestsPanel({
                               const body =
                                 entry.response.body || entry.response.error;
                               if (!body) return "(empty)";
-                              try {
-                                return JSON.stringify(
-                                  JSON.parse(body),
-                                  null,
-                                  2
-                                );
-                              } catch {
-                                return body;
-                              }
+                              return tryFormatJson(body);
                             })()}
                           </pre>
                         </div>
