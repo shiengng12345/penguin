@@ -36,7 +36,30 @@ const GREETINGS = [
   (n: string) => `siao liao — jk, ${n}`,
 ];
 
+// Returns a special greeting that overrides time-of-day + hourly rotation,
+// or null for normal days. Precedence: fixed calendar dates > late-night > weekly.
+function specialDayGreeting(name: string): string | null {
+  const now = new Date();
+  const date = now.getDate();
+  const month = now.getMonth() + 1;
+  const dayOfWeek = now.getDay();
+  const hour = now.getHours();
+
+  if (month === 8 && date === 31) return `${name}, Selamat Hari Merdeka! 🇲🇾`;
+  if (date === 5) return `${name}, 出粮咯! kopi on you la 💰`;
+
+  // Late-night OT (1-4am) — wins over weekly Friday but not calendar events above
+  if (hour >= 1 && hour < 5) return `${name}, 兄弟你确定还在 debug? 🌙`;
+
+  // dayOfWeek: 0 = Sunday, 5 = Friday
+  if (dayOfWeek === 5) return `${name}, friday vibes, 周末啦 🍻`;
+
+  return null;
+}
+
 function timeOfDayGreeting(name: string): string {
+  const special = specialDayGreeting(name);
+  if (special) return special;
   const hour = new Date().getHours();
   if (hour < 8) return `${name}, so early ah?`;
   if (hour < 12) return `早安 ${name}!`;
@@ -48,6 +71,8 @@ function timeOfDayGreeting(name: string): string {
 }
 
 function pickGreeting(name: string): string {
+  const special = specialDayGreeting(name);
+  if (special) return special;
   const now = Date.now();
   const hourSlot = Math.floor(now / 3_600_000);
   const idx = hourSlot % GREETINGS.length;

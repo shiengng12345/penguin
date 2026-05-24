@@ -1,11 +1,11 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegram/nicegram-web/refs/heads/main/nicegram-schemas/tauri-v2/tauri.conf.json",
   "productName": "Penguin",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "identifier": "com.pengvi.app",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:1430",
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build && cp .pengvi.config.json ~/.pengvi/config.json"
   },

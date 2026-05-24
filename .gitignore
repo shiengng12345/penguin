@@ -28,3 +28,14 @@ Thumbs.db
 
 # TS incremental build cache
 *.tsbuildinfo
+
+# Claude Code session data
+.claude/
+
+# Accidental shell redirect artifacts
+pengvi@*
+/tauri
+
+# Tauri icon CLI by-products for unused platforms (we only ship macOS)
+src-tauri/icons/ios/
+src-tauri/icons/android/
