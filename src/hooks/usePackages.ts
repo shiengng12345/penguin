@@ -148,12 +148,13 @@ export function usePackages(): {
       }
     };
 
-    // Defer package scanning so the UI renders first
-    const ric = typeof requestIdleCallback === "function" ? requestIdleCallback : (cb: () => void) => setTimeout(cb, 50);
-    const id = ric(() => { if (!cancelled) run(); });
+    // Defer one tick so the UI paints first, but enqueue immediately — earlier
+    // requestIdleCallback could be deferred long enough that the command
+    // palette opened with empty packages, returning wrong/missing results.
+    const id = setTimeout(() => { if (!cancelled) run(); }, 0);
     return () => {
       cancelled = true;
-      if (typeof cancelIdleCallback === "function") cancelIdleCallback(id as number);
+      clearTimeout(id);
     };
   }, []);
 

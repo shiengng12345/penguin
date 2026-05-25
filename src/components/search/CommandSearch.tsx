@@ -90,17 +90,14 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
   const filteredResults = (() => {
     const q = query.trim();
     if (!q) return allResults;
+    const ql = q.toLowerCase();
 
     if (q.includes("*")) {
-      const pattern = new RegExp(
-        "^" +
-          q
-            .split("*")
-            .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-            .join(".*") +
-          "$",
-        "i"
-      );
+      const inner = q
+        .split("*")
+        .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+        .join(".*");
+      const pattern = new RegExp(`.*${inner}.*`, "i");
       return allResults.filter(
         (r) =>
           pattern.test(r.method.name) ||
@@ -109,36 +106,12 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
       );
     }
 
-    const fuzzyMatch = (text: string, pattern: string): number => {
-      const t = text.toLowerCase();
-      const p = pattern.toLowerCase();
-      let ti = 0;
-      let pi = 0;
-      let score = 0;
-      let consecutive = 0;
-      while (ti < t.length && pi < p.length) {
-        if (t[ti] === p[pi]) {
-          consecutive++;
-          score += consecutive;
-          if (ti === pi) score += 2;
-          pi++;
-        } else {
-          consecutive = 0;
-        }
-        ti++;
-      }
-      return pi === p.length ? score : -1;
-    };
-
-    const ql = q.toLowerCase();
     return allResults
       .map((r) => {
-        const mScore = fuzzyMatch(r.method.name, q);
-        const sScore = fuzzyMatch(r.serviceName, q);
-        const methodHit = r.method.name.toLowerCase().includes(ql) ? 10000 : 0;
-        const serviceHit = r.serviceName.toLowerCase().includes(ql) ? 5000 : 0;
-        const best = Math.max(mScore + methodHit, sScore + serviceHit);
-        return { result: r, score: best };
+        const methodHit = r.method.name.toLowerCase().includes(ql) ? 100 : 0;
+        const serviceHit = r.serviceName.toLowerCase().includes(ql) ? 10 : 0;
+        const packageHit = r.packageName.toLowerCase().includes(ql) ? 1 : 0;
+        return { result: r, score: methodHit + serviceHit + packageHit };
       })
       .filter((r) => r.score > 0)
       .sort((a, b) => b.score - a.score)
