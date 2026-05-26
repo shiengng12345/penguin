@@ -39,6 +39,22 @@ async function run() {
     process.exit(0);
   }
 
+  // @snsoft/js-sdk publishes a broken Auth class as the default export: the
+  // exported \`jn\` only has 24 methods (stops at facebookVerifyPhoneNumber), while
+  // the complete Auth (\`kn\`, with lookupNationalId / verifyDob / playerRegister /
+  // checkEmailAvailability / etc.) is defined in the bundle but not exported.
+  // Patch the bundle in-place so dynamic import loads the working class.
+  // Idempotent — checks first, only writes if needed. Re-runs after npm reinstall.
+  try {
+    const bundleSrc = fs.readFileSync(sdkEntry, 'utf8');
+    if (bundleSrc.includes('jn as Auth,')) {
+      fs.writeFileSync(sdkEntry, bundleSrc.replace('jn as Auth,', 'kn as Auth,'));
+      sdkLogs.push(['sdk-patch', 'replaced jn as Auth -> kn as Auth in bundle.esm.js']);
+    }
+  } catch (patchErr) {
+    sdkLogs.push(['sdk-patch-error', String((patchErr && patchErr.message) || patchErr)]);
+  }
+
   const meta = (metadata || []).filter(m => m.enabled && m.key).reduce((acc, m) => { acc[m.key] = m.value; return acc; }, {});
   const token = meta.Authorization?.replace(/^Bearer\\s+/i, '') || meta.token || meta.Token || '';
   const eId = meta.eId || meta.EId || meta.eid || '';
