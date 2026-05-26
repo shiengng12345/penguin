@@ -43,6 +43,10 @@ async function run() {
   const token = meta.Authorization?.replace(/^Bearer\\s+/i, '') || meta.token || meta.Token || '';
   const eId = meta.eId || meta.EId || meta.eid || '';
   const playerId = meta.playerId || meta.PlayerId || eId || '';
+  const platformId = meta['platform-id'] || meta.platformId || meta.PlatformId || '50';
+  // Headers to inject on every fetch issued by the SDK so SDK calls
+  // forward x-env-tag, platform-id, etc. like gRPC-Web does.
+  const extraHeaders = Object.entries(meta);
 
   let env = 1;
   const urlLower = url.toLowerCase();
@@ -63,6 +67,16 @@ async function run() {
 
   const origFetch = globalThis.fetch;
   globalThis.fetch = function(innerUrl, opts) {
+    const newOpts = opts ? Object.assign({}, opts) : {};
+    if (extraHeaders.length) {
+      const h = new Headers(newOpts.headers || undefined);
+      for (var i = 0; i < extraHeaders.length; i++) {
+        var k = extraHeaders[i][0];
+        var v = extraHeaders[i][1];
+        if (k && v != null) h.set(k, String(v));
+      }
+      newOpts.headers = h;
+    }
     let urlStr = typeof innerUrl === 'string' ? innerUrl : innerUrl?.url || '';
     try {
       const parsed = new URL(urlStr);
@@ -74,10 +88,10 @@ async function run() {
           host.includes('casinoplus') || host.includes('fpms-nt')) {
         const rewritten = targetOrigin +parsed.pathname +parsed.search;
         sdkLogs.push(['fetch-rewrite', host +parsed.pathname +' -> ' +rewritten]);
-        return origFetch(rewritten, opts);
+        return origFetch(rewritten, newOpts);
       }
     } catch (_) {}
-    return origFetch(innerUrl, opts);
+    return origFetch(innerUrl, newOpts);
   };
 
   try {
@@ -90,7 +104,7 @@ async function run() {
       await GC.init(
         {
           uniqueKey: 'pengvi-' +Date.now(),
-          platformId: '50',
+          platformId: platformId,
           deviceType: 1,
           isNT: true,
           initGrpc: true,
