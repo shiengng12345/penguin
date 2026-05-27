@@ -15,6 +15,10 @@ export default defineConfig(async () => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Bypass package.json `main` (which points to dist/ for Node) and use
+      // core's TS source directly. Keeps Vite HMR working when editing core
+      // files while still letting Node consumers (MCP) use the compiled output.
+      "@pengvi/core": path.resolve(__dirname, "./packages/core/src/index.ts"),
     },
   },
   clearScreen: false,

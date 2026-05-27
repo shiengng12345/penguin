@@ -6,21 +6,21 @@ export type {
   ResponseState,
   ConnectMethodDef,
   ConnectServiceDef,
-} from "./types";
+} from "./types.js";
 
-export { logger } from "./logger";
-export { parseProtoContent, generateDefaultJson, generateMethodPath } from "./proto-parser";
-export { parseSdkDts } from "./sdk-parser";
-export { discoverServices } from "./discover-services";
-export { callGrpcWeb, type LoadPackageModule } from "./grpc-web-client";
-export type { SidecarRunner, SidecarOutput } from "./sidecar-runner";
+export { logger } from "./logger.js";
+export { parseProtoContent, generateDefaultJson, generateMethodPath } from "./proto-parser.js";
+export { parseSdkDts } from "./sdk-parser.js";
+export { discoverServices } from "./discover-services.js";
+export { callGrpcWeb, type LoadPackageModule } from "./grpc-web-client.js";
+export type { SidecarRunner, SidecarOutput } from "./sidecar-runner.js";
 export {
   callGrpcNative,
   buildGrpcNativeScript,
   type GrpcNativeCallParams,
-} from "./grpc-native-client";
+} from "./grpc-native-client.js";
 export {
   callSdk,
   buildSdkScript,
   type SdkCallParams,
-} from "./sdk-client";
+} from "./sdk-client.js";

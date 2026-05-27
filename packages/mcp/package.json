@@ -1,0 +1,21 @@
+{
+  "name": "@pengvi/mcp",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "pengvi-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@pengvi/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  }
+}

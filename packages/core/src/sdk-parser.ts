@@ -1,4 +1,4 @@
-import type { ProtoService, ProtoMethod } from "./types";
+import type { ProtoService, ProtoMethod } from "./types.js";
 
 const SKIP_CLASSES = new Set(["Notify", "WebSocketManager", "GlobalConfig"]);
 

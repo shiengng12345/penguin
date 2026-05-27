@@ -1,5 +1,5 @@
-import type { ResponseState, MetadataEntry } from "./types";
-import type { SidecarRunner } from "./sidecar-runner";
+import type { ResponseState, MetadataEntry } from "./types.js";
+import type { SidecarRunner } from "./sidecar-runner.js";
 
 export interface SdkCallParams {
   url: string;

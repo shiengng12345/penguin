@@ -1,7 +1,7 @@
 import { createClient, type Interceptor } from "@connectrpc/connect";
 import { createGrpcWebTransport } from "@connectrpc/connect-web";
-import type { ResponseState, MetadataEntry, ConnectServiceDef } from "./types";
-import { discoverServices } from "./discover-services";
+import type { ResponseState, MetadataEntry, ConnectServiceDef } from "./types.js";
+import { discoverServices } from "./discover-services.js";
 
 // Module loader signature. Pengvi desktop injects a Tauri-backed loader that
 // reads bundle.js via the Rust side and dynamic-imports a blob URL; Node

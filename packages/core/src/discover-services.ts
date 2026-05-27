@@ -1,4 +1,4 @@
-import type { ConnectServiceDef } from "./types";
+import type { ConnectServiceDef } from "./types.js";
 
 // Inspects the runtime exports of an installed @snsoft package and walks the
 // generated *Connect modules to recover ConnectRPC service descriptors. Pure

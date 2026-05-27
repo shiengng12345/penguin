@@ -1,6 +1,6 @@
 import protobuf from "protobufjs";
-import { logger } from "./logger";
-import type { ProtoService, ProtoMethod, FieldInfo } from "./types";
+import { logger } from "./logger.js";
+import type { ProtoService, ProtoMethod, FieldInfo } from "./types.js";
 
 export function parseProtoContent(
   files: { name: string; content: string }[]
