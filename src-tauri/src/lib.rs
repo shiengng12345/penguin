@@ -500,6 +500,160 @@ fn copy_png_to_clipboard(base64_data: String) -> Result<(), String> {
     }
 }
 
+// ---- MCP integration with Claude Desktop ---------------------------------
+// The MCP server JS (~/packages/mcp/dist/index.js) is bundled with the app as
+// a Tauri resource. The Settings UI surfaces a one-click flow that writes a
+// pengvi entry into ~/Library/Application Support/Claude/claude_desktop_config.json
+// pointing at that bundled file, merging without disturbing other servers.
+
+fn claude_desktop_config_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| {
+        h.join("Library")
+            .join("Application Support")
+            .join("Claude")
+            .join("claude_desktop_config.json")
+    })
+}
+
+// Resolve the bundled MCP server path from the Tauri resource dir. Bundled at
+// release time via tauri.conf.json `resources`; falls back to the workspace
+// build output during `tauri dev`.
+fn bundled_mcp_server_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let candidate = resource_dir.join("index.js");
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+        let nested = resource_dir
+            .join("packages")
+            .join("mcp")
+            .join("dist")
+            .join("index.js");
+        if nested.exists() {
+            return Ok(nested);
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        for ancestor in cwd.ancestors() {
+            let candidate = ancestor.join("packages/mcp/dist/index.js");
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+        }
+    }
+    Err("Bundled MCP server (packages/mcp/dist/index.js) not found".to_string())
+}
+
+// Best-effort search for a usable `node` binary. Tauri-spawned processes don't
+// inherit the user's interactive PATH, so we have to look in the common nvm /
+// homebrew / fnm / system locations explicitly.
+fn detect_node_path() -> Option<PathBuf> {
+    let candidates = ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"];
+    for c in candidates {
+        let p = PathBuf::from(c);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    if let Some(home) = dirs::home_dir() {
+        let nvm_dir = home.join(".nvm/versions/node");
+        if let Ok(entries) = std::fs::read_dir(&nvm_dir) {
+            // Pick the latest (alphabetically-last) version; lexical sort is
+            // close enough for v16/v18/v20 ordering.
+            let mut versions: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+            versions.sort();
+            if let Some(latest) = versions.last() {
+                let node = latest.join("bin/node");
+                if node.exists() {
+                    return Some(node);
+                }
+            }
+        }
+    }
+    None
+}
+
+#[derive(serde::Serialize)]
+struct McpStatus {
+    server_name: String,
+    bundled_server_path: Option<String>,
+    node_path: Option<String>,
+    claude_desktop_config_path: Option<String>,
+    claude_desktop_configured: bool,
+}
+
+#[tauri::command]
+fn mcp_status<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> McpStatus {
+    let bundled = bundled_mcp_server_path(&app).ok();
+    let node = detect_node_path();
+    let cfg_path = claude_desktop_config_path();
+
+    let configured = cfg_path
+        .as_ref()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("mcpServers")?.get("penguin").cloned())
+        .is_some();
+
+    McpStatus {
+        server_name: "penguin".to_string(),
+        bundled_server_path: bundled.map(|p| p.to_string_lossy().to_string()),
+        node_path: node.map(|p| p.to_string_lossy().to_string()),
+        claude_desktop_config_path: cfg_path.map(|p| p.to_string_lossy().to_string()),
+        claude_desktop_configured: configured,
+    }
+}
+
+#[tauri::command]
+fn mcp_install_to_claude_desktop<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<String, String> {
+    let server = bundled_mcp_server_path(&app)?;
+    let node = detect_node_path().ok_or("Could not locate a node binary in common paths")?;
+    let cfg_path = claude_desktop_config_path().ok_or("No home directory")?;
+
+    if let Some(parent) = cfg_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    let mut root: serde_json::Value = if cfg_path.exists() {
+        let raw = std::fs::read_to_string(&cfg_path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&raw).map_err(|e| format!("Existing config is not valid JSON: {e}"))?
+    } else {
+        serde_json::json!({})
+    };
+
+    if !root.is_object() {
+        return Err("Existing config root is not a JSON object".to_string());
+    }
+
+    let servers = root
+        .as_object_mut()
+        .unwrap()
+        .entry("mcpServers")
+        .or_insert_with(|| serde_json::json!({}));
+
+    if !servers.is_object() {
+        return Err("mcpServers field exists but is not an object".to_string());
+    }
+
+    servers.as_object_mut().unwrap().insert(
+        "penguin".to_string(),
+        serde_json::json!({
+            "command": node.to_string_lossy(),
+            "args": [server.to_string_lossy()],
+        }),
+    );
+
+    let pretty = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
+    std::fs::write(&cfg_path, pretty).map_err(|e| e.to_string())?;
+
+    Ok(format!(
+        "Added penguin MCP server to {}. Restart Claude Desktop to pick it up.",
+        cfg_path.display()
+    ))
+}
+
 pub fn run() {
     migrate_legacy_pengvi_dir();
     tauri::Builder::default()
@@ -516,6 +670,8 @@ pub fn run() {
             read_package_bundle,
             clear_all_packages,
             copy_png_to_clipboard,
+            mcp_status,
+            mcp_install_to_claude_desktop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

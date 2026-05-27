@@ -25,6 +25,8 @@ import {
   RefreshCw,
   ArrowDownToLine,
   RotateCcw,
+  Plug,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -65,6 +67,64 @@ export function SettingsDialog({
   const historyCount = useAppStore((s) => s.history.length);
 
   const [appVersion, setAppVersion] = useState<string>("");
+
+  // MCP integration with Claude Desktop. `mcpStatus` is fetched lazily when
+  // the user opens Settings; the install button refreshes it after writing.
+  interface McpStatusShape {
+    server_name: string;
+    bundled_server_path: string | null;
+    node_path: string | null;
+    claude_desktop_config_path: string | null;
+    claude_desktop_configured: boolean;
+  }
+  const [mcpStatus, setMcpStatus] = useState<McpStatusShape | null>(null);
+  const [mcpInstallState, setMcpInstallState] = useState<
+    "idle" | "installing" | "success" | "error"
+  >("idle");
+  const [mcpInstallMsg, setMcpInstallMsg] = useState<string>("");
+  const [mcpConfigCopied, setMcpConfigCopied] = useState(false);
+
+  const refreshMcpStatus = useCallback(async () => {
+    try {
+      const s = await invoke<McpStatusShape>("mcp_status");
+      setMcpStatus(s);
+    } catch (err) {
+      logger.warn("Settings", "mcp_status failed", { error: String(err) });
+    }
+  }, []);
+
+  const handleMcpInstall = async () => {
+    setMcpInstallState("installing");
+    setMcpInstallMsg("");
+    try {
+      const msg = await invoke<string>("mcp_install_to_claude_desktop");
+      setMcpInstallMsg(msg);
+      setMcpInstallState("success");
+      await refreshMcpStatus();
+    } catch (err) {
+      setMcpInstallMsg(String(err));
+      setMcpInstallState("error");
+    }
+  };
+
+  const handleMcpCopyConfig = async () => {
+    if (!mcpStatus?.bundled_server_path || !mcpStatus?.node_path) return;
+    const snippet = JSON.stringify(
+      {
+        mcpServers: {
+          penguin: {
+            command: mcpStatus.node_path,
+            args: [mcpStatus.bundled_server_path],
+          },
+        },
+      },
+      null,
+      2,
+    );
+    await navigator.clipboard.writeText(snippet);
+    setMcpConfigCopied(true);
+    setTimeout(() => setMcpConfigCopied(false), 2000);
+  };
   const [updateStatus, setUpdateStatus] = useState<
     "idle" | "checking" | "available" | "up-to-date" | "downloading" | "ready" | "error"
   >("idle");
@@ -74,6 +134,7 @@ export function SettingsDialog({
 
   useState(() => {
     getVersion().then(setAppVersion).catch(() => setAppVersion("unknown"));
+    refreshMcpStatus();
   });
 
   const handleCheckUpdate = useCallback(async () => {
@@ -432,6 +493,112 @@ export function SettingsDialog({
                 </div>
               )}
             </div>
+          </div>
+
+          {/* MCP Integration */}
+          <div className="rounded-lg border border-border bg-muted/20 p-4">
+            <h3 className="text-sm font-medium text-foreground flex items-center gap-1.5">
+              <Plug className="h-3.5 w-3.5" />
+              MCP Integration / MCP 集成
+            </h3>
+            <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+              Let Claude / Cursor / any MCP client call your backend's gRPC, gRPC-Web,
+              and SDK methods directly using the packages you've installed in Penguin.
+              <br />
+              让 Claude / Cursor 等 AI 工具通过你已装的包，直接调用后端的 gRPC / gRPC-Web / SDK 方法。
+            </p>
+
+            <div className="mt-3 flex items-center gap-1.5 text-xs">
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  mcpStatus?.claude_desktop_configured ? "bg-emerald-500" : "bg-muted-foreground/40",
+                )}
+              />
+              <span className="text-muted-foreground">
+                Claude Desktop:{" "}
+                <span
+                  className={cn(
+                    "font-medium",
+                    mcpStatus?.claude_desktop_configured ? "text-emerald-500" : "text-muted-foreground",
+                  )}
+                >
+                  {mcpStatus?.claude_desktop_configured
+                    ? "Configured / 已配置"
+                    : "Not configured / 未配置"}
+                </span>
+              </span>
+            </div>
+
+            {!mcpStatus?.bundled_server_path && mcpStatus !== null && (
+              <p className="mt-2 text-xs text-amber-500">
+                Bundled MCP server not found. Build the app or run dev mode first.
+                <br />未找到内嵌 MCP 服务器，请先构建或运行开发模式。
+              </p>
+            )}
+            {!mcpStatus?.node_path && mcpStatus !== null && (
+              <p className="mt-2 text-xs text-amber-500">
+                No Node.js binary detected. Install Node from nodejs.org or via Homebrew.
+                <br />未检测到 Node.js，请先安装 Node。
+              </p>
+            )}
+
+            <div className="mt-3 flex flex-col gap-2">
+              <Button
+                variant="default"
+                size="sm"
+                className="w-full"
+                onClick={handleMcpInstall}
+                disabled={
+                  mcpInstallState === "installing" ||
+                  !mcpStatus?.bundled_server_path ||
+                  !mcpStatus?.node_path
+                }
+              >
+                {mcpInstallState === "installing" ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                {mcpStatus?.claude_desktop_configured
+                  ? "Re-add to Claude Desktop / 重新写入"
+                  : "Auto-add to Claude Desktop / 一键添加"}
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={handleMcpCopyConfig}
+                disabled={!mcpStatus?.bundled_server_path || !mcpStatus?.node_path}
+              >
+                {mcpConfigCopied ? (
+                  <CheckCircle className="mr-1.5 h-3.5 w-3.5" />
+                ) : (
+                  <Copy className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                {mcpConfigCopied ? "Copied! / 已复制" : "Copy Config JSON / 复制配置"}
+              </Button>
+            </div>
+
+            {mcpInstallState === "success" && mcpInstallMsg && (
+              <p className="mt-2 text-xs text-emerald-500 leading-relaxed">
+                {mcpInstallMsg}
+              </p>
+            )}
+            {mcpInstallState === "error" && mcpInstallMsg && (
+              <p className="mt-2 text-xs text-red-500 leading-relaxed">
+                {mcpInstallMsg}
+              </p>
+            )}
+
+            <p className="mt-3 text-[10px] text-muted-foreground leading-relaxed">
+              For Claude Code (CLI), run in terminal:
+              <br />
+              <code className="font-mono text-[10px] block mt-1 px-2 py-1 rounded bg-muted/40">
+                claude mcp add --scope user penguin {mcpStatus?.node_path ?? "<node>"} {mcpStatus?.bundled_server_path ?? "<path>"}
+              </code>
+            </p>
           </div>
 
           {/* Max History Size */}

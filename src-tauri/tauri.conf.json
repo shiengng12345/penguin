@@ -40,7 +40,8 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "../.penguin.config.json"
+      "../.penguin.config.json",
+      "../packages/mcp/dist/index.js"
     ]
   },
   "plugins": {
