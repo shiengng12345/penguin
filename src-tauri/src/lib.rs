@@ -266,7 +266,14 @@ fn read_config<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> String {
     }
 
     if let Ok(resource_dir) = app.path().resource_dir() {
+        // Tauri rewrites `../foo` resource paths to `_up_/foo` inside the
+        // bundled .app's Resources dir, so users installing the shipped DMG
+        // need this path probed first. Without it the env dropdown comes up
+        // empty for everyone except the developer who has the file in $HOME.
+        paths_to_try.push(resource_dir.join("_up_").join(".penguin.config.json"));
+        paths_to_try.push(resource_dir.join("_up_").join(".pengvi.config.json"));
         paths_to_try.push(resource_dir.join(".penguin.config.json"));
+        paths_to_try.push(resource_dir.join(".pengvi.config.json"));
     }
 
     if let Ok(cwd) = std::env::current_dir() {
@@ -278,6 +285,7 @@ fn read_config<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> String {
             paths_to_try.push(parent.join(".penguin.config.json"));
             if let Some(grandparent) = parent.parent() {
                 paths_to_try.push(grandparent.join(".penguin.config.json"));
+                paths_to_try.push(grandparent.join("Resources").join("_up_").join(".penguin.config.json"));
                 paths_to_try.push(grandparent.join("Resources").join(".penguin.config.json"));
             }
         }
