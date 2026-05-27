@@ -1,6 +1,22 @@
 import { create } from "zustand";
+import type {
+  ProtoService as CoreProtoService,
+  ProtoMethod as CoreProtoMethod,
+  FieldInfo as CoreFieldInfo,
+  MetadataEntry as CoreMetadataEntry,
+  ResponseState as CoreResponseState,
+} from "@pengvi/core";
 
 // --- Types ---
+
+// Re-export protocol-agnostic types from @pengvi/core. Kept as named exports
+// here so existing call sites (`import { ResponseState } from "./store"`) keep
+// working unchanged after the core extraction.
+export type ProtoService = CoreProtoService;
+export type ProtoMethod = CoreProtoMethod;
+export type FieldInfo = CoreFieldInfo;
+export type MetadataEntry = CoreMetadataEntry;
+export type ResponseState = CoreResponseState;
 
 export interface EnvVariable {
   key: string;
@@ -25,41 +41,11 @@ export const ENV_COLORS = [
   { id: "orange", label: "Orange", hex: "#f97316" },
 ] as const;
 
-export interface ProtoService {
-  name: string;
-  fullName: string;
-  methods: ProtoMethod[];
-}
-
-export interface ProtoMethod {
-  name: string;
-  fullName: string;
-  requestType: string;
-  responseType: string;
-  requestFields: FieldInfo[];
-  responseFields: FieldInfo[];
-}
-
-export interface FieldInfo {
-  name: string;
-  type: string;
-  repeated: boolean;
-  optional: boolean;
-  fields?: FieldInfo[];
-  enumValues?: string[];
-}
-
 export interface InstalledPackage {
   name: string;
   version: string;
   protoFiles: string[];
   services: ProtoService[];
-}
-
-export interface MetadataEntry {
-  key: string;
-  value: string;
-  enabled: boolean;
 }
 
 export interface HistoryEntry {
@@ -108,15 +94,6 @@ export const THEMES = [
   { id: "rose" as const, label: "Rose", color: "oklch(0.65 0.15 10)" },
   { id: "violet" as const, label: "Violet", color: "oklch(0.55 0.2 290)" },
 ] as const;
-
-export interface ResponseState {
-  status: string;
-  statusCode: number;
-  body: string;
-  headers: Record<string, string>;
-  duration: number;
-  error?: string;
-}
 
 export type TabOrigin = "history" | "saved" | null;
 
