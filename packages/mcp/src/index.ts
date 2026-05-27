@@ -15,6 +15,7 @@ import {
   callGrpcWeb,
   callGrpcNative,
   callSdk,
+  generateDefaultJson,
   type MetadataEntry,
   type ProtoMethod,
   type ResponseState,
@@ -42,6 +43,19 @@ const PROTOCOLS: readonly Protocol[] = ["grpc-web", "grpc", "sdk"] as const;
 function asMetadata(headers: Record<string, string> | undefined): MetadataEntry[] {
   if (!headers) return [];
   return Object.entries(headers).map(([k, v]) => ({ key: k, value: v, enabled: true }));
+}
+
+// Map environment variables to the conventional HTTP headers backend services
+// expect. Penguin's desktop UI lets users override default headers in the
+// localStorage-backed Settings panel — those overrides aren't visible here,
+// so we only emit headers derivable from the config-declared variables.
+function buildDefaultHeaders(variables: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  const tag = variables.X_ENV_TAG?.trim();
+  if (tag) out["x-env-tag"] = tag;
+  const token = variables.TOKEN?.trim();
+  if (token) out["authorization"] = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
+  return out;
 }
 
 function findMethod(
@@ -77,6 +91,64 @@ function findMethod(
     );
   }
   return { service, method };
+}
+
+// Build the protocol-specific routing fields from the unified
+// (packageName, serviceName, methodName) triple. Mirrors the servicePath
+// shape the desktop's RequestPanel constructs (see RequestPanel.tsx:131) —
+// `/<first_segment_of_proto_pkg>/<full_typename>/<method>`. For SDK we only
+// need the serviceName/methodName fields the SDK runner already expects.
+function resolveCallRouting(args: {
+  protocol: Protocol;
+  packageName?: string;
+  serviceName?: string;
+  methodName?: string;
+  servicePath?: string;
+}): {
+  servicePath?: string;
+  serviceName?: string;
+  methodName?: string;
+  packageName?: string;
+} {
+  // Legacy mode: caller already provided servicePath / (sdk) serviceName+methodName.
+  if (args.servicePath || !args.packageName || !args.serviceName || !args.methodName) {
+    return {
+      servicePath: args.servicePath,
+      serviceName: args.serviceName,
+      methodName: args.methodName,
+      packageName: args.packageName,
+    };
+  }
+
+  const { service, method } = findMethod(
+    args.protocol,
+    args.packageName,
+    args.serviceName,
+    args.methodName,
+  );
+
+  if (args.protocol === "sdk") {
+    return {
+      packageName: args.packageName,
+      serviceName: service.fullName,
+      methodName: method.name,
+    };
+  }
+
+  // grpc + grpc-web: rebuild servicePath from the fully-qualified method name.
+  const lastDot = method.fullName.lastIndexOf(".");
+  if (lastDot === -1) {
+    throw new Error(
+      `Cannot build servicePath: method ${method.name} has no proto package in fullName=${method.fullName}`,
+    );
+  }
+  const typeName = method.fullName.slice(0, lastDot);
+  const mName = method.fullName.slice(lastDot + 1);
+  const protoPkg = typeName.split(".")[0];
+  return {
+    packageName: args.packageName,
+    servicePath: `/${protoPkg}/${typeName}/${mName}`,
+  };
 }
 
 async function invokeRpc(args: {
@@ -228,7 +300,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "resolve_environment",
       description:
-        "Look up one environment by name and return its URL + variables. Useful for composing call_method args (URL field comes from variables.URL; X_ENV_TAG is typically sent as the `x-env-tag` header).",
+        "Look up one environment by name. Returns: `url`, `variables` (raw config), and `defaultHeaders` — a ready-to-use map (X_ENV_TAG → x-env-tag, TOKEN → authorization Bearer). Pass `defaultHeaders` straight into call_method's `headers` arg, merged with any overrides.",
       inputSchema: {
         type: "object",
         required: ["protocol", "environmentName"],
@@ -252,7 +324,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "compare_environments",
       description:
-        "Invoke the same RPC across multiple environments and return all responses side-by-side. The AI can then diff them. Each environment's URL is resolved from .penguin config by name.",
+        "Invoke the same RPC across multiple environments and return all responses side-by-side. The AI can then diff them. Routing fields work the same as call_method.",
       inputSchema: {
         type: "object",
         required: ["protocol", "environmentNames", "body"],
@@ -263,10 +335,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             items: { type: "string" },
             description: "Two or more environment names from list_environments",
           },
-          servicePath: { type: "string", description: "grpc-web/grpc only" },
-          packageName: { type: "string", description: "grpc-web only — for module loading" },
-          serviceName: { type: "string", description: "sdk only" },
-          methodName: { type: "string", description: "sdk only" },
+          packageName: { type: "string", description: "Required when using serviceName+methodName routing" },
+          serviceName: { type: "string", description: "Short or fullName, e.g. 'Auth' or 'pengvi.auth.Auth'" },
+          methodName: { type: "string", description: "Case-insensitive, e.g. 'lookupNationalId'" },
+          servicePath: { type: "string", description: "Legacy/manual override (grpc-web/grpc only)" },
           body: { type: "string", description: "JSON-stringified request body" },
           headers: {
             type: "object",
@@ -279,17 +351,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "call_method",
       description:
-        "Invoke an RPC method on the live backend. URL is the env target (e.g. https://fpms-nt-swim.platform88.me). For grpc-web/grpc, `servicePath` is /<package>/<typeName>/<method>; for sdk, `serviceName` + `methodName`.",
+        "Invoke an RPC method on the live backend. Recommended routing: pass `packageName` + `serviceName` + `methodName` — MCP will resolve the protocol-specific routing fields. Legacy: grpc-web/grpc accept `servicePath` directly. URL is the env target (use resolve_environment to fetch it).",
       inputSchema: {
         type: "object",
         required: ["protocol", "url", "body"],
         properties: {
           protocol: { type: "string", enum: ["grpc-web", "grpc", "sdk"] },
           url: { type: "string" },
-          servicePath: { type: "string", description: "grpc-web/grpc only" },
-          packageName: { type: "string", description: "grpc-web only — for module loading" },
-          serviceName: { type: "string", description: "sdk only — e.g. Auth" },
-          methodName: { type: "string", description: "sdk only — e.g. lookupNationalId" },
+          packageName: { type: "string", description: "e.g. @snsoft/auth-grpc-web" },
+          serviceName: { type: "string", description: "Short or fullName, e.g. 'Auth'" },
+          methodName: { type: "string", description: "Case-insensitive, e.g. 'lookupNationalId'" },
+          servicePath: { type: "string", description: "Legacy/manual override (grpc-web/grpc only)" },
           body: { type: "string", description: "JSON-stringified request body" },
           headers: {
             type: "object",
@@ -335,7 +407,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         a.serviceName as string,
         a.methodName as string,
       );
-      return jsonResult({ service: service.fullName, ...method });
+      // defaultBody seeds call_method — zero-valued JSON matching the request
+      // schema. AI fills in the real values without having to guess field
+      // names or nesting structure.
+      const defaultBody = generateDefaultJson(method.requestFields);
+      return jsonResult({ service: service.fullName, ...method, defaultBody });
     }
 
     if (name === "install_package") {
@@ -371,17 +447,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (name === "resolve_environment") {
       const protocol = a.protocol as Protocol;
       const envName = a.environmentName as string;
-      const env = findEnvironment(readConfig(), protocol, envName);
+      const cfg = readConfig();
+      const env = findEnvironment(cfg, protocol, envName);
       if (!env) {
-        throw new Error(
-          `Environment ${envName} not found for ${protocol}. Run list_environments to see available ones.`,
-        );
+        const available = (getSection(cfg, protocol).environments ?? []).map((e) => e.name);
+        const hint = available.length
+          ? ` Available: ${available.join(", ")}.`
+          : " No environments configured for this protocol — add some to .penguin/config.json.";
+        throw new Error(`Environment ${envName} not found for ${protocol}.${hint}`);
       }
       return jsonResult({
         protocol,
         name: env.name,
         url: env.variables.URL ?? "",
         variables: env.variables,
+        defaultHeaders: buildDefaultHeaders(env.variables),
       });
     }
 
@@ -424,6 +504,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const headers = a.headers as Record<string, string> | undefined;
       const metadata = asMetadata(headers);
       const cfg = readConfig();
+      // Resolve routing once — the same RPC is invoked across every env.
+      const routing = resolveCallRouting({
+        protocol,
+        packageName: a.packageName as string | undefined,
+        serviceName: a.serviceName as string | undefined,
+        methodName: a.methodName as string | undefined,
+        servicePath: a.servicePath as string | undefined,
+      });
 
       const results = await Promise.all(
         envNames.map(async (envName) => {
@@ -442,10 +530,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               url: env.variables.URL,
               body,
               metadata,
-              servicePath: a.servicePath as string | undefined,
-              packageName: a.packageName as string | undefined,
-              serviceName: a.serviceName as string | undefined,
-              methodName: a.methodName as string | undefined,
+              ...routing,
             });
             return { environment: envName, url: env.variables.URL, response };
           } catch (err) {
@@ -461,22 +546,29 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     if (name === "call_method") {
+      const protocol = a.protocol as Protocol;
       const metadata = asMetadata(a.headers as Record<string, string> | undefined);
       const body = (a.body as string) ?? "{}";
-      const result = await invokeRpc({
-        protocol: a.protocol as Protocol,
-        url: a.url as string,
-        body,
-        metadata,
-        servicePath: a.servicePath as string | undefined,
+      const routing = resolveCallRouting({
+        protocol,
         packageName: a.packageName as string | undefined,
         serviceName: a.serviceName as string | undefined,
         methodName: a.methodName as string | undefined,
+        servicePath: a.servicePath as string | undefined,
+      });
+      const result = await invokeRpc({
+        protocol,
+        url: a.url as string,
+        body,
+        metadata,
+        ...routing,
       });
       return jsonResult(result);
     }
 
-    throw new Error(`Unknown tool: ${name}`);
+    throw new Error(
+      `Unknown tool: ${name}. Valid tools: list_packages, list_methods, describe_method, install_package, list_environments, resolve_environment, package_status, compare_environments, call_method.`,
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return jsonResult(`Error: ${msg}`, true);

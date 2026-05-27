@@ -223,7 +223,11 @@ fn discover_package_files(pkg_path: &std::path::Path, protocol: &str) -> Result<
             }
         }
     } else if protocol_lower == "sdk" {
-        // .d.ts files in dist/ excluding index.d.ts, interfaces/, utils/, enum/
+        // .d.ts files in dist/ excluding index.d.ts, utils/, enum/.
+        // interfaces/ used to be excluded too, but the new parseSdkDts uses
+        // those files to populate requestFields, so keep them in the payload.
+        // Send the relative path from dist/ as `name` so the parser can apply
+        // its own "is this a class file or an interface file?" filter.
         for entry in glob::glob(dist.join("**/*.d.ts").to_str().unwrap()).map_err(|e| e.to_string())? {
             if let Ok(p) = entry {
                 if !p.is_file() {
@@ -237,19 +241,19 @@ fn discover_package_files(pkg_path: &std::path::Path, protocol: &str) -> Result<
                 if components.last().map(|c| c.as_os_str().to_str()) == Some(Some("index.d.ts")) {
                     continue;
                 }
-                // Exclude interfaces/, utils/, enum/ subdirectories
+                // Exclude utils/, enum/ subdirectories (still pure helpers).
                 if components.iter().any(|c| {
                     c.as_os_str()
                         .to_str()
-                        .map(|s| ["interfaces", "utils", "enum"].contains(&s))
+                        .map(|s| ["utils", "enum"].contains(&s))
                         .unwrap_or(false)
                 }) {
                     continue;
                 }
 
-                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+                let rel_name = rel.to_string_lossy().to_string();
                 let content = read_file_content(&p).unwrap_or_default();
-                files.push(ProtoFile { name, path: path_str, content });
+                files.push(ProtoFile { name: rel_name, path: path_str, content });
             }
         }
     }

@@ -35,7 +35,16 @@ export function parseServicesForPackage(
 ): ProtoService[] {
   const dir = packageDir(protocol, packageName);
   if (!existsSync(dir)) {
-    throw new Error(`Package ${packageName} not installed for ${protocol}`);
+    // Surface what IS available so the caller can self-correct instead of
+    // playing twenty questions with the AI agent.
+    const scopeRoot = join(protocolDir(protocol), "node_modules", "@snsoft");
+    const available = existsSync(scopeRoot) ? readdirSync(scopeRoot) : [];
+    const hint = available.length
+      ? ` Installed @snsoft packages for ${protocol}: ${available
+          .map((n) => `@snsoft/${n}`)
+          .join(", ")}.`
+      : ` No @snsoft packages installed for ${protocol} yet — try install_package.`;
+    throw new Error(`Package ${packageName} not installed for ${protocol}.${hint}`);
   }
 
   if (protocol === "sdk") {
@@ -43,12 +52,15 @@ export function parseServicesForPackage(
     if (!existsSync(moduleDir)) {
       throw new Error(`SDK dist/module dir missing at ${moduleDir}`);
     }
-    const dtsFiles = readdirSync(moduleDir)
-      .filter((f) => f.endsWith(".d.ts"))
-      .map((f) => ({
-        name: f,
-        content: readFileSync(join(moduleDir, f), "utf-8"),
-      }));
+    // Recursively pick up every .d.ts under dist/module — including
+    // interfaces/request/*.d.ts which holds the actual request shapes. The
+    // parser figures out which file is a class vs. an interface library.
+    const dtsFiles = walk(moduleDir, (n) => n.endsWith(".d.ts")).map((p) => ({
+      // Path relative to moduleDir so the parser's "skip files inside
+      // interfaces/" check can fire on the right tokens.
+      name: p.slice(moduleDir.length + 1),
+      content: readFileSync(p, "utf-8"),
+    }));
     return parseSdkDts(dtsFiles);
   }
 
