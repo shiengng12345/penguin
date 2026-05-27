@@ -117,6 +117,12 @@ importers:
 
   packages/core:
     dependencies:
+      '@connectrpc/connect':
+        specifier: ^1.5.0
+        version: 1.7.0(@bufbuild/protobuf@1.10.1)
+      '@connectrpc/connect-web':
+        specifier: ^1.5.0
+        version: 1.7.0(@bufbuild/protobuf@1.10.1)(@connectrpc/connect@1.7.0(@bufbuild/protobuf@1.10.1))
       protobufjs:
         specifier: 7.5.5
         version: 7.5.5

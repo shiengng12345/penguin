@@ -12,3 +12,4 @@ export { logger } from "./logger";
 export { parseProtoContent, generateDefaultJson, generateMethodPath } from "./proto-parser";
 export { parseSdkDts } from "./sdk-parser";
 export { discoverServices } from "./discover-services";
+export { callGrpcWeb, type LoadPackageModule } from "./grpc-web-client";
