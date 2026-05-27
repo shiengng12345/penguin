@@ -75,7 +75,12 @@ function shouldSkipFile(name: string): boolean {
 export function parseSdkDts(
   files: { name: string; content: string }[]
 ): ProtoService[] {
-  const services: ProtoService[] = [];
+  // Many SDKs (e.g. @snsoft/js-sdk) declare the same class in both
+  // dist/module/<class>.d.ts and dist/module/src/services/<class>.d.ts.
+  // Keyed by className so cross-file duplicates merge into one service
+  // instead of emitting duplicate ProtoService entries (which would in turn
+  // produce duplicate React keys in the search/sidebar lists).
+  const byClass = new Map<string, ProtoService>();
 
   for (const file of files) {
     if (shouldSkipFile(file.name)) continue;
@@ -104,11 +109,20 @@ export function parseSdkDts(
             const classBody = content.slice(classStart, close);
             const methods = parseMethodsInClassBody(className, classBody);
             if (methods.length > 0) {
-              services.push({
-                name: className,
-                fullName: className,
-                methods,
-              });
+              const existing = byClass.get(className);
+              if (existing) {
+                // Merge — keep methods we don't already have under this class.
+                const seenNames = new Set(existing.methods.map((m) => m.name));
+                for (const m of methods) {
+                  if (!seenNames.has(m.name)) existing.methods.push(m);
+                }
+              } else {
+                byClass.set(className, {
+                  name: className,
+                  fullName: className,
+                  methods,
+                });
+              }
             }
             break;
           }
@@ -118,5 +132,5 @@ export function parseSdkDts(
     }
   }
 
-  return services;
+  return Array.from(byClass.values());
 }

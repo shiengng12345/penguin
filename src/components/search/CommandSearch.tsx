@@ -108,9 +108,15 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
 
     return allResults
       .map((r) => {
-        const methodHit = r.method.name.toLowerCase().includes(ql) ? 100 : 0;
-        const serviceHit = r.serviceName.toLowerCase().includes(ql) ? 10 : 0;
-        const packageHit = r.packageName.toLowerCase().includes(ql) ? 1 : 0;
+        // Cast to string in case a parser emitted a non-string field;
+        // .toLowerCase() on undefined would crash silently inside the React
+        // render and leave a stale ghost-list visible (we hit this once).
+        const methodName = String(r.method?.name ?? "").toLowerCase();
+        const serviceName = String(r.serviceName ?? "").toLowerCase();
+        const packageName = String(r.packageName ?? "").toLowerCase();
+        const methodHit = methodName.includes(ql) ? 100 : 0;
+        const serviceHit = serviceName.includes(ql) ? 10 : 0;
+        const packageHit = packageName.includes(ql) ? 1 : 0;
         return { result: r, score: methodHit + serviceHit + packageHit };
       })
       .filter((r) => r.score > 0)
