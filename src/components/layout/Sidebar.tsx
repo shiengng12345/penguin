@@ -61,11 +61,11 @@ export function Sidebar({ packages, onInstallClick, onUninstall, onUpdate }: Sid
       setExpandedPkgs(new Set([packageName]));
       setExpandedSvcs(new Set([serviceName]));
     };
-    document.addEventListener("pengvi:collapse-sidebar", collapse);
-    document.addEventListener("pengvi:focus-method", focusMethod);
+    document.addEventListener("penguin:collapse-sidebar", collapse);
+    document.addEventListener("penguin:focus-method", focusMethod);
     return () => {
-      document.removeEventListener("pengvi:collapse-sidebar", collapse);
-      document.removeEventListener("pengvi:focus-method", focusMethod);
+      document.removeEventListener("penguin:collapse-sidebar", collapse);
+      document.removeEventListener("penguin:focus-method", focusMethod);
     };
   }, []);
 

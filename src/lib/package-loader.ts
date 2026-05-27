@@ -2,9 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   ConnectMethodDef as CoreConnectMethodDef,
   ConnectServiceDef as CoreConnectServiceDef,
-} from "@pengvi/core";
+} from "@penguin/core";
 
-// Re-exported from @pengvi/core so existing imports from this file keep working.
+// Re-exported from @penguin/core so existing imports from this file keep working.
 export type ConnectMethodDef = CoreConnectMethodDef;
 export type ConnectServiceDef = CoreConnectServiceDef;
 
@@ -44,9 +44,9 @@ export async function loadPackageModule(
   }
 }
 
-// discoverServices now lives in @pengvi/core. Re-exported here for backward
+// discoverServices now lives in @penguin/core. Re-exported here for backward
 // compatibility with existing call sites.
-export { discoverServices } from "@pengvi/core";
+export { discoverServices } from "@penguin/core";
 
 export function clearModuleCache(packageName?: string): void {
   if (packageName) {

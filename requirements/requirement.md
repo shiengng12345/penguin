@@ -1,10 +1,10 @@
-# Pengvi -- Product Requirements / 产品需求文档
+# Penguin -- Product Requirements / 产品需求文档
 
 ## Overview / 概述
 
-**Pengvi** is a Tauri 2 desktop application for calling gRPC and gRPC-Web APIs, similar to Postman but purpose-built for Protocol Buffers.
+**Penguin** is a Tauri 2 desktop application for calling gRPC and gRPC-Web APIs, similar to Postman but purpose-built for Protocol Buffers.
 
-**Pengvi** 是一个基于 Tauri 2 的桌面应用，用于调用 gRPC 和 gRPC-Web API，类似 Postman，但专为 Protocol Buffers 设计。
+**Penguin** 是一个基于 Tauri 2 的桌面应用，用于调用 gRPC 和 gRPC-Web API，类似 Postman，但专为 Protocol Buffers 设计。
 
 ---
 
@@ -29,8 +29,8 @@
 - Users install npm packages directly in the app (e.g., `@snsoft/player-grpc@1.0.0-20260306172848`)
 - 用户直接在应用内安装 npm 包（例如 `@snsoft/player-grpc@1.0.0-20260306172848`）
 
-- Packages are installed to an isolated directory (`~/.pengvi/packages/`)
-- 包安装到隔离目录（`~/.pengvi/packages/`）
+- Packages are installed to an isolated directory (`~/.penguin/packages/`)
+- 包安装到隔离目录（`~/.penguin/packages/`）
 
 - Support multiple packages simultaneously
 - 支持同时管理多个包
@@ -138,7 +138,7 @@ Dependencies / 依赖: `@bufbuild/protobuf`, `@connectrpc/connect`, `@connectrpc
 │  │  - gRPC Client / gRPC 客户端                  │        │
 │  │    (@connectrpc/connect-node, HTTP/2)         │        │
 │  │  - Package Installer / 包安装器               │        │
-│  │    (npm install in ~/.pengvi/packages/)        │        │
+│  │    (npm install in ~/.penguin/packages/)        │        │
 │  └───────────────────────────────────────────────┘        │
 └─────────────────────────────────────────────────────────┘
 ```

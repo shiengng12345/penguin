@@ -1,3 +1,3 @@
-// Logger now lives in @pengvi/core. Kept as a re-export shim so existing
+// Logger now lives in @penguin/core. Kept as a re-export shim so existing
 // `import { logger } from "./logger"` keeps working.
-export { logger } from "@pengvi/core";
+export { logger } from "@penguin/core";

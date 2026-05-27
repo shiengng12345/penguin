@@ -34,12 +34,12 @@ export function RequestPanel() {
         abortRef.current = null;
       }
     };
-    document.addEventListener("pengvi:send-request", sendHandler);
-    document.addEventListener("pengvi:save-request", saveHandler);
+    document.addEventListener("penguin:send-request", sendHandler);
+    document.addEventListener("penguin:save-request", saveHandler);
     document.addEventListener("keydown", cancelHandler);
     return () => {
-      document.removeEventListener("pengvi:send-request", sendHandler);
-      document.removeEventListener("pengvi:save-request", saveHandler);
+      document.removeEventListener("penguin:send-request", sendHandler);
+      document.removeEventListener("penguin:save-request", saveHandler);
       document.removeEventListener("keydown", cancelHandler);
     };
   }, []);
@@ -510,7 +510,7 @@ export function RequestPanel() {
           variant="outline"
           size="sm"
           className="h-8 px-2.5"
-          onClick={() => document.dispatchEvent(new CustomEvent("pengvi:open-proto"))}
+          onClick={() => document.dispatchEvent(new CustomEvent("penguin:open-proto"))}
           disabled={!tab.selectedMethod}
           title="View Proto ⌘ + P"
         >
@@ -520,7 +520,7 @@ export function RequestPanel() {
           variant="outline"
           size="sm"
           className="h-8 px-2.5"
-          onClick={() => document.dispatchEvent(new CustomEvent("pengvi:open-doc"))}
+          onClick={() => document.dispatchEvent(new CustomEvent("penguin:open-doc"))}
           disabled={!tab.selectedMethod}
           title="Request as Doc ⌘ + D"
         >

@@ -1,4 +1,4 @@
-// Protocol-agnostic types shared by Pengvi desktop app and future MCP/CLI
+// Protocol-agnostic types shared by Penguin desktop app and future MCP/CLI
 // runtimes. UI-domain types (RequestTab, AppTheme, etc.) stay in the desktop
 // app's store.ts — only data shapes that describe RPC traffic live here.
 

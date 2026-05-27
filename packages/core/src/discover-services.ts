@@ -3,7 +3,7 @@ import type { ConnectServiceDef } from "./types.js";
 // Inspects the runtime exports of an installed @snsoft package and walks the
 // generated *Connect modules to recover ConnectRPC service descriptors. Pure
 // reflection — no Tauri / fs / network access. Caller is responsible for
-// loading the module (Pengvi uses Tauri invoke + blob URL, Node consumers can
+// loading the module (Penguin uses Tauri invoke + blob URL, Node consumers can
 // use plain dynamic import).
 export function discoverServices(
   packageExports: Record<string, unknown>,

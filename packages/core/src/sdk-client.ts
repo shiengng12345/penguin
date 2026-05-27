@@ -119,7 +119,7 @@ async function run() {
     if (GC && typeof GC.init === 'function') {
       await GC.init(
         {
-          uniqueKey: 'pengvi-' +Date.now(),
+          uniqueKey: 'penguin-' +Date.now(),
           platformId: platformId,
           deviceType: 1,
           isNT: true,

@@ -3,7 +3,7 @@ import { createGrpcWebTransport } from "@connectrpc/connect-web";
 import type { ResponseState, MetadataEntry, ConnectServiceDef } from "./types.js";
 import { discoverServices } from "./discover-services.js";
 
-// Module loader signature. Pengvi desktop injects a Tauri-backed loader that
+// Module loader signature. Penguin desktop injects a Tauri-backed loader that
 // reads bundle.js via the Rust side and dynamic-imports a blob URL; Node
 // runtimes (MCP server, CLI) pass a plain dynamic-import wrapper.
 export type LoadPackageModule = (
@@ -19,7 +19,7 @@ interface GrpcWebCallParams {
   // Required — how to load the @snsoft package so we can extract Connect
   // service descriptors at runtime.
   loadModule: LoadPackageModule;
-  // Optional — Pengvi passes a Tauri proxy fetch to bypass CORS; Node
+  // Optional — Penguin passes a Tauri proxy fetch to bypass CORS; Node
   // consumers can omit (defaults to globalThis.fetch).
   fetch?: typeof globalThis.fetch;
 }
@@ -179,8 +179,8 @@ export async function callGrpcWeb(
       statusCode: 200,
       body: formattedBody,
       headers: {
-        "x-pengvi-request-url": `${baseUrl}/${typeName}/${methodName}`,
-        "x-pengvi-protocol": "grpc-web+proto",
+        "x-penguin-request-url": `${baseUrl}/${typeName}/${methodName}`,
+        "x-penguin-protocol": "grpc-web+proto",
       },
       duration: Math.round(duration),
     };

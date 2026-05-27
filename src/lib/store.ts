@@ -5,11 +5,11 @@ import type {
   FieldInfo as CoreFieldInfo,
   MetadataEntry as CoreMetadataEntry,
   ResponseState as CoreResponseState,
-} from "@pengvi/core";
+} from "@penguin/core";
 
 // --- Types ---
 
-// Re-export protocol-agnostic types from @pengvi/core. Kept as named exports
+// Re-export protocol-agnostic types from @penguin/core. Kept as named exports
 // here so existing call sites (`import { ResponseState } from "./store"`) keep
 // working unchanged after the core extraction.
 export type ProtoService = CoreProtoService;
@@ -269,16 +269,16 @@ export interface AppState {
   setDefaultHeaders: (protocol: ProtocolTab, headers: MetadataEntry[]) => void;
 }
 
-const THEME_KEY = "pengvi-theme";
-const TUTORIAL_KEY = "pengvi-tutorial-seen";
-const USERNAME_KEY = "pengvi-username";
-const TABS_KEY = "pengvi-tabs";
-const ACTIVE_TAB_KEY = "pengvi-active-tab";
-const HISTORY_KEY = "pengvi-history";
-const MAX_HISTORY_KEY = "pengvi-max-history";
+const THEME_KEY = "penguin-theme";
+const TUTORIAL_KEY = "penguin-tutorial-seen";
+const USERNAME_KEY = "penguin-username";
+const TABS_KEY = "penguin-tabs";
+const ACTIVE_TAB_KEY = "penguin-active-tab";
+const HISTORY_KEY = "penguin-history";
+const MAX_HISTORY_KEY = "penguin-max-history";
 const DEFAULT_MAX_HISTORY = 500;
-const SAVED_REQUESTS_KEY = "pengvi-saved-requests";
-const DEFAULT_HEADERS_KEY = "pengvi-default-headers";
+const SAVED_REQUESTS_KEY = "penguin-saved-requests";
+const DEFAULT_HEADERS_KEY = "penguin-default-headers";
 
 function loadMaxHistorySize(): number {
   if (typeof window === "undefined") return DEFAULT_MAX_HISTORY;

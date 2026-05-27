@@ -1,12 +1,12 @@
 [package]
-name = "pengvi"
+name = "penguin"
 version = "1.5.4"
 description = "gRPC/gRPC-Web API Client"
-authors = ["Pengvi"]
+authors = ["Penguin"]
 edition = "2021"
 
 [lib]
-name = "pengvi_lib"
+name = "penguin_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]

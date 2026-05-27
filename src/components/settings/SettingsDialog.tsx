@@ -205,11 +205,11 @@ export function SettingsDialog({
       }
       if (Array.isArray(data.savedRequests)) {
         useAppStore.setState({ savedRequests: data.savedRequests });
-        localStorage.setItem("pengvi-saved-requests", JSON.stringify(data.savedRequests));
+        localStorage.setItem("penguin-saved-requests", JSON.stringify(data.savedRequests));
       }
       if (Array.isArray(data.history)) {
         useAppStore.setState({ history: data.history });
-        localStorage.setItem("pengvi-history", JSON.stringify(data.history));
+        localStorage.setItem("penguin-history", JSON.stringify(data.history));
       }
       if (data.defaultHeaders) {
         for (const p of ["grpc-web", "grpc", "sdk"] as ProtocolTab[]) {

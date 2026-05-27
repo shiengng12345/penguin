@@ -1,15 +1,15 @@
-// Node-flavored implementations of the abstractions @pengvi/core requires.
-// Pengvi desktop has its own Tauri-backed versions; the MCP server lives in a
+// Node-flavored implementations of the abstractions @penguin/core requires.
+// Penguin desktop has its own Tauri-backed versions; the MCP server lives in a
 // regular Node process so it gets to use child_process + fs.readFile directly.
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { SidecarRunner, LoadPackageModule } from "@pengvi/core";
-import { protocolDir, type Protocol } from "./pengvi-paths.js";
+import type { SidecarRunner, LoadPackageModule } from "@penguin/core";
+import { protocolDir, type Protocol } from "./penguin-paths.js";
 
 // Dynamic-imports the @snsoft package's main entry point. Resolves the same
-// way Pengvi desktop does: read the package's package.json, follow `main`.
+// way Penguin desktop does: read the package's package.json, follow `main`.
 export function makeLoadModule(protocol: Protocol): LoadPackageModule {
   return async (packageName: string) => {
     const dir = join(protocolDir(protocol), "node_modules", packageName);
@@ -34,7 +34,7 @@ export function makeLoadModule(protocol: Protocol): LoadPackageModule {
   };
 }
 
-// Streams the sidecar script into `node -` via stdin. Mirrors the Pengvi
+// Streams the sidecar script into `node -` via stdin. Mirrors the Penguin
 // desktop runner (which goes through zsh-login) but skips the shell layer —
 // MCP servers don't need user PATH inheritance the way the GUI does.
 export const nodeSidecarRunner: SidecarRunner = async (script: string) => {

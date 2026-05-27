@@ -7,7 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1430",
     "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm build && cp .pengvi.config.json ~/.pengvi/config.json"
+    "beforeBuildCommand": "pnpm build && cp .penguin.config.json ~/.penguin/config.json"
   },
   "app": {
     "windows": [
@@ -40,7 +40,7 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "../.pengvi.config.json"
+      "../.penguin.config.json"
     ]
   },
   "plugins": {

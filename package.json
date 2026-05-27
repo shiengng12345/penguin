@@ -1,5 +1,5 @@
 {
-  "name": "pengvi",
+  "name": "penguin",
   "private": true,
   "version": "1.5.4",
   "type": "module",
@@ -11,7 +11,7 @@
     "set-version": "node scripts/set-version.mjs"
   },
   "dependencies": {
-    "@pengvi/core": "workspace:*",
+    "@penguin/core": "workspace:*",
     "@codemirror/autocomplete": "^6.20.1",
     "@codemirror/commands": "^6.10.2",
     "@codemirror/lang-json": "^6.0.2",

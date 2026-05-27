@@ -1,5 +1,5 @@
-// Mirrors Pengvi desktop's package layout under ~/.pengvi/. The MCP server
-// reads the same directories so any package the user installed via the Pengvi
+// Mirrors Penguin desktop's package layout under ~/.penguin/. The MCP server
+// reads the same directories so any package the user installed via the Penguin
 // UI is immediately discoverable from AI tools — no extra wiring.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -7,12 +7,22 @@ import { join } from "node:path";
 
 export type Protocol = "grpc-web" | "grpc" | "sdk";
 
-export function pengviRoot(): string {
-  return join(homedir(), ".pengvi");
+export function penguinRoot(): string {
+  // Prefer the new ~/.penguin location, but fall back to the legacy ~/.pengvi
+  // tree if the user hasn't launched the renamed desktop app yet (the Tauri
+  // side runs migrate_legacy_pengvi_dir() on first launch to mv the tree).
+  // Lets MCP work immediately after the rename without requiring the desktop
+  // app to be opened first.
+  const home = homedir();
+  const newDir = join(home, ".penguin");
+  const oldDir = join(home, ".pengvi");
+  if (existsSync(newDir)) return newDir;
+  if (existsSync(oldDir)) return oldDir;
+  return newDir;
 }
 
 export function protocolDir(protocol: Protocol): string {
-  return join(pengviRoot(), protocol);
+  return join(penguinRoot(), protocol);
 }
 
 // List @snsoft/* packages installed under a protocol's node_modules.

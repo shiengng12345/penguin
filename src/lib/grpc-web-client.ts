@@ -1,8 +1,8 @@
-// grpc-web-client now lives in @pengvi/core. This shim pre-binds the
+// grpc-web-client now lives in @penguin/core. This shim pre-binds the
 // Tauri-specific dependencies (proxyFetch for CORS, loadPackageModule for
 // runtime module loading) so existing call sites can keep the old signature.
-import { callGrpcWeb as coreCallGrpcWeb } from "@pengvi/core";
-import type { MetadataEntry, ResponseState } from "@pengvi/core";
+import { callGrpcWeb as coreCallGrpcWeb } from "@penguin/core";
+import type { MetadataEntry, ResponseState } from "@penguin/core";
 import { loadPackageModule } from "./package-loader";
 import { proxyFetch } from "./proxy-fetch";
 

@@ -153,7 +153,7 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
       setTimeout(() => useAppStore.getState().updateActiveTab(patch), 0);
     }
 
-    document.dispatchEvent(new CustomEvent("pengvi:focus-method", {
+    document.dispatchEvent(new CustomEvent("penguin:focus-method", {
       detail: { packageName: result.packageName, serviceName: result.serviceName },
     }));
     onClose();

@@ -41,7 +41,7 @@ importers:
       '@lezer/highlight':
         specifier: ^1.2.3
         version: 1.2.3
-      '@pengvi/core':
+      '@penguin/core':
         specifier: workspace:*
         version: link:packages/core
       '@tailwindcss/oxide-darwin-arm64':
@@ -132,7 +132,7 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.4
         version: 1.29.0(zod@4.4.3)
-      '@pengvi/core':
+      '@penguin/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:

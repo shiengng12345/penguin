@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Pengvi MCP server — exposes Pengvi's installed @snsoft packages and
+// Penguin MCP server — exposes Penguin's installed @snsoft packages and
 // protocol clients (gRPC-Web / gRPC native / @snsoft SDK) as MCP tools so AI
 // assistants (Claude, Cursor, etc.) can list and call backend RPCs directly.
 //
-// Reads from the same ~/.pengvi/ tree that the desktop app manages — packages
-// you installed via Pengvi UI work here automatically. No duplicate install.
+// Reads from the same ~/.penguin/ tree that the desktop app manages — packages
+// you installed via Penguin UI work here automatically. No duplicate install.
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -19,14 +19,14 @@ import {
   parseProtoContent,
   parseSdkDts,
   type MetadataEntry,
-} from "@pengvi/core";
+} from "@penguin/core";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import {
   listInstalledPackages,
   protocolDir,
   type Protocol,
-} from "./pengvi-paths.js";
+} from "./penguin-paths.js";
 import { makeLoadModule, nodeSidecarRunner } from "./runners.js";
 
 function walk(dir: string, predicate: (name: string) => boolean): string[] {
@@ -91,7 +91,7 @@ function asMetadata(headers: Record<string, string> | undefined): MetadataEntry[
 }
 
 const server = new Server(
-  { name: "pengvi-mcp", version: "0.0.1" },
+  { name: "penguin-mcp", version: "0.0.1" },
   { capabilities: { tools: {} } },
 );
 
@@ -100,7 +100,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "list_packages",
       description:
-        "List @snsoft packages installed under ~/.pengvi/. Optional `protocol` filter (grpc-web | grpc | sdk).",
+        "List @snsoft packages installed under ~/.penguin/. Optional `protocol` filter (grpc-web | grpc | sdk).",
       inputSchema: {
         type: "object",
         properties: {

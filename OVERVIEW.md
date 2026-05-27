@@ -1,5 +1,5 @@
-# Pengvi — Product & Technical Overview
-# Pengvi — 产品与技术概览
+# Penguin — Product & Technical Overview
+# Penguin — 产品与技术概览
 
 > Version 1.4.2 · macOS · MIT License
 
@@ -7,9 +7,9 @@
 
 ## What Is It? / 这是什么？
 
-Pengvi (product name: **Penguin**) is a desktop API client for testing **gRPC**, **gRPC-Web**, and **JavaScript SDK** services. It's purpose-built for teams that work with Protocol Buffers and `@snsoft/*` npm packages — think Postman, but for gRPC-first microservices with built-in package management and environment switching.
+Penguin (product name: **Penguin**) is a desktop API client for testing **gRPC**, **gRPC-Web**, and **JavaScript SDK** services. It's purpose-built for teams that work with Protocol Buffers and `@snsoft/*` npm packages — think Postman, but for gRPC-first microservices with built-in package management and environment switching.
 
-Pengvi（产品名：**Penguin**）是一款专为测试 **gRPC**、**gRPC-Web** 和 **JavaScript SDK** 服务而设计的桌面 API 客户端。专为使用 Protocol Buffers 和 `@snsoft/*` npm 包的团队打造——可以理解为面向 gRPC 优先微服务的 Postman，内置包管理和环境切换功能。
+Penguin（产品名：**Penguin**）是一款专为测试 **gRPC**、**gRPC-Web** 和 **JavaScript SDK** 服务而设计的桌面 API 客户端。专为使用 Protocol Buffers 和 `@snsoft/*` npm 包的团队打造——可以理解为面向 gRPC 优先微服务的 Postman，内置包管理和环境切换功能。
 
 ---
 
@@ -40,7 +40,7 @@ Pengvi（产品名：**Penguin**）是一款专为测试 **gRPC**、**gRPC-Web**
 ### Package Management / 包管理
 - 直接在应用内安装 `@snsoft/*` npm 包
 - 自动发现 `.proto` 文件和 TypeScript 类型定义
-- 包存储路径：`~/.pengvi/{grpc-web,grpc,sdk}/`
+- 包存储路径：`~/.penguin/{grpc-web,grpc,sdk}/`
 - 侧边栏服务与方法树形浏览器
 - 可在 UI 中更新或删除包
 
@@ -48,7 +48,7 @@ Pengvi（产品名：**Penguin**）是一款专为测试 **gRPC**、**gRPC-Web**
 - 每个协议独立配置环境（LOCAL、DEV、QAT1-6、UAT1-3、STAGING、PROD 等）
 - 在 URL、请求头、请求体中使用 `{{VAR}}` 语法插值
 - 每个环境配有独立颜色标识，便于快速识别
-- 支持通过 `.pengvi.config.json` 或应用内 UI 配置
+- 支持通过 `.penguin.config.json` 或应用内 UI 配置
 
 ### Request Builder / 请求构建器
 - CodeMirror JSON 编辑器（语法高亮、lint 检查、自动补全）
@@ -99,7 +99,7 @@ Pengvi（产品名：**Penguin**）是一款专为测试 **gRPC**、**gRPC-Web**
 ## Project Structure / 项目结构
 
 ```
-Pengvi/
+Penguin/
 ├── src/
 │   ├── App.tsx                   # 根布局、快捷键、弹窗管理
 │   ├── main.tsx                  # 入口、版本检查、缓存清理
@@ -135,7 +135,7 @@ Pengvi/
 │   ├── Cargo.toml                # Rust 依赖
 │   ├── tauri.conf.json           # 应用配置，窗口大小（1280×800）
 │   └── capabilities/default.json # 权限配置
-├── .pengvi.config.json           # 每协议的默认环境 + 包配置
+├── .penguin.config.json           # 每协议的默认环境 + 包配置
 ├── enhancement/enhancementv1.md  # 路线图（v2+）
 ├── requirements/
 │   ├── requirement.md            # 产品需求文档（双语）
@@ -171,10 +171,10 @@ Pengvi/
 
 | 命令 | 功能 |
 |---|---|
-| `ensure_packages_dir` | 创建 `~/.pengvi/{protocol}/package.json` |
+| `ensure_packages_dir` | 创建 `~/.penguin/{protocol}/package.json` |
 | `get_packages_dir` | 返回包目录路径 |
 | `list_installed_packages` | 发现已安装的 @snsoft 包、proto 文件、TS 类型 |
-| `read_config` | 加载 `.pengvi.config.json` |
+| `read_config` | 加载 `.penguin.config.json` |
 | `http_proxy` | 代理 HTTP 请求（CORS 绕过） |
 | `read_package_bundle` | 读取 SDK 包的 JS bundle 文件 |
 | `clear_all_packages` | 清除所有包并重置 package.json |
@@ -240,7 +240,7 @@ node scripts/set-version.mjs
 
 ---
 
-## Configuration / 配置文件 (`.pengvi.config.json`)
+## Configuration / 配置文件 (`.penguin.config.json`)
 
 ```json
 {
@@ -255,7 +255,7 @@ node scripts/set-version.mjs
 }
 ```
 
-加载顺序：`~/.pengvi/config.json` → Tauri 资源目录 → 当前工作目录 → 可执行文件目录。
+加载顺序：`~/.penguin/config.json` → Tauri 资源目录 → 当前工作目录 → 可执行文件目录。
 
 ---
 

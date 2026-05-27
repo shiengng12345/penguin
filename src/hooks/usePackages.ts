@@ -12,14 +12,14 @@ function detectProtocol(spec: string): ProtocolTab {
   return "grpc";
 }
 
-// Mirror of `.pengvi.config.json` per-protocol section. Only `packages` is
+// Mirror of `.penguin.config.json` per-protocol section. Only `packages` is
 // consumed here; environments live under their own loader and are not read
 // from this hook.
 interface ConfigSection {
   packages?: string[];
 }
 
-interface PengviConfig {
+interface PenguinConfig {
   grpc?: ConfigSection;
   "grpc-web"?: ConfigSection;
   sdk?: ConfigSection;
@@ -37,7 +37,7 @@ async function autoInstallFromConfig(
   }
   if (!configRaw?.trim()) return;
 
-  let config: PengviConfig;
+  let config: PenguinConfig;
   try {
     config = JSON.parse(configRaw);
   } catch {

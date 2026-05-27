@@ -6,15 +6,15 @@ import { useActiveTab } from "@/lib/store";
 import type { Environment, EnvVariable, ProtocolTab } from "@/lib/store";
 
 const STORE_KEYS: Record<ProtocolTab, string> = {
-  "grpc-web": "pengvi-grpc-web-environments",
-  grpc: "pengvi-grpc-environments",
-  sdk: "pengvi-sdk-environments",
+  "grpc-web": "penguin-grpc-web-environments",
+  grpc: "penguin-grpc-environments",
+  sdk: "penguin-sdk-environments",
 };
 
 const ACTIVE_KEYS: Record<ProtocolTab, string> = {
-  "grpc-web": "pengvi-grpc-web-active-env",
-  grpc: "pengvi-grpc-active-env",
-  sdk: "pengvi-sdk-active-env",
+  "grpc-web": "penguin-grpc-web-active-env",
+  grpc: "penguin-grpc-active-env",
+  sdk: "penguin-sdk-active-env",
 };
 
 interface ConfigEnvironment {
@@ -35,7 +35,7 @@ async function fetchConfig(): Promise<string> {
     return await invoke<string>("read_config");
   } catch {
     try {
-      const res = await fetch("/.pengvi.config.json");
+      const res = await fetch("/.penguin.config.json");
       if (res.ok) return await res.text();
     } catch {
       // ignore

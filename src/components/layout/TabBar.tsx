@@ -90,7 +90,7 @@ export function TabBar({ onCycleProtocol }: TabBarProps) {
                     if (tabs.length <= 1) {
                       const fresh = createTab();
                       useAppStore.setState({ tabs: [fresh], activeTabId: fresh.id });
-                      document.dispatchEvent(new CustomEvent("pengvi:collapse-sidebar"));
+                      document.dispatchEvent(new CustomEvent("penguin:collapse-sidebar"));
                     } else {
                       removeTab(tab.id);
                     }

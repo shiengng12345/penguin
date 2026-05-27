@@ -157,7 +157,7 @@ export default function App() {
           if (state.tabs.length <= 1) {
             const fresh = createTab();
             useAppStore.setState({ tabs: [fresh], activeTabId: fresh.id });
-            document.dispatchEvent(new CustomEvent("pengvi:collapse-sidebar"));
+            document.dispatchEvent(new CustomEvent("penguin:collapse-sidebar"));
           } else if (activeTabId) {
             removeTab(activeTabId);
           }
@@ -174,12 +174,12 @@ export default function App() {
             metadata: getDefaultHeadersForProtocol(activeTab?.protocolTab ?? "grpc-web"),
           });
           refresh();
-          document.dispatchEvent(new CustomEvent("pengvi:collapse-sidebar"));
+          document.dispatchEvent(new CustomEvent("penguin:collapse-sidebar"));
           break;
         case "s":
           e.preventDefault();
           if (e.shiftKey) {
-            document.dispatchEvent(new CustomEvent("pengvi:save-request"));
+            document.dispatchEvent(new CustomEvent("penguin:save-request"));
           } else {
             setInstallerOpen(true);
           }
@@ -202,7 +202,7 @@ export default function App() {
           break;
         case "enter":
           e.preventDefault();
-          document.dispatchEvent(new CustomEvent("pengvi:send-request"));
+          document.dispatchEvent(new CustomEvent("penguin:send-request"));
           break;
         case "/":
           e.preventDefault();
@@ -237,11 +237,11 @@ export default function App() {
   useEffect(() => {
     const openDoc = () => setDocOpen(true);
     const openProto = () => setProtoViewerOpen(true);
-    document.addEventListener("pengvi:open-doc", openDoc);
-    document.addEventListener("pengvi:open-proto", openProto);
+    document.addEventListener("penguin:open-doc", openDoc);
+    document.addEventListener("penguin:open-proto", openProto);
     return () => {
-      document.removeEventListener("pengvi:open-doc", openDoc);
-      document.removeEventListener("pengvi:open-proto", openProto);
+      document.removeEventListener("penguin:open-doc", openDoc);
+      document.removeEventListener("penguin:open-proto", openProto);
     };
   }, []);
 
@@ -259,8 +259,8 @@ export default function App() {
       setCurlImportOpen(false);
       setProtoViewerOpen(false);
     };
-    document.addEventListener("pengvi:close-all-dialogs", closeAll);
-    return () => document.removeEventListener("pengvi:close-all-dialogs", closeAll);
+    document.addEventListener("penguin:close-all-dialogs", closeAll);
+    return () => document.removeEventListener("penguin:close-all-dialogs", closeAll);
   }, [setInstallerOpen]);
 
   useEffect(() => {

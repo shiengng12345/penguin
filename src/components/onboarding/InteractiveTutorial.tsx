@@ -355,7 +355,7 @@ function getTooltipStyle(
 }
 
 function closeAllDialogs() {
-  document.dispatchEvent(new CustomEvent("pengvi:close-all-dialogs"));
+  document.dispatchEvent(new CustomEvent("penguin:close-all-dialogs"));
 }
 
 export function InteractiveTutorial() {

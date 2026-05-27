@@ -5,22 +5,22 @@ import "./index.css";
 import pkg from "../package.json";
 
 const APP_VERSION = pkg.version;
-const CACHE_VERSION_KEY = "pengvi-cache-version";
+const CACHE_VERSION_KEY = "penguin-cache-version";
 const lastVersion = localStorage.getItem(CACHE_VERSION_KEY);
 
 if (lastVersion !== APP_VERSION) {
   const keep = [
-    "pengvi-username",
-    "pengvi-theme",
-    "pengvi-tabs",
-    "pengvi-active-tab",
-    "pengvi-history",
-    "pengvi-grpc-web-environments",
-    "pengvi-grpc-web-active-env",
-    "pengvi-grpc-environments",
-    "pengvi-grpc-active-env",
-    "pengvi-sdk-environments",
-    "pengvi-sdk-active-env",
+    "penguin-username",
+    "penguin-theme",
+    "penguin-tabs",
+    "penguin-active-tab",
+    "penguin-history",
+    "penguin-grpc-web-environments",
+    "penguin-grpc-web-active-env",
+    "penguin-grpc-environments",
+    "penguin-grpc-active-env",
+    "penguin-sdk-environments",
+    "penguin-sdk-active-env",
   ];
   const saved: Record<string, string> = {};
   for (const key of keep) {

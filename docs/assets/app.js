@@ -127,7 +127,7 @@ function setLang(lang) {
 
 function wireLinks() {
   const repoUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}`;
-  const configUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/.pengvi.config.json`;
+  const configUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/.penguin.config.json`;
 
   const repoLinks = document.querySelectorAll("#repoLink");
   repoLinks.forEach((link) => {

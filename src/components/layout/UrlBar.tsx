@@ -57,7 +57,7 @@ export function UrlBar({ resolvedUrl }: UrlBarProps) {
         />
 
         <Button
-          onClick={() => document.dispatchEvent(new CustomEvent("pengvi:send-request"))}
+          onClick={() => document.dispatchEvent(new CustomEvent("penguin:send-request"))}
           disabled={tab.isLoading || !tab.targetUrl.trim() || !tab.selectedMethod}
           size="default"
           data-tour="send-btn"

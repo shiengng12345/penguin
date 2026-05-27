@@ -57,8 +57,8 @@ const STEPS = [
     icon: Settings,
     titleEn: "Config File",
     titleZh: "配置文件",
-    descEn: "Use .pengvi.config.json to auto-install packages and sync environments on startup.",
-    descZh: "使用 .pengvi.config.json 在启动时自动安装包并同步环境。",
+    descEn: "Use .penguin.config.json to auto-install packages and sync environments on startup.",
+    descZh: "使用 .penguin.config.json 在启动时自动安装包并同步环境。",
   },
 ];
 

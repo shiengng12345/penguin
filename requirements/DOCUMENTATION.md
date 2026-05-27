@@ -19,7 +19,7 @@
 | **Proto File Discovery** / Proto 文件发现 | Auto-discovers `.proto` files and ConnectRPC definitions from installed packages / 自动发现已安装包中的 proto 和 ConnectRPC 定义 |
 | **SDK Function Discovery** / SDK 函数发现 | Parses `.d.ts` files from `@snsoft/js-sdk` to discover service methods / 解析 `.d.ts` 文件以发现 SDK 服务方法 |
 | **Multi-Environment** / 多环境管理 | Per-protocol environments with variable interpolation (`{{URL}}`, `{{TOKEN}}`) / 每个协议独立环境，支持变量插值 |
-| **Preset Config** / 预设配置 | `.pengvi.config.json` presets environments and packages per protocol / 通过配置文件预设各协议的环境和包 |
+| **Preset Config** / 预设配置 | `.penguin.config.json` presets environments and packages per protocol / 通过配置文件预设各协议的环境和包 |
 | **Fuzzy Search** / 模糊搜索 | `Cmd+F` global search with fuzzy matching and wildcard (`*`) support / 全局模糊搜索，支持通配符 |
 | **Multi-Tab** / 多标签页 | Multiple request tabs with independent state / 多标签页，每个标签独立状态 |
 | **Multi-Theme** / 多主题 | 10+themes including dark, light, and colorful options / 10+主题选择 |
@@ -191,7 +191,7 @@ Click the **gear icon** (⚙) in the header to open Settings:
 
 ## 7. Configuration File / 配置文件
 
-### `.pengvi.config.json`
+### `.penguin.config.json`
 
 This file lives in the project root and presets environments and auto-install packages per protocol. It is the **source of truth** for environments — changes here are reflected on app startup.
 
@@ -257,10 +257,10 @@ This file lives in the project root and presets environments and auto-install pa
 
 The app searches for the config file in this order / 应用按以下顺序查找配置文件:
 
-1. `~/.pengvi/config.json` (user-level / 用户级别)
+1. `~/.penguin/config.json` (user-level / 用户级别)
 2. Bundled resource (inside `.app` / 内置资源)
 3. Current working directory / 当前工作目录
-4. `http://localhost:1420/.pengvi.config.json` (dev server fallback / 开发服务器回退)
+4. `http://localhost:1420/.penguin.config.json` (dev server fallback / 开发服务器回退)
 
 ---
 
@@ -269,8 +269,8 @@ The app searches for the config file in this order / 应用按以下顺序查找
 ### Directory Structure / 目录结构
 
 ```
-Pengvi/
-├── .pengvi.config.json          # Environment & package presets / 环境与包预设
+Penguin/
+├── .penguin.config.json          # Environment & package presets / 环境与包预设
 ├── public/
 │   └── penguin.png              # App logo / 应用 Logo
 ├── src/
@@ -354,12 +354,12 @@ Browser → RequestPanel → sdk-client.ts → zsh → Node.js sidecar → @snso
 
 ### Package Storage / 包存储
 
-All packages are installed to `~/.pengvi/` with separate directories per protocol:
+All packages are installed to `~/.penguin/` with separate directories per protocol:
 
-所有包安装在 `~/.pengvi/` 下，按协议分目录：
+所有包安装在 `~/.penguin/` 下，按协议分目录：
 
 ```
-~/.pengvi/
+~/.penguin/
 ├── grpc-web/
 │   ├── package.json
 │   ├── .npmrc              # Auto-copied from ~/.npmrc / 自动从 ~/.npmrc 复制
@@ -410,7 +410,7 @@ When the app version changes (in `package.json`), the first launch will:
 
 1. Clear all installed packages / 清除所有已安装的包
 2. Preserve username, theme, and environment selections / 保留用户名、主题和环境选择
-3. Re-sync environments from `.pengvi.config.json` / 从配置文件重新同步环境
+3. Re-sync environments from `.penguin.config.json` / 从配置文件重新同步环境
 
 To force a full reset, use **Settings → Clear Cache** which wipes everything and restarts.
 
@@ -425,6 +425,6 @@ To force a full reset, use **Settings → Clear Cache** which wipes everything a
 | Package install hangs / 包安装卡住 | Check `~/.npmrc` has correct registry config / 检查 `.npmrc` 是否配置了正确的仓库 |
 | "No such file or directory" on gRPC call / gRPC 调用报文件未找到 | `@grpc/grpc-js` auto-installs on first call; ensure Node.js is available / 首次调用会自动安装，确保 Node.js 可用 |
 | Port 1420 already in use / 端口 1420 被占用 | Run `lsof -ti :1420 \| xargs kill -9` / 执行该命令释放端口 |
-| Environments not loading / 环境未加载 | Check `.pengvi.config.json` exists and is valid JSON / 检查配置文件是否存在且为有效 JSON |
+| Environments not loading / 环境未加载 | Check `.penguin.config.json` exists and is valid JSON / 检查配置文件是否存在且为有效 JSON |
 | Built app can't find npm / 构建后的应用找不到 npm | Ensure Node.js/npm is in your shell PATH (nvm users: check `~/.zshrc`) / 确保 npm 在 PATH 中 |
 | `_cloudflareEnabled` in response / 响应中有下划线字段 | Auto-stripped; if persisting, try `Cmd+R` to refresh / 自动剔除；如仍存在，按 `Cmd+R` 刷新 |

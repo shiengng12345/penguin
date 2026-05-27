@@ -42,13 +42,13 @@ A modern desktop API client for **gRPC-Web**, **gRPC**, and **SDK** testing — 
 ### Package Management
 - Install `@snsoft/*` npm packages directly from the app
 - Auto-discovers `.proto` files and TypeScript definitions
-- Packages stored locally at `~/.pengvi/{grpc-web,grpc,sdk}/`
+- Packages stored locally at `~/.penguin/{grpc-web,grpc,sdk}/`
 - Service and method tree browser in the sidebar
 
 ### Environment Variables
 - Per-protocol environments (LOCAL, DEV, STAGING, etc.)
 - Variable interpolation in URLs and headers using `{{VAR}}` syntax
-- Configurable via UI or `.pengvi.config.json`
+- Configurable via UI or `.penguin.config.json`
 
 ### Request Builder
 - JSON body editor with CodeMirror (autocomplete, linting, formatting)
@@ -115,7 +115,7 @@ A modern desktop API client for **gRPC-Web**, **gRPC**, and **SDK** testing — 
 ## Project Structure
 
 ```
-pengvi/
+penguin/
 ├── src/                          # Frontend (React + TypeScript)
 │   ├── App.tsx                   # Root layout, shortcuts, dialogs
 │   ├── main.tsx                  # Entry point
@@ -154,7 +154,7 @@ pengvi/
 │   └── icons/                    # App icons (.icns, .ico, .png)
 ├── public/                       # Static assets
 ├── .github/workflows/build.yml   # CI/CD pipeline
-├── .pengvi.config.json           # Default environments and packages
+├── .penguin.config.json           # Default environments and packages
 ├── package.json                  # Node dependencies
 ├── vite.config.ts                # Vite configuration
 └── tsconfig.json                 # TypeScript configuration
@@ -215,10 +215,10 @@ User selects Package → Service → Method
 
 | Command | Description |
 |---|---|
-| `ensure_packages_dir` | Creates `~/.pengvi/{protocol}/` with `package.json` |
+| `ensure_packages_dir` | Creates `~/.penguin/{protocol}/` with `package.json` |
 | `get_packages_dir` | Returns the packages directory path |
 | `list_installed_packages` | Discovers installed `@snsoft/*` packages, proto files, and TS definitions |
-| `read_config` | Loads `.pengvi.config.json` from multiple fallback locations |
+| `read_config` | Loads `.penguin.config.json` from multiple fallback locations |
 | `http_proxy` | Proxies HTTP requests through Rust (bypasses browser CORS) |
 | `read_package_bundle` | Reads the JS bundle file for SDK packages |
 | `clear_all_packages` | Removes all installed packages and resets `package.json` |
@@ -290,7 +290,7 @@ The workflow (`.github/workflows/build.yml`) runs two jobs:
 1. Checks out the repo
 2. Sets up pnpm 9, Node.js 22, and Rust stable
 3. Installs frontend dependencies (`pnpm install --frozen-lockfile`)
-4. Copies `.pengvi.config.json` to `~/.pengvi/config.json`
+4. Copies `.penguin.config.json` to `~/.penguin/config.json`
 5. Builds the Tauri app with code signing (`TAURI_SIGNING_PRIVATE_KEY`)
 6. Renames updater artifacts with arch suffix (e.g., `Penguin_aarch64.app.tar.gz`)
 7. Uploads DMG, `.app.tar.gz`, and `.sig` as GitHub Actions artifacts
@@ -337,10 +337,10 @@ Each release contains:
 
 ## Configuration
 
-### `.pengvi.config.json`
+### `.penguin.config.json`
 
-The app reads its configuration from `.pengvi.config.json`, searched in this order:
-1. `~/.pengvi/config.json`
+The app reads its configuration from `.penguin.config.json`, searched in this order:
+1. `~/.penguin/config.json`
 2. Tauri resource directory
 3. Current working directory
 4. Executable directory

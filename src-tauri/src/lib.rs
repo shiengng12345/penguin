@@ -37,20 +37,38 @@ pub struct HttpProxyResponse {
     pub error: Option<String>,
 }
 
-fn pengvi_packages_dir(protocol: &str) -> Result<PathBuf, String> {
+fn penguin_packages_dir(protocol: &str) -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or("Could not determine home directory")?;
-    Ok(home.join(".pengvi").join(protocol))
+    Ok(home.join(".penguin").join(protocol))
+}
+
+// One-shot migration for users upgrading from the "pengvi" naming: if their
+// data still lives under ~/.pengvi and the new ~/.penguin doesn't exist yet,
+// rename the whole tree in one atomic step. Same-filesystem mv is cheap and
+// preserves inodes (so npm's cached extraction symlinks stay valid). Failures
+// are logged but never fatal — worst case the user reinstalls a few packages.
+fn migrate_legacy_pengvi_dir() {
+    let Some(home) = dirs::home_dir() else { return };
+    let new_dir = home.join(".penguin");
+    let old_dir = home.join(".pengvi");
+    if new_dir.exists() || !old_dir.exists() {
+        return;
+    }
+    match std::fs::rename(&old_dir, &new_dir) {
+        Ok(()) => eprintln!("Migrated {} -> {}", old_dir.display(), new_dir.display()),
+        Err(e) => eprintln!("Failed to migrate ~/.pengvi -> ~/.penguin: {}", e),
+    }
 }
 
 #[tauri::command]
 fn ensure_packages_dir(protocol: String) -> Result<String, String> {
-    let dir = pengvi_packages_dir(&protocol)?;
+    let dir = penguin_packages_dir(&protocol)?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
     let package_json = dir.join("package.json");
     if !package_json.exists() {
         let pkg = serde_json::json!({
-            "name": "pengvi-packages",
+            "name": "penguin-packages",
             "version": "1.0.0",
             "private": true
         });
@@ -75,7 +93,7 @@ fn ensure_packages_dir(protocol: String) -> Result<String, String> {
 
 #[tauri::command]
 fn get_packages_dir(protocol: String) -> Result<String, String> {
-    let dir = pengvi_packages_dir(&protocol)?;
+    let dir = penguin_packages_dir(&protocol)?;
     dir.to_str()
         .map(String::from)
         .ok_or_else(|| "Invalid path".to_string())
@@ -87,7 +105,7 @@ fn read_file_content(path: &std::path::Path) -> Result<String, String> {
 
 #[tauri::command]
 fn list_installed_packages(protocol: String) -> Result<Vec<InstalledPackage>, String> {
-    let base_dir = pengvi_packages_dir(&protocol)?;
+    let base_dir = penguin_packages_dir(&protocol)?;
     let node_modules = base_dir.join("node_modules");
 
     if !node_modules.exists() {
@@ -241,24 +259,26 @@ fn read_config<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> String {
     let mut paths_to_try: Vec<PathBuf> = Vec::new();
 
     if let Some(home) = dirs::home_dir() {
-        paths_to_try.push(home.join(".pengvi").join("config.json"));
+        paths_to_try.push(home.join(".penguin").join("config.json"));
+        paths_to_try.push(home.join(".penguin.config.json"));
+        // Legacy: users who still have the pre-rename file in their home.
         paths_to_try.push(home.join(".pengvi.config.json"));
     }
 
     if let Ok(resource_dir) = app.path().resource_dir() {
-        paths_to_try.push(resource_dir.join(".pengvi.config.json"));
+        paths_to_try.push(resource_dir.join(".penguin.config.json"));
     }
 
     if let Ok(cwd) = std::env::current_dir() {
-        paths_to_try.push(cwd.join(".pengvi.config.json"));
+        paths_to_try.push(cwd.join(".penguin.config.json"));
     }
 
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            paths_to_try.push(parent.join(".pengvi.config.json"));
+            paths_to_try.push(parent.join(".penguin.config.json"));
             if let Some(grandparent) = parent.parent() {
-                paths_to_try.push(grandparent.join(".pengvi.config.json"));
-                paths_to_try.push(grandparent.join("Resources").join(".pengvi.config.json"));
+                paths_to_try.push(grandparent.join(".penguin.config.json"));
+                paths_to_try.push(grandparent.join("Resources").join(".penguin.config.json"));
             }
         }
     }
@@ -379,7 +399,7 @@ async fn http_proxy(req: HttpProxyRequest) -> HttpProxyResponse {
 
 #[tauri::command]
 fn read_package_bundle(protocol: String, package_name: String) -> Result<String, String> {
-    let base_dir = pengvi_packages_dir(&protocol)?;
+    let base_dir = penguin_packages_dir(&protocol)?;
     let pkg_path = if package_name.starts_with('@') {
         let parts: Vec<&str> = package_name.splitn(2, '/').collect();
         if parts.len() == 2 {
@@ -422,7 +442,7 @@ fn clear_all_packages() -> Result<String, String> {
     let mut cleared = Vec::new();
 
     for protocol in &protocols {
-        let dir = pengvi_packages_dir(protocol)?;
+        let dir = penguin_packages_dir(protocol)?;
         let node_modules = dir.join("node_modules");
         if node_modules.exists() {
             fs::remove_dir_all(&node_modules).map_err(|e| e.to_string())?;
@@ -434,7 +454,7 @@ fn clear_all_packages() -> Result<String, String> {
 
         let package_json = dir.join("package.json");
         let pkg = serde_json::json!({
-            "name": "pengvi-packages",
+            "name": "penguin-packages",
             "version": "1.0.0",
             "private": true
         });
@@ -458,7 +478,7 @@ fn copy_png_to_clipboard(base64_data: String) -> Result<(), String> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    let tmp_path = format!("/tmp/pengvi-doc-{}.png", millis);
+    let tmp_path = format!("/tmp/penguin-doc-{}.png", millis);
 
     std::fs::write(&tmp_path, &png_bytes).map_err(|e| e.to_string())?;
 
@@ -481,6 +501,7 @@ fn copy_png_to_clipboard(base64_data: String) -> Result<(), String> {
 }
 
 pub fn run() {
+    migrate_legacy_pengvi_dir();
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::default().build())

@@ -131,7 +131,7 @@ export function SavedRequestsPanel({
       useAppStore.getState().updateActiveTab(patch);
       if (entry.packageName && entry.serviceName) {
         document.dispatchEvent(
-          new CustomEvent("pengvi:focus-method", {
+          new CustomEvent("penguin:focus-method", {
             detail: {
               packageName: entry.packageName,
               serviceName: entry.serviceName,

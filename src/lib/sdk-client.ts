@@ -1,9 +1,9 @@
-// sdk-client now lives in @pengvi/core. This shim provides the Tauri-specific
+// sdk-client now lives in @penguin/core. This shim provides the Tauri-specific
 // sidecar runner (base64 + zsh-login + node -) and preserves the old single-arg
 // signature so existing call sites keep working.
 import { Command } from "@tauri-apps/plugin-shell";
-import { callSdk as coreCallSdk } from "@pengvi/core";
-import type { SdkCallParams, SidecarRunner, ResponseState } from "@pengvi/core";
+import { callSdk as coreCallSdk } from "@penguin/core";
+import type { SdkCallParams, SidecarRunner, ResponseState } from "@penguin/core";
 
 const tauriRunner: SidecarRunner = async (script: string) => {
   const b64 = btoa(unescape(encodeURIComponent(script)));

@@ -1,11 +1,11 @@
-// grpc-native-client now lives in @pengvi/core. This shim handles the
+// grpc-native-client now lives in @penguin/core. This shim handles the
 // Tauri-specific concerns: ensuring @grpc/grpc-js is installed in the user's
 // grpc packages dir (via npm under zsh-login) and running the sidecar script
 // through @tauri-apps/plugin-shell.
 import { Command } from "@tauri-apps/plugin-shell";
-import { callGrpcNative as coreCallGrpcNative } from "@pengvi/core";
-import type { GrpcNativeCallParams, SidecarRunner } from "@pengvi/core";
-import type { ResponseState } from "@pengvi/core";
+import { callGrpcNative as coreCallGrpcNative } from "@penguin/core";
+import type { GrpcNativeCallParams, SidecarRunner } from "@penguin/core";
+import type { ResponseState } from "@penguin/core";
 import { ensurePackagesDir } from "./package-manager";
 
 let depsInstalled = false;
