@@ -1,5 +1,6 @@
 import { useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useAppStore } from "@/lib/store";
 import { useActiveTab } from "@/lib/store";
 import type { ProtocolTab } from "@/lib/store";
@@ -157,6 +158,27 @@ export function usePackages(): {
       clearTimeout(id);
     };
   }, []);
+
+  // Re-fetch when the Rust watcher reports a node_modules change. Lets
+  // out-of-band installs (e.g. via the MCP server, or the user running
+  // `npm i` themselves) reflect in the UI without a reload.
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    let cancelled = false;
+    listen("packages-changed", () => {
+      refresh();
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [refresh]);
 
   return { packages, refresh, install, uninstall };
 }

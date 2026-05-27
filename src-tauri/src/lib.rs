@@ -1,9 +1,12 @@
 use base64::Engine;
+use notify::{event::EventKind, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::mpsc::{channel, RecvTimeoutError};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtoFile {
@@ -665,6 +668,70 @@ fn mcp_install_to_claude_desktop<R: tauri::Runtime>(
     ))
 }
 
+// Watches ~/.penguin/ recursively and emits `packages-changed` whenever a
+// node_modules tree changes. The frontend listens for this so newly-installed
+// packages (including ones installed by the MCP server out-of-band) show up
+// without a manual reload. Events are coalesced with a 500ms quiet window —
+// `npm install` produces thousands of file events per package and we only want
+// a single refresh once the dust settles.
+fn start_package_watcher<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
+    let Some(home) = dirs::home_dir() else { return };
+    let penguin_root = home.join(".penguin");
+    if let Err(e) = fs::create_dir_all(&penguin_root) {
+        eprintln!("watcher: cannot create {}: {}", penguin_root.display(), e);
+        return;
+    }
+
+    std::thread::spawn(move || {
+        let (tx, rx) = channel::<notify::Result<notify::Event>>();
+        let mut watcher = match notify::recommended_watcher(move |res| {
+            let _ = tx.send(res);
+        }) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("watcher: failed to create: {}", e);
+                return;
+            }
+        };
+
+        if let Err(e) = watcher.watch(&penguin_root, RecursiveMode::Recursive) {
+            eprintln!("watcher: failed to watch {}: {}", penguin_root.display(), e);
+            return;
+        }
+
+        let debounce = Duration::from_millis(500);
+        let mut pending = false;
+        let mut last_event = Instant::now();
+
+        loop {
+            match rx.recv_timeout(debounce) {
+                Ok(Ok(event)) => {
+                    if matches!(event.kind, EventKind::Access(_)) {
+                        continue;
+                    }
+                    let touched_node_modules = event.paths.iter().any(|p| {
+                        p.components().any(|c| c.as_os_str() == "node_modules")
+                    });
+                    if touched_node_modules {
+                        pending = true;
+                        last_event = Instant::now();
+                    }
+                }
+                Ok(Err(e)) => {
+                    eprintln!("watcher: event error: {}", e);
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    if pending && last_event.elapsed() >= debounce {
+                        let _ = app.emit("packages-changed", ());
+                        pending = false;
+                    }
+                }
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+        }
+    });
+}
+
 pub fn run() {
     migrate_legacy_pengvi_dir();
     tauri::Builder::default()
@@ -672,6 +739,10 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .setup(|app| {
+            start_package_watcher(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             ensure_packages_dir,
             get_packages_dir,

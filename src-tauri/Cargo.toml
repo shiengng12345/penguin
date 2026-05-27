@@ -1,6 +1,6 @@
 [package]
 name = "penguin"
-version = "1.6.0"
+version = "1.6.1"
 description = "gRPC/gRPC-Web API Client"
 authors = ["Penguin"]
 edition = "2021"
@@ -25,3 +25,4 @@ dirs = "6"
 reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
 base64 = "0.22"
+notify = "6.1"
