@@ -29,6 +29,24 @@ export function packageDir(protocol: Protocol, packageName: string): string {
   return join(protocolDir(protocol), "node_modules", packageName);
 }
 
+// In-process cache for parser output. parseProtoContent / parseSdkDts each
+// walk the package tree and JSON.parse every .d.ts — cheap individually but
+// search_methods runs it across every installed package on every call, so
+// even a tiny memoization pays off. Keyed by (protocol, packageName) and
+// invalidated via the package.json mtime: npm install rewrites it on every
+// upgrade, so a changed mtime is a reliable "schema may have changed" signal.
+const parseCache = new Map<string, { mtimeMs: number; services: ProtoService[] }>();
+
+function packageJsonMtime(dir: string): number {
+  const pkgJson = join(dir, "package.json");
+  if (!existsSync(pkgJson)) return 0;
+  try {
+    return statSync(pkgJson).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
 export function parseServicesForPackage(
   protocol: Protocol,
   packageName: string,
@@ -47,6 +65,15 @@ export function parseServicesForPackage(
     throw new Error(`Package ${packageName} not installed for ${protocol}.${hint}`);
   }
 
+  const cacheKey = `${protocol}:${packageName}`;
+  const mtimeMs = packageJsonMtime(dir);
+  const cached = parseCache.get(cacheKey);
+  if (cached && cached.mtimeMs === mtimeMs) {
+    return cached.services;
+  }
+
+  let services: ProtoService[];
+
   if (protocol === "sdk") {
     const moduleDir = join(dir, "dist", "module");
     if (!existsSync(moduleDir)) {
@@ -61,18 +88,21 @@ export function parseServicesForPackage(
       name: p.slice(moduleDir.length + 1),
       content: readFileSync(p, "utf-8"),
     }));
-    return parseSdkDts(dtsFiles);
+    services = parseSdkDts(dtsFiles);
+  } else {
+    // grpc + grpc-web both ship .proto plus generated *_pb.d.ts / *_connect.d.ts.
+    // parseProtoContent handles both shapes and produces requestFields with the
+    // schema info AI tools need to construct a valid body.
+    const files = walk(
+      dir,
+      (n) =>
+        n.endsWith(".proto") ||
+        n.endsWith("_connect.d.ts") ||
+        n.endsWith("_pb.d.ts"),
+    ).map((p) => ({ name: basename(p), content: readFileSync(p, "utf-8") }));
+    services = parseProtoContent(files);
   }
 
-  // grpc + grpc-web both ship .proto plus generated *_pb.d.ts / *_connect.d.ts.
-  // parseProtoContent handles both shapes and produces requestFields with the
-  // schema info AI tools need to construct a valid body.
-  const files = walk(
-    dir,
-    (n) =>
-      n.endsWith(".proto") ||
-      n.endsWith("_connect.d.ts") ||
-      n.endsWith("_pb.d.ts"),
-  ).map((p) => ({ name: basename(p), content: readFileSync(p, "utf-8") }));
-  return parseProtoContent(files);
+  parseCache.set(cacheKey, { mtimeMs, services });
+  return services;
 }

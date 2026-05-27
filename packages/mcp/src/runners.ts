@@ -98,6 +98,43 @@ export async function installPackageViaNpm(
   });
 }
 
+// Symmetric counterpart to installPackageViaNpm. Same flags minus the
+// install-specific --prefer-offline (irrelevant for uninstall).
+export async function uninstallPackageViaNpm(
+  protocol: Protocol,
+  packageName: string,
+): Promise<InstallResult> {
+  const dir = ensurePackageDir(protocol);
+  const npmBinary = resolveNpmBinary();
+
+  return await new Promise((resolve) => {
+    const child = spawn(
+      npmBinary,
+      ["uninstall", "--save", "--no-audit", "--no-fund", packageName],
+      { cwd: dir, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let output = "";
+    child.stdout.on("data", (c) => {
+      output += c.toString();
+    });
+    child.stderr.on("data", (c) => {
+      output += c.toString();
+    });
+    child.on("error", (err) => {
+      resolve({
+        ok: false,
+        code: -1,
+        output: output + String(err),
+        dir,
+        npmBinary,
+      });
+    });
+    child.on("close", (code) => {
+      resolve({ ok: code === 0, code: code ?? -1, output, dir, npmBinary });
+    });
+  });
+}
+
 // Streams the sidecar script into `node -` via stdin. Mirrors the Penguin
 // desktop runner (which goes through zsh-login) but skips the shell layer —
 // MCP servers don't need user PATH inheritance the way the GUI does.

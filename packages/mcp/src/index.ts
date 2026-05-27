@@ -38,6 +38,7 @@ import {
   installPackageViaNpm,
   makeLoadModule,
   nodeSidecarRunner,
+  uninstallPackageViaNpm,
 } from "./runners.js";
 
 const PROTOCOLS: readonly Protocol[] = ["grpc-web", "grpc", "sdk"] as const;
@@ -60,17 +61,10 @@ function buildDefaultHeaders(variables: Record<string, string>): Record<string, 
   return out;
 }
 
-function findMethod(
-  protocol: Protocol,
-  packageName: string,
-  serviceName: string,
-  methodName: string,
-): { service: { fullName: string }; method: ProtoMethod } {
+function findService(protocol: Protocol, packageName: string, serviceName: string) {
   const services = parseServicesForPackage(protocol, packageName);
   // Match by short name OR fullName so callers can pass either "Auth" or
-  // "pengvi.auth.Auth". Methods are matched case-insensitively because SDK
-  // uses camelCase ("lookupNationalId") while proto uses PascalCase
-  // ("LookupNationalId") — same RPC, different stringly-typed conventions.
+  // "pengvi.auth.Auth".
   const service = services.find(
     (s) => s.name === serviceName || s.fullName === serviceName,
   );
@@ -81,6 +75,19 @@ function findMethod(
         .join(", ")})`,
     );
   }
+  return service;
+}
+
+function findMethod(
+  protocol: Protocol,
+  packageName: string,
+  serviceName: string,
+  methodName: string,
+): { service: { fullName: string }; method: ProtoMethod } {
+  const service = findService(protocol, packageName, serviceName);
+  // Methods are matched case-insensitively because SDK uses camelCase
+  // ("lookupNationalId") while proto uses PascalCase ("LookupNationalId") —
+  // same RPC, different stringly-typed conventions.
   const lowered = methodName.toLowerCase();
   const method = service.methods.find(
     (m) => m.name === methodName || m.name.toLowerCase() === lowered,
@@ -399,6 +406,36 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: "describe_service",
+      description:
+        "Return every method on a service with its full schema and defaultBody in one call — preferred over running describe_method N times when exploring a service. Pair with search_methods → describe_service → call_method for an efficient discover-and-invoke loop.",
+      inputSchema: {
+        type: "object",
+        required: ["protocol", "packageName", "serviceName"],
+        properties: {
+          protocol: { type: "string", enum: ["grpc-web", "grpc", "sdk"] },
+          packageName: { type: "string", description: "e.g. @snsoft/auth-grpc-web" },
+          serviceName: {
+            type: "string",
+            description: "Short name (e.g. 'Auth') or fullName (e.g. 'pengvi.auth.Auth')",
+          },
+        },
+      },
+    },
+    {
+      name: "uninstall_package",
+      description:
+        "Remove an installed @snsoft package via `npm uninstall --save`. Symmetric with install_package. The Penguin desktop's filesystem watcher refreshes the UI automatically afterwards.",
+      inputSchema: {
+        type: "object",
+        required: ["protocol", "packageName"],
+        properties: {
+          protocol: { type: "string", enum: ["grpc-web", "grpc", "sdk"] },
+          packageName: { type: "string", description: "e.g. @snsoft/auth-grpc-web" },
+        },
+      },
+    },
+    {
       name: "install_package",
       description:
         "Install an @snsoft npm package into ~/.penguin/<protocol>/. Runs `npm install --save <packageSpec>` in the protocol's package dir. Penguin desktop's filesystem watcher will pick up the change and refresh the UI automatically.",
@@ -581,6 +618,42 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return jsonResult({ service: service.fullName, ...method, defaultBody });
     }
 
+    if (name === "describe_service") {
+      const service = findService(
+        a.protocol as Protocol,
+        a.packageName as string,
+        a.serviceName as string,
+      );
+      // Synthesize defaultBody per method so the AI gets everything it needs
+      // for follow-up call_method without further describe_method round trips.
+      const methods = service.methods.map((m) => ({
+        ...m,
+        defaultBody: generateDefaultJson(m.requestFields),
+      }));
+      return jsonResult({
+        service: service.fullName,
+        methodCount: methods.length,
+        methods,
+      });
+    }
+
+    if (name === "uninstall_package") {
+      const result = await uninstallPackageViaNpm(
+        a.protocol as Protocol,
+        a.packageName as string,
+      );
+      return jsonResult(
+        {
+          ok: result.ok,
+          exitCode: result.code,
+          dir: result.dir,
+          npmBinary: result.npmBinary,
+          output: result.output,
+        },
+        !result.ok,
+      );
+    }
+
     if (name === "install_package") {
       const result = await installPackageViaNpm(
         a.protocol as Protocol,
@@ -740,7 +813,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     throw new Error(
-      `Unknown tool: ${name}. Valid tools: list_packages, list_methods, describe_method, install_package, list_environments, resolve_environment, package_status, compare_environments, call_method.`,
+      `Unknown tool: ${name}. Valid tools: mcp_health, search_methods, list_packages, list_methods, describe_method, describe_service, install_package, uninstall_package, list_environments, resolve_environment, package_status, compare_environments, call_method.`,
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
