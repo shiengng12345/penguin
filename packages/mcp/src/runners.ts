@@ -3,10 +3,10 @@
 // regular Node process so it gets to use child_process + fs.readFile directly.
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { SidecarRunner, LoadPackageModule } from "@penguin/core";
-import { protocolDir, type Protocol } from "./penguin-paths.js";
+import { ensurePackageDir, protocolDir, type Protocol } from "./penguin-paths.js";
 
 // Dynamic-imports the @snsoft package's main entry point. Resolves the same
 // way Penguin desktop does: read the package's package.json, follow `main`.
@@ -32,6 +32,70 @@ export function makeLoadModule(protocol: Protocol): LoadPackageModule {
     }
     return await import(pathToFileURL(entry).href);
   };
+}
+
+// Prefer the npm shipped alongside the node binary that's running this MCP
+// process — Claude Desktop launches the server without an interactive shell,
+// so $PATH doesn't necessarily contain npm. The node-adjacent fallback works
+// for homebrew, nvm, fnm, and system installs.
+function resolveNpmBinary(): string {
+  const beside = join(dirname(process.execPath), "npm");
+  if (existsSync(beside)) return beside;
+  return "npm";
+}
+
+export interface InstallResult {
+  ok: boolean;
+  code: number;
+  output: string;
+  dir: string;
+  npmBinary: string;
+}
+
+// Run `npm install --save <spec>` inside the protocol's package dir. The Rust
+// filesystem watcher in the desktop app picks up the resulting node_modules
+// churn and triggers a UI refresh, so packages installed via MCP appear in
+// Penguin's package list without a reload.
+export async function installPackageViaNpm(
+  protocol: Protocol,
+  packageSpec: string,
+): Promise<InstallResult> {
+  const dir = ensurePackageDir(protocol);
+  const npmBinary = resolveNpmBinary();
+
+  return await new Promise((resolve) => {
+    const child = spawn(
+      npmBinary,
+      [
+        "install",
+        "--save",
+        "--no-audit",
+        "--no-fund",
+        "--prefer-offline",
+        packageSpec,
+      ],
+      { cwd: dir, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let output = "";
+    child.stdout.on("data", (c) => {
+      output += c.toString();
+    });
+    child.stderr.on("data", (c) => {
+      output += c.toString();
+    });
+    child.on("error", (err) => {
+      resolve({
+        ok: false,
+        code: -1,
+        output: output + String(err),
+        dir,
+        npmBinary,
+      });
+    });
+    child.on("close", (code) => {
+      resolve({ ok: code === 0, code: code ?? -1, output, dir, npmBinary });
+    });
+  });
 }
 
 // Streams the sidecar script into `node -` via stdin. Mirrors the Penguin

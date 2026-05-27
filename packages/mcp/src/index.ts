@@ -27,7 +27,11 @@ import {
   protocolDir,
   type Protocol,
 } from "./penguin-paths.js";
-import { makeLoadModule, nodeSidecarRunner } from "./runners.js";
+import {
+  installPackageViaNpm,
+  makeLoadModule,
+  nodeSidecarRunner,
+} from "./runners.js";
 
 function walk(dir: string, predicate: (name: string) => boolean): string[] {
   if (!existsSync(dir)) return [];
@@ -122,6 +126,23 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: "install_package",
+      description:
+        "Install an @snsoft npm package into ~/.penguin/<protocol>/. Runs `npm install --save <packageSpec>` in the protocol's package dir. Penguin desktop's filesystem watcher will pick up the change and refresh the UI automatically.",
+      inputSchema: {
+        type: "object",
+        required: ["protocol", "packageSpec"],
+        properties: {
+          protocol: { type: "string", enum: ["grpc-web", "grpc", "sdk"] },
+          packageSpec: {
+            type: "string",
+            description:
+              "npm spec, e.g. '@snsoft/auth-grpc-web' or '@snsoft/auth-grpc-web@1.2.3'",
+          },
+        },
+      },
+    },
+    {
       name: "call_method",
       description:
         "Invoke an RPC method on the live backend. URL is the env target (e.g. https://fpms-nt-swim.platform88.me). For grpc-web/grpc, `servicePath` is /<package>/<typeName>/<method>; for sdk, `serviceName` + `methodName`.",
@@ -159,6 +180,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           listInstalledPackages(p).map((pkg) => ({ protocol: p, ...pkg })),
         );
       return { content: [{ type: "text", text: JSON.stringify(all, null, 2) }] };
+    }
+
+    if (name === "install_package") {
+      const result = await installPackageViaNpm(
+        a.protocol as Protocol,
+        a.packageSpec as string,
+      );
+      return {
+        isError: !result.ok,
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                ok: result.ok,
+                exitCode: result.code,
+                dir: result.dir,
+                npmBinary: result.npmBinary,
+                output: result.output,
+              },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
     }
 
     if (name === "list_methods") {

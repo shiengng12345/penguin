@@ -1,7 +1,15 @@
 // Mirrors Penguin desktop's package layout under ~/.penguin/. The MCP server
 // reads the same directories so any package the user installed via the Penguin
 // UI is immediately discoverable from AI tools — no extra wiring.
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -23,6 +31,39 @@ export function penguinRoot(): string {
 
 export function protocolDir(protocol: Protocol): string {
   return join(penguinRoot(), protocol);
+}
+
+// Materialize ~/.penguin/<protocol>/ so npm has somewhere to install into.
+// Mirrors the Tauri `ensure_packages_dir` command — same package.json shape
+// and .npmrc copy logic — so the directory is interchangeable between the
+// desktop app and the MCP server.
+export function ensurePackageDir(protocol: Protocol): string {
+  const dir = protocolDir(protocol);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+  const pkgJson = join(dir, "package.json");
+  if (!existsSync(pkgJson)) {
+    writeFileSync(
+      pkgJson,
+      JSON.stringify(
+        { name: "penguin-packages", version: "1.0.0", private: true },
+        null,
+        2,
+      ),
+    );
+  }
+
+  const localNpmrc = join(dir, ".npmrc");
+  const globalNpmrc = join(homedir(), ".npmrc");
+  if (!existsSync(localNpmrc) && existsSync(globalNpmrc)) {
+    try {
+      copyFileSync(globalNpmrc, localNpmrc);
+    } catch {
+      // Non-fatal: the install will use the global config directly.
+    }
+  }
+
+  return dir;
 }
 
 // List @snsoft/* packages installed under a protocol's node_modules.
