@@ -21,6 +21,7 @@ import {
   type ResponseState,
 } from "@penguin/core";
 import {
+  configPath,
   findEnvironment,
   getSection,
   readConfig,
@@ -28,6 +29,7 @@ import {
 } from "./config.js";
 import {
   listInstalledPackages,
+  penguinRoot,
   protocolDir,
   type Protocol,
 } from "./penguin-paths.js";
@@ -217,6 +219,113 @@ function jsonResult(value: unknown, isError = false) {
   };
 }
 
+// Cap the response body MCP returns to AI tools. Backend list endpoints can
+// emit megabytes of JSON, which blows through context windows and triggers
+// platform-side truncation that hides what was lost. A 32KB cap keeps even
+// chatty responses survivable while preserving an explicit `truncated`
+// signal the AI can use to ask for a narrower query.
+const MAX_RESPONSE_BYTES = 32_000;
+
+interface GuardedResponse extends ResponseState {
+  truncated?: true;
+  totalBytes?: number;
+  hint?: string;
+}
+
+function applyResponseGuard(response: ResponseState): GuardedResponse {
+  if (!response.body || response.body.length <= MAX_RESPONSE_BYTES) return response;
+  return {
+    ...response,
+    body: response.body.slice(0, MAX_RESPONSE_BYTES),
+    truncated: true,
+    totalBytes: response.body.length,
+    hint: `Response body truncated to ${MAX_RESPONSE_BYTES} bytes (original ${response.body.length}). Narrow the query or call against the live backend if you need the full payload.`,
+  };
+}
+
+// Catch malformed JSON before we hand it off to the protocol client. The
+// downstream errors (e.g. "Invalid JSON request body" from grpc-web-client,
+// or whatever the Node SDK produces) lose the position info JSON.parse
+// gives us — surfacing this here means the AI sees exactly what to fix.
+function preflightJsonBody(body: string): void {
+  try {
+    JSON.parse(body);
+  } catch (e) {
+    const preview = body.length > 100 ? `${body.slice(0, 100)}…` : body;
+    throw new Error(
+      `Invalid JSON request body: ${e instanceof Error ? e.message : String(e)}. body starts: ${preview}`,
+    );
+  }
+}
+
+// Cross-package fuzzy match against installed services + methods. We try a
+// few common shapes in priority order rather than rolling Levenshtein — for
+// 10–50 installed packages this is plenty fast and gives interpretable
+// scores the caller can reason about ("exact match" vs. "substring match").
+interface SearchHit {
+  protocol: Protocol;
+  package: string;
+  service: string;
+  method: string;
+  score: number;
+  matchedOn: "method-exact" | "method-prefix" | "method-substring" | "service-substring" | "package-substring";
+}
+
+function scoreSearchHit(
+  query: string,
+  methodName: string,
+  serviceName: string,
+  packageName: string,
+): { score: number; matchedOn: SearchHit["matchedOn"] } | null {
+  const q = query.toLowerCase();
+  const m = methodName.toLowerCase();
+  const s = serviceName.toLowerCase();
+  const p = packageName.toLowerCase();
+  if (m === q) return { score: 100, matchedOn: "method-exact" };
+  if (m.startsWith(q)) return { score: 90, matchedOn: "method-prefix" };
+  if (m.includes(q)) return { score: 70, matchedOn: "method-substring" };
+  if (s.includes(q)) return { score: 40, matchedOn: "service-substring" };
+  if (p.includes(q)) return { score: 20, matchedOn: "package-substring" };
+  return null;
+}
+
+function searchAllMethods(
+  query: string,
+  protocolFilter: Protocol | undefined,
+  limit: number,
+): SearchHit[] {
+  const targets = protocolFilter ? [protocolFilter] : PROTOCOLS;
+  const hits: SearchHit[] = [];
+  for (const protocol of targets) {
+    for (const pkg of listInstalledPackages(protocol)) {
+      let services;
+      try {
+        services = parseServicesForPackage(protocol, pkg.name);
+      } catch {
+        // Parser may fail for half-installed packages — skip rather than
+        // erroring out the whole search.
+        continue;
+      }
+      for (const svc of services) {
+        for (const method of svc.methods) {
+          const scored = scoreSearchHit(query, method.name, svc.fullName, pkg.name);
+          if (!scored) continue;
+          hits.push({
+            protocol,
+            package: pkg.name,
+            service: svc.fullName,
+            method: method.name,
+            score: scored.score,
+            matchedOn: scored.matchedOn,
+          });
+        }
+      }
+    }
+  }
+  hits.sort((a, b) => b.score - a.score || a.method.localeCompare(b.method));
+  return hits.slice(0, limit);
+}
+
 const server = new Server(
   { name: "penguin-mcp", version: "0.0.1" },
   { capabilities: { tools: {} } },
@@ -224,6 +333,26 @@ const server = new Server(
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
+    {
+      name: "mcp_health",
+      description:
+        "One-shot diagnostic snapshot: which config file is in use, packages installed per protocol, environments configured per protocol, and the Node runtime info. Use this when something feels off or when you want to know what's available without crawling list_* tools.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "search_methods",
+      description:
+        "Fuzzy-search installed @snsoft packages for a method by name. Returns the top matches with package/service/method paths, ranked by score. Pair with describe_method on the top hit to bridge from natural-language ('find the lookup national id one') to a callable method.",
+      inputSchema: {
+        type: "object",
+        required: ["query"],
+        properties: {
+          query: { type: "string", description: "Substring to match against method, service, or package name" },
+          protocol: { type: "string", enum: ["grpc-web", "grpc", "sdk"] },
+          limit: { type: "number", description: "Max hits (default 20)" },
+        },
+      },
+    },
     {
       name: "list_packages",
       description:
@@ -379,6 +508,44 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const a = args as Record<string, unknown>;
 
   try {
+    if (name === "mcp_health") {
+      const cfg = readConfig();
+      const protocols = Object.fromEntries(
+        PROTOCOLS.map((p) => {
+          const installed = listInstalledPackages(p);
+          const envs = getSection(cfg, p).environments ?? [];
+          return [
+            p,
+            {
+              envCount: envs.length,
+              envNames: envs.map((e) => e.name),
+              packageCount: installed.length,
+              packageNames: installed.map((i) => i.name),
+            },
+          ];
+        }),
+      );
+      return jsonResult({
+        configPath: configPath(),
+        penguinRoot: penguinRoot(),
+        nodeVersion: process.version,
+        platform: process.platform,
+        cwd: process.cwd(),
+        protocols,
+      });
+    }
+
+    if (name === "search_methods") {
+      const query = a.query as string;
+      const protocolFilter = a.protocol as Protocol | undefined;
+      const limit = Math.max(1, Math.min(100, (a.limit as number | undefined) ?? 20));
+      if (!query || !query.trim()) {
+        throw new Error("search_methods requires a non-empty `query`.");
+      }
+      const hits = searchAllMethods(query.trim(), protocolFilter, limit);
+      return jsonResult({ query, total: hits.length, hits });
+    }
+
     if (name === "list_packages") {
       const protocol = a.protocol as Protocol | undefined;
       const all = (protocol ? [protocol] : PROTOCOLS).flatMap((p) =>
@@ -501,6 +668,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const protocol = a.protocol as Protocol;
       const envNames = (a.environmentNames as string[]) ?? [];
       const body = (a.body as string) ?? "{}";
+      preflightJsonBody(body);
       const headers = a.headers as Record<string, string> | undefined;
       const metadata = asMetadata(headers);
       const cfg = readConfig();
@@ -532,7 +700,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               metadata,
               ...routing,
             });
-            return { environment: envName, url: env.variables.URL, response };
+            return {
+              environment: envName,
+              url: env.variables.URL,
+              response: applyResponseGuard(response),
+            };
           } catch (err) {
             return {
               environment: envName,
@@ -549,6 +721,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const protocol = a.protocol as Protocol;
       const metadata = asMetadata(a.headers as Record<string, string> | undefined);
       const body = (a.body as string) ?? "{}";
+      preflightJsonBody(body);
       const routing = resolveCallRouting({
         protocol,
         packageName: a.packageName as string | undefined,
@@ -563,7 +736,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         metadata,
         ...routing,
       });
-      return jsonResult(result);
+      return jsonResult(applyResponseGuard(result));
     }
 
     throw new Error(
