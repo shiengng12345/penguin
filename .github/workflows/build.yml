@@ -46,7 +46,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Copy config
-        run: mkdir -p ~/.pengvi && cp .pengvi.config.json ~/.pengvi/config.json
+        run: mkdir -p ~/.penguin && cp .penguin.config.json ~/.penguin/config.json
 
       - name: Build Tauri app
         env:
