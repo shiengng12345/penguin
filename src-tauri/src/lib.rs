@@ -519,20 +519,23 @@ fn claude_desktop_config_path() -> Option<PathBuf> {
 // release time via tauri.conf.json `resources`; falls back to the workspace
 // build output during `tauri dev`.
 fn bundled_mcp_server_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+    // Tauri rewrites resources declared with `../foo` to `_up_/foo` inside the
+    // bundled .app's Resources directory (matches how .penguin.config.json is
+    // shipped). Probe both the rewritten and the literal layout so this works
+    // whether the resource is declared with a relative path or not.
     if let Ok(resource_dir) = app.path().resource_dir() {
-        let candidate = resource_dir.join("index.js");
-        if candidate.exists() {
-            return Ok(candidate);
-        }
-        let nested = resource_dir
-            .join("packages")
-            .join("mcp")
-            .join("dist")
-            .join("index.js");
-        if nested.exists() {
-            return Ok(nested);
+        let candidates = [
+            resource_dir.join("_up_/packages/mcp/dist/index.js"),
+            resource_dir.join("packages/mcp/dist/index.js"),
+            resource_dir.join("index.js"),
+        ];
+        for c in candidates {
+            if c.exists() {
+                return Ok(c);
+            }
         }
     }
+    // Dev mode fallback: walk up from the dev cwd until we find the workspace.
     if let Ok(cwd) = std::env::current_dir() {
         for ancestor in cwd.ancestors() {
             let candidate = ancestor.join("packages/mcp/dist/index.js");

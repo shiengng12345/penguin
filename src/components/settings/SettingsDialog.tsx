@@ -83,6 +83,7 @@ export function SettingsDialog({
   >("idle");
   const [mcpInstallMsg, setMcpInstallMsg] = useState<string>("");
   const [mcpConfigCopied, setMcpConfigCopied] = useState(false);
+  const [mcpCliCopied, setMcpCliCopied] = useState(false);
 
   const refreshMcpStatus = useCallback(async () => {
     try {
@@ -304,7 +305,7 @@ export function SettingsDialog({
       />
       <div
         role="dialog"
-        className="relative z-50 w-full max-w-lg max-h-[90vh] overflow-hidden rounded-lg border border-border bg-popover shadow-xl flex flex-col"
+        className="relative z-50 w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-lg border border-border bg-popover shadow-xl flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-border p-4 shrink-0">
@@ -320,7 +321,7 @@ export function SettingsDialog({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 grid grid-cols-1 md:grid-cols-2 gap-4 [&>*]:h-full">
           {/* Display Name */}
           <div className="rounded-lg border border-border bg-muted/20 p-4">
             <h3 className="text-sm font-medium text-foreground flex items-center gap-1.5">
@@ -496,109 +497,150 @@ export function SettingsDialog({
           </div>
 
           {/* MCP Integration */}
-          <div className="rounded-lg border border-border bg-muted/20 p-4">
-            <h3 className="text-sm font-medium text-foreground flex items-center gap-1.5">
-              <Plug className="h-3.5 w-3.5" />
-              MCP Integration / MCP 集成
-            </h3>
-            <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-              Let Claude / Cursor / any MCP client call your backend's gRPC, gRPC-Web,
-              and SDK methods directly using the packages you've installed in Penguin.
-              <br />
-              让 Claude / Cursor 等 AI 工具通过你已装的包，直接调用后端的 gRPC / gRPC-Web / SDK 方法。
-            </p>
-
-            <div className="mt-3 flex items-center gap-1.5 text-xs">
+          <div className="rounded-lg border border-border bg-muted/20 p-4 md:col-span-2">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                  <Plug className="h-3.5 w-3.5" />
+                  MCP Integration / MCP 集成
+                </h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Let AI tools call your installed packages. 让 AI 直接调用已装的方法。
+                </p>
+              </div>
               <span
                 className={cn(
-                  "h-1.5 w-1.5 rounded-full",
-                  mcpStatus?.claude_desktop_configured ? "bg-emerald-500" : "bg-muted-foreground/40",
+                  "shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
+                  mcpStatus?.claude_desktop_configured
+                    ? "bg-emerald-500/15 text-emerald-500"
+                    : "bg-muted text-muted-foreground",
                 )}
-              />
-              <span className="text-muted-foreground">
-                Claude Desktop:{" "}
+              >
                 <span
                   className={cn(
-                    "font-medium",
-                    mcpStatus?.claude_desktop_configured ? "text-emerald-500" : "text-muted-foreground",
+                    "h-1.5 w-1.5 rounded-full",
+                    mcpStatus?.claude_desktop_configured ? "bg-emerald-500" : "bg-muted-foreground/40",
                   )}
-                >
-                  {mcpStatus?.claude_desktop_configured
-                    ? "Configured / 已配置"
-                    : "Not configured / 未配置"}
-                </span>
+                />
+                {mcpStatus?.claude_desktop_configured ? "Configured" : "Off"}
               </span>
             </div>
 
-            {!mcpStatus?.bundled_server_path && mcpStatus !== null && (
-              <p className="mt-2 text-xs text-amber-500">
-                Bundled MCP server not found. Build the app or run dev mode first.
-                <br />未找到内嵌 MCP 服务器，请先构建或运行开发模式。
-              </p>
-            )}
-            {!mcpStatus?.node_path && mcpStatus !== null && (
-              <p className="mt-2 text-xs text-amber-500">
-                No Node.js binary detected. Install Node from nodejs.org or via Homebrew.
-                <br />未检测到 Node.js，请先安装 Node。
+            {((!mcpStatus?.bundled_server_path && mcpStatus !== null) ||
+              (!mcpStatus?.node_path && mcpStatus !== null)) && (
+              <p className="mt-2 text-[11px] text-amber-500">
+                {!mcpStatus?.node_path
+                  ? "Node.js not detected — install from nodejs.org first."
+                  : "Bundled MCP server missing — rebuild the app."}
               </p>
             )}
 
-            <div className="mt-3 flex flex-col gap-2">
-              <Button
-                variant="default"
-                size="sm"
-                className="w-full"
-                onClick={handleMcpInstall}
-                disabled={
-                  mcpInstallState === "installing" ||
-                  !mcpStatus?.bundled_server_path ||
-                  !mcpStatus?.node_path
-                }
-              >
-                {mcpInstallState === "installing" ? (
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Sparkles className="mr-1.5 h-3.5 w-3.5" />
-                )}
-                {mcpStatus?.claude_desktop_configured
-                  ? "Re-add to Claude Desktop / 重新写入"
-                  : "Auto-add to Claude Desktop / 一键添加"}
-              </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-3 w-full"
+              onClick={handleMcpInstall}
+              disabled={
+                mcpInstallState === "installing" ||
+                !mcpStatus?.bundled_server_path ||
+                !mcpStatus?.node_path
+              }
+            >
+              {mcpInstallState === "installing" ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : mcpStatus?.claude_desktop_configured ? (
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+              ) : (
+                <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              {mcpStatus?.claude_desktop_configured ? "Re-add to Claude Desktop" : "Add to Claude Desktop"}
+            </Button>
 
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                onClick={handleMcpCopyConfig}
-                disabled={!mcpStatus?.bundled_server_path || !mcpStatus?.node_path}
-              >
-                {mcpConfigCopied ? (
-                  <CheckCircle className="mr-1.5 h-3.5 w-3.5" />
-                ) : (
-                  <Copy className="mr-1.5 h-3.5 w-3.5" />
-                )}
-                {mcpConfigCopied ? "Copied! / 已复制" : "Copy Config JSON / 复制配置"}
-              </Button>
-            </div>
-
-            {mcpInstallState === "success" && mcpInstallMsg && (
-              <p className="mt-2 text-xs text-emerald-500 leading-relaxed">
-                {mcpInstallMsg}
+            {mcpInstallState === "success" && (
+              <p className="mt-2 text-[11px] text-emerald-500">
+                ✓ Added. Restart Claude Desktop to load it.
               </p>
             )}
             {mcpInstallState === "error" && mcpInstallMsg && (
-              <p className="mt-2 text-xs text-red-500 leading-relaxed">
+              <p className="mt-2 text-[11px] text-red-500 truncate" title={mcpInstallMsg}>
                 {mcpInstallMsg}
               </p>
             )}
 
-            <p className="mt-3 text-[10px] text-muted-foreground leading-relaxed">
-              For Claude Code (CLI), run in terminal:
-              <br />
-              <code className="font-mono text-[10px] block mt-1 px-2 py-1 rounded bg-muted/40">
-                claude mcp add --scope user penguin {mcpStatus?.node_path ?? "<node>"} {mcpStatus?.bundled_server_path ?? "<path>"}
-              </code>
-            </p>
+            {/* Always-visible config snippets for users on Cursor / Claude Code
+                CLI / other MCP clients. Both columns are flex-col so the
+                <pre> blocks stretch to equal heights regardless of line count. */}
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 [&>div]:flex [&>div]:flex-col [&>div_pre]:flex-1">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-medium text-muted-foreground">
+                    Claude Desktop / Cursor (JSON)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleMcpCopyConfig}
+                    disabled={!mcpStatus?.bundled_server_path || !mcpStatus?.node_path}
+                    className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                  >
+                    {mcpConfigCopied ? (
+                      <>
+                        <CheckCircle className="h-3 w-3 text-emerald-500" />
+                        <span className="text-emerald-500">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3 w-3" />
+                        Copy
+                      </>
+                    )}
+                  </button>
+                </div>
+                <pre className="font-mono text-[10px] text-muted-foreground rounded bg-muted/40 p-2 max-w-full overflow-x-auto whitespace-pre leading-relaxed">
+{`{
+  "mcpServers": {
+    "penguin": {
+      "command": "${mcpStatus?.node_path ?? "<node>"}",
+      "args": ["${mcpStatus?.bundled_server_path ?? "<path>"}"]
+    }
+  }
+}`}
+                </pre>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-medium text-muted-foreground">
+                    Claude Code (CLI)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const cmd = `claude mcp add --scope user penguin ${mcpStatus?.node_path ?? ""} ${mcpStatus?.bundled_server_path ?? ""}`;
+                      await navigator.clipboard.writeText(cmd);
+                      setMcpCliCopied(true);
+                      setTimeout(() => setMcpCliCopied(false), 2000);
+                    }}
+                    disabled={!mcpStatus?.bundled_server_path || !mcpStatus?.node_path}
+                    className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                  >
+                    {mcpCliCopied ? (
+                      <>
+                        <CheckCircle className="h-3 w-3 text-emerald-500" />
+                        <span className="text-emerald-500">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3 w-3" />
+                        Copy
+                      </>
+                    )}
+                  </button>
+                </div>
+                <pre className="font-mono text-[10px] text-muted-foreground rounded bg-muted/40 p-2 max-w-full overflow-x-auto whitespace-pre leading-relaxed">
+                  claude mcp add --scope user penguin \{"\n"}  {mcpStatus?.node_path ?? "<node>"} \{"\n"}  {mcpStatus?.bundled_server_path ?? "<path>"}
+                </pre>
+              </div>
+            </div>
           </div>
 
           {/* Max History Size */}
@@ -625,71 +667,6 @@ export function SettingsDialog({
                   {size}
                 </button>
               ))}
-            </div>
-          </div>
-
-          {/* Default Headers per Protocol */}
-          <div className="rounded-lg border border-border bg-muted/20 p-4">
-            <h3 className="text-sm font-medium text-foreground">
-              Default Headers / 默认请求头
-            </h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Auto-populate headers when creating new tabs.
-            </p>
-            <div className="mt-3 flex gap-1 mb-3">
-              {PROTOCOL_TABS.map((pt) => {
-                const Icon = pt.icon;
-                return (
-                  <button
-                    key={pt.id}
-                    type="button"
-                    onClick={() => setHeaderProtocol(pt.id)}
-                    className={cn(
-                      "flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
-                      headerProtocol === pt.id
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:bg-accent"
-                    )}
-                  >
-                    <Icon className="h-3 w-3" />
-                    {pt.label}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="space-y-2">
-              {currentHeaders.map((h, i) => (
-                <div key={i} className="flex gap-1.5">
-                  <Input
-                    value={h.key}
-                    onChange={(e) => updateHeader(i, { key: e.target.value })}
-                    placeholder="Key"
-                    className="h-7 flex-1 font-mono text-xs"
-                  />
-                  <Input
-                    value={h.value}
-                    onChange={(e) => updateHeader(i, { value: e.target.value })}
-                    placeholder="Value"
-                    className="h-7 flex-1 font-mono text-xs"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeHeader(i)}
-                    className="h-7 w-7 shrink-0 rounded flex items-center justify-center hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 w-full text-xs"
-                onClick={addHeader}
-              >
-                <Plus className="mr-1 h-3 w-3" />
-                Add Header
-              </Button>
             </div>
           </div>
 
@@ -854,6 +831,72 @@ export function SettingsDialog({
                 </>
               )}
             </Button>
+          </div>
+
+          {/* Default Headers per Protocol — full-width bottom row because the
+              tabbed key/value editor benefits from horizontal breathing room. */}
+          <div className="rounded-lg border border-border bg-muted/20 p-4 md:col-span-2">
+            <h3 className="text-sm font-medium text-foreground">
+              Default Headers / 默认请求头
+            </h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Auto-populate headers when creating new tabs.
+            </p>
+            <div className="mt-3 flex gap-1 mb-3">
+              {PROTOCOL_TABS.map((pt) => {
+                const Icon = pt.icon;
+                return (
+                  <button
+                    key={pt.id}
+                    type="button"
+                    onClick={() => setHeaderProtocol(pt.id)}
+                    className={cn(
+                      "flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
+                      headerProtocol === pt.id
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-accent"
+                    )}
+                  >
+                    <Icon className="h-3 w-3" />
+                    {pt.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="space-y-2">
+              {currentHeaders.map((h, i) => (
+                <div key={i} className="flex gap-1.5">
+                  <Input
+                    value={h.key}
+                    onChange={(e) => updateHeader(i, { key: e.target.value })}
+                    placeholder="Key"
+                    className="h-7 flex-1 font-mono text-xs"
+                  />
+                  <Input
+                    value={h.value}
+                    onChange={(e) => updateHeader(i, { value: e.target.value })}
+                    placeholder="Value"
+                    className="h-7 flex-1 font-mono text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeHeader(i)}
+                    className="h-7 w-7 shrink-0 rounded flex items-center justify-center hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-full text-xs"
+                onClick={addHeader}
+              >
+                <Plus className="mr-1 h-3 w-3" />
+                Add Header
+              </Button>
+            </div>
           </div>
         </div>
       </div>
