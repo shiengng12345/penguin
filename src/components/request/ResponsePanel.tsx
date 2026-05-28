@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Copy, Clock, AlertCircle, CheckCircle2 } from "lucide-react";
 import { isLightAppTheme } from "@/lib/theme";
+import { formatGrpcStatusBadgeLabel, summarizeGrpcStatusResponse } from "@/lib/grpc-status";
 import { cn } from "@/lib/utils";
 
 function stripUnderscoreKeys(obj: unknown): unknown {
@@ -237,9 +238,13 @@ export function ResponsePanel() {
   }
 
   const isRest = tab.protocolTab === "rest";
+  const grpcStatusSummary = !isRest ? summarizeGrpcStatusResponse(tab.response) : null;
   const isError = tab.response.status === "ERROR" ||
     (!!tab.response.error && tab.response.status !== "OK") ||
+    !!grpcStatusSummary ||
     (isRest && tab.response.statusCode >= 400);
+  const statusLabel = formatGrpcStatusBadgeLabel(grpcStatusSummary) ??
+    `${tab.response.status}${tab.response.statusCode > 0 ? ` ${tab.response.statusCode}` : ""}`;
 
   const rawBody = tab.response.body;
   const hasBody = rawBody && rawBody !== "" && rawBody !== "{}" && rawBody !== "null";
@@ -291,7 +296,7 @@ export function ResponsePanel() {
             <CheckCircle2 className="h-3.5 w-3.5 text-success" />
           )}
           <Badge variant={isError ? "destructive" : "success"} className="text-[10px]">
-            {tab.response.status} {tab.response.statusCode > 0 ? tab.response.statusCode : ""}
+            {statusLabel}
           </Badge>
         </div>
 
@@ -300,6 +305,33 @@ export function ResponsePanel() {
           {tab.response.duration}ms
         </div>
       </div>
+
+      {grpcStatusSummary && (
+        <div className="border-b border-border bg-destructive/5 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Error details
+            </span>
+            <Badge variant="destructive" className="text-[10px]">
+              {grpcStatusSummary.title}
+            </Badge>
+            {grpcStatusSummary.transport && (
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {grpcStatusSummary.transport}
+              </span>
+            )}
+            {grpcStatusSummary.retryable && (
+              <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                Retryable
+              </Badge>
+            )}
+          </div>
+          <div className="mt-2 space-y-1 text-xs leading-relaxed">
+            <p className="text-foreground">{grpcStatusSummary.explanation}</p>
+            <p className="text-muted-foreground">{grpcStatusSummary.hint}</p>
+          </div>
+        </div>
+      )}
 
       {/* Response headers */}
       {!isRest && Object.keys(tab.response.headers).length > 0 && (

@@ -41,12 +41,18 @@ export interface ResponseState {
   error?: string;
 }
 
+export interface ConnectMessageType {
+  typeName: string;
+  fields: unknown;
+  fromJson?: (value: unknown, options?: { ignoreUnknownFields?: boolean }) => unknown;
+}
+
 // Connect-RPC generated service descriptor shape. `fields` is the runtime
 // protobuf-es descriptor — opaque, typed loosely on purpose.
 export interface ConnectMethodDef {
   name?: string;
   kind?: number;
-  I?: { typeName: string; fields: Record<string, unknown> };
+  I?: ConnectMessageType;
   O?: { typeName: string };
 }
 

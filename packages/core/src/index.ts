@@ -4,6 +4,7 @@ export type {
   FieldInfo,
   MetadataEntry,
   ResponseState,
+  ConnectMessageType,
   ConnectMethodDef,
   ConnectServiceDef,
 } from "./types.js";
@@ -12,6 +13,7 @@ export { logger } from "./logger.js";
 export { parseProtoContent, generateDefaultJson, generateMethodPath } from "./proto-parser.js";
 export { parseSdkDts } from "./sdk-parser.js";
 export { discoverServices } from "./discover-services.js";
+export { normalizeGrpcJsonBody, type GrpcJsonRequestType } from "./grpc-json.js";
 export {
   isAllowedSnsoftPackageSpec,
   protocolFromSnsoftPackageSpec,

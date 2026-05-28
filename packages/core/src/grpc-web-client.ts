@@ -2,6 +2,7 @@ import { createClient, type Interceptor } from "@connectrpc/connect";
 import { createGrpcWebTransport } from "@connectrpc/connect-web";
 import type { ResponseState, MetadataEntry, ConnectServiceDef } from "./types.js";
 import { discoverServices } from "./discover-services.js";
+import { normalizeGrpcJsonBody } from "./grpc-json.js";
 
 // Module loader signature. Penguin desktop injects a Tauri-backed loader that
 // reads bundle.js via the Rust side and dynamic-imports a blob URL; Node
@@ -162,6 +163,17 @@ export async function callGrpcWeb(
     );
   }
 
+  let requestData: unknown = parsedBody;
+  try {
+    requestData = normalizeGrpcJsonBody(parsedBody, serviceDef.methods[resolvedMethodName].I);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return buildErrorResponse(
+      `${message} / 请求体不符合 proto schema。Enum accepts either the enum name or number.`,
+      startTime,
+    );
+  }
+
   // Only the network call is wrapped in try/catch — everything above is
   // pre-validation and now returns early. Errors here are gRPC ConnectErrors
   // (which carry .code and .rawMessage) or transport failures from fetch.
@@ -169,7 +181,7 @@ export async function callGrpcWeb(
     const isEmpty = !parsedBody || Object.keys(parsedBody).length === 0;
     const result = isEmpty
       ? await clientMethod()
-      : await clientMethod(parsedBody);
+      : await clientMethod(requestData);
 
     const duration = performance.now() - startTime;
     const formattedBody = cleanProtoResponse(result);
@@ -211,6 +223,7 @@ export async function callGrpcWeb(
         ),
         headers: grpcHeaders,
         duration: Math.round(duration),
+        error: ce.rawMessage,
       };
     }
 

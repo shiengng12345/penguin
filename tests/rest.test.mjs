@@ -72,6 +72,12 @@ test("URL bar keeps REST method menu above the request panel", async () => {
   assert.match(source, /relative z-30 border-b border-border bg-card/);
 });
 
+test("header keeps environment and theme dropdowns above lower bars", async () => {
+  const source = await readFile(new URL("../src/components/layout/Header.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /relative z-40/);
+});
+
 test("themed Select menu uses an opaque app background", async () => {
   const source = await readFile(new URL("../src/components/ui/select.tsx", import.meta.url), "utf8");
 

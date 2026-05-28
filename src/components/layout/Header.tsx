@@ -73,7 +73,7 @@ export function Header({ onOpenSettings }: HeaderProps) {
   );
 
   return (
-    <header className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-4">
+    <header className="relative z-40 flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-4">
       <PenguinBrand />
 
       <div className="flex items-center gap-2">
