@@ -6,6 +6,7 @@ import { logger } from "@/lib/logger";
 import { Button } from "@/components/ui/button";
 import { Send, Plus, X, RotateCcw, Copy, Braces, Bookmark, Check, FileText, Terminal, Ban, Code2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { buildRestCurl, REST_BODY_MODES, resolveRestUrl } from "@/lib/rest";
 
 // Pattern matches any `{{VAR}}` template that survived interpolation —
 // signals the active env is missing the variable. Sending such a header
@@ -46,6 +47,8 @@ export function RequestPanel() {
 
   if (!tab) return null;
 
+  const isRest = tab.protocolTab === "rest";
+
   const handleCancel = () => {
     if (abortRef.current) {
       abortRef.current.abort();
@@ -65,7 +68,7 @@ export function RequestPanel() {
   };
 
   const handleSend = async () => {
-    if (!tab.selectedMethod || !tab.targetUrl.trim()) return;
+    if (!tab.targetUrl.trim() || (!isRest && !tab.selectedMethod)) return;
 
     if (!navigator.onLine) {
       setOfflineFlash(true);
@@ -104,13 +107,15 @@ export function RequestPanel() {
       id: `hist_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       timestamp: Date.now(),
       protocol: tab.protocolTab,
-      methodFullName: tab.selectedMethod.fullName,
-      serviceName: tab.selectedService ?? "",
-      packageName: tab.selectedPackage ?? "",
+      methodFullName: isRest ? tab.restMethod : tab.selectedMethod?.fullName ?? "",
+      serviceName: isRest ? "REST" : tab.selectedService ?? "",
+      packageName: isRest ? "" : tab.selectedPackage ?? "",
       url: tab.targetUrl,
       metadata: mergedMetadata.filter((m) => m.enabled && m.key),
       requestBody: tab.requestBody,
-      selectedMethod: tab.selectedMethod,
+      restMethod: isRest ? tab.restMethod : undefined,
+      restBodyMode: isRest ? tab.restBodyMode : undefined,
+      selectedMethod: isRest ? null : tab.selectedMethod,
     };
     addHistory(entry);
 
@@ -120,7 +125,17 @@ export function RequestPanel() {
 
       if (controller.signal.aborted) return;
 
-      if (protocol === "grpc-web") {
+      if (protocol === "rest") {
+        const envVars = Object.fromEntries((activeEnv?.variables ?? []).map((v) => [v.key, v.value]));
+        const finalUrl = resolveRestUrl(tab.targetUrl, envVars);
+        const { callRest } = await import("@/lib/rest-client");
+        result = await callRest({
+          method: tab.restMethod,
+          url: finalUrl,
+          body: tab.requestBody,
+          metadata: mergedMetadata,
+        });
+      } else if (protocol === "grpc-web" && tab.selectedMethod) {
         const typeName = tab.selectedMethod.fullName.substring(
           0, tab.selectedMethod.fullName.lastIndexOf(".")
         );
@@ -137,7 +152,7 @@ export function RequestPanel() {
           metadata: mergedMetadata,
           packageName: tab.selectedPackage ?? undefined,
         });
-      } else if (protocol === "grpc") {
+      } else if (protocol === "grpc" && tab.selectedMethod) {
         const typeName = tab.selectedMethod.fullName.substring(
           0, tab.selectedMethod.fullName.lastIndexOf(".")
         );
@@ -156,7 +171,7 @@ export function RequestPanel() {
           metadata: mergedMetadata,
           packagesDir,
         });
-      } else {
+      } else if (tab.selectedMethod) {
         const fullName = tab.selectedMethod.fullName;
         const parts = fullName.split(".");
         const methodName = parts.pop() ?? "";
@@ -216,6 +231,10 @@ export function RequestPanel() {
   };
 
   const handleResetBody = async () => {
+    if (isRest) {
+      updateActiveTab({ requestBody: "{}" });
+      return;
+    }
     if (tab.selectedMethod?.requestFields) {
       const { generateDefaultJson } = await import("@/lib/proto-parser");
       const defaultJson = generateDefaultJson(tab.selectedMethod.requestFields);
@@ -239,26 +258,30 @@ export function RequestPanel() {
   };
 
   const handleSaveRequest = () => {
-    if (!tab.selectedMethod) return;
-    const methodShort = tab.selectedMethod.name;
-    const serviceShort = tab.selectedService?.split(".").pop() ?? "";
-    const defaultName = serviceShort
-      ? `${serviceShort}.${methodShort}`
-      : methodShort;
+    if (!isRest && !tab.selectedMethod) return;
+    const methodShort = isRest ? tab.restMethod : tab.selectedMethod?.name ?? "";
+    const serviceShort = isRest ? "" : tab.selectedService?.split(".").pop() ?? "";
+    const defaultName = isRest
+      ? `${tab.restMethod} ${tab.targetUrl}`.trim()
+      : serviceShort
+        ? `${serviceShort}.${methodShort}`
+        : methodShort;
 
     const entry: SavedRequest = {
       id: `saved_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       name: defaultName,
       savedAt: Date.now(),
       protocol: tab.protocolTab,
-      methodFullName: tab.selectedMethod.fullName,
-      serviceName: tab.selectedService ?? "",
-      packageName: tab.selectedPackage ?? "",
+      methodFullName: isRest ? tab.restMethod : tab.selectedMethod?.fullName ?? "",
+      serviceName: isRest ? "REST" : tab.selectedService ?? "",
+      packageName: isRest ? "" : tab.selectedPackage ?? "",
       url: tab.targetUrl,
       metadata: tab.metadata.filter((m) => m.key),
       requestBody: tab.requestBody,
+      restMethod: isRest ? tab.restMethod : undefined,
+      restBodyMode: isRest ? tab.restBodyMode : undefined,
       response: tab.response,
-      selectedMethod: tab.selectedMethod,
+      selectedMethod: isRest ? null : tab.selectedMethod,
     };
     saveRequest(entry);
     setSavedFlash(true);
@@ -266,13 +289,39 @@ export function RequestPanel() {
   };
 
   const handleCopyCurl = () => {
-    if (!tab.selectedMethod) return;
+    if (!isRest && !tab.selectedMethod) return;
+
+    if (isRest) {
+      const envVars = Object.fromEntries((activeEnv?.variables ?? []).map((v) => [v.key, v.value]));
+      let restUrl = tab.targetUrl;
+      try {
+        restUrl = resolveRestUrl(tab.targetUrl, envVars);
+      } catch {
+        // Keep the user's current URL text if a path-only URL cannot be resolved yet.
+      }
+      const headers = mergeWithDefaultHeaders(tab.metadata, tab.protocolTab)
+        .map((m) => ({ ...m, value: interpolate(m.value, activeEnv) }))
+        .filter((m) => !UNRESOLVED_TEMPLATE_PATTERN.test(m.value));
+      const curl = buildRestCurl({
+        method: tab.restMethod,
+        url: restUrl,
+        headers,
+        body: tab.requestBody,
+      });
+      navigator.clipboard.writeText(curl);
+      setCurlFlash(true);
+      setTimeout(() => setCurlFlash(false), 1500);
+      return;
+    }
+
     const resolvedUrl = interpolate(tab.targetUrl, activeEnv);
-    const typeName = tab.selectedMethod.fullName.substring(
-      0, tab.selectedMethod.fullName.lastIndexOf(".")
+    const selectedMethod = tab.selectedMethod;
+    if (!selectedMethod) return;
+    const typeName = selectedMethod.fullName.substring(
+      0, selectedMethod.fullName.lastIndexOf(".")
     );
-    const methodName = tab.selectedMethod.fullName.substring(
-      tab.selectedMethod.fullName.lastIndexOf(".") +1
+    const methodName = selectedMethod.fullName.substring(
+      selectedMethod.fullName.lastIndexOf(".") +1
     );
     const protoPackage = typeName.split(".")[0];
     const servicePath = tab.pathOverride ?? `/${protoPackage}/${typeName}/${methodName}`;
@@ -398,9 +447,30 @@ export function RequestPanel() {
         {/* Body */}
         <div className="flex-1 flex flex-col min-h-0">
           <div className="flex items-center justify-between px-3 py-1.5 bg-muted/20 border-b border-border">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Body
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Body
+              </span>
+              {isRest && (
+                <div className="flex items-center gap-1">
+                  {REST_BODY_MODES.map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => updateActiveTab({ restBodyMode: mode })}
+                      className={cn(
+                        "rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors",
+                        tab.restBodyMode === mode
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                      )}
+                    >
+                      {mode.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <div className="flex gap-0.5">
               <button
                 className="h-5 w-5 inline-flex items-center justify-center rounded hover:bg-accent text-muted-foreground"
@@ -425,20 +495,29 @@ export function RequestPanel() {
               </button>
             </div>
           </div>
-          <Suspense fallback={
+          {isRest && tab.restBodyMode === "raw" ? (
             <textarea
               value={tab.requestBody}
               onChange={(e) => updateActiveTab({ requestBody: e.target.value })}
-              className="flex-1 w-full bg-transparent font-mono text-xs p-3 resize-none focus:outline-none"
+              className="flex-1 w-full resize-none bg-transparent p-3 font-mono text-xs focus:outline-none"
               spellCheck={false}
             />
-          }>
-            <LazyJsonEditor
-              value={tab.requestBody}
-              onChange={(val) => updateActiveTab({ requestBody: val })}
-              fields={tab.selectedMethod?.requestFields}
-            />
-          </Suspense>
+          ) : (
+            <Suspense fallback={
+              <textarea
+                value={tab.requestBody}
+                onChange={(e) => updateActiveTab({ requestBody: e.target.value })}
+                className="flex-1 w-full bg-transparent font-mono text-xs p-3 resize-none focus:outline-none"
+                spellCheck={false}
+              />
+            }>
+              <LazyJsonEditor
+                value={tab.requestBody}
+                onChange={(val) => updateActiveTab({ requestBody: val })}
+                fields={tab.selectedMethod?.requestFields}
+              />
+            </Suspense>
+          )}
         </div>
       </div>
 
@@ -456,7 +535,7 @@ export function RequestPanel() {
         ) : (
           <Button
             onClick={handleSend}
-            disabled={!tab.selectedMethod}
+            disabled={!isRest && !tab.selectedMethod}
             className="flex-1 h-8"
             size="sm"
           >
@@ -472,7 +551,7 @@ export function RequestPanel() {
             savedFlash ? "px-3 bg-success text-success-foreground hover:bg-success" : "px-2.5"
           )}
           onClick={handleSaveRequest}
-          disabled={!tab.selectedMethod}
+          disabled={!isRest && !tab.selectedMethod}
           title="Save request ⌘ + Shift + S (⌘ + O to open)"
           data-tour="save-btn"
         >
@@ -493,7 +572,7 @@ export function RequestPanel() {
             curlFlash ? "px-3 bg-success text-success-foreground hover:bg-success" : "px-2.5"
           )}
           onClick={handleCopyCurl}
-          disabled={!tab.selectedMethod}
+          disabled={!isRest && !tab.selectedMethod}
           title="Copy as cURL"
           data-tour="curl-btn"
         >

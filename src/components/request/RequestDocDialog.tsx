@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Copy, Check, FileText, X, ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tryFormatJson } from "@/lib/json-utils";
+import { isLightAppTheme } from "@/lib/theme";
 
 interface RequestDocDialogProps {
   open: boolean;
@@ -286,7 +287,7 @@ export function RequestDocDialog({ open, onClose }: RequestDocDialogProps) {
 
   const handleCopyImage = async () => {
     const isDark =
-      document.documentElement.getAttribute("data-theme") !== "light";
+      !isLightAppTheme(document.documentElement.getAttribute("data-theme"));
 
     const bg = isDark ? "#1e1e2e" : "#ffffff";
     const fg = isDark ? "#cdd6f4" : "#1e1e2e";

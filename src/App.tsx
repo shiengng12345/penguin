@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useState, lazy, Suspense } from "react";
+import { protocolFromSnsoftPackageSpec } from "@penguin/core";
 import { useAppStore, useActiveTab, createTab, getDefaultHeadersForProtocol } from "@/lib/store";
 import { usePackages } from "@/hooks/usePackages";
 import { useEnvironments } from "@/hooks/useEnvironments";
@@ -9,6 +10,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { UrlBar } from "@/components/layout/UrlBar";
 import { RequestPanel } from "@/components/request/RequestPanel";
 import { ResponsePanel } from "@/components/request/ResponsePanel";
+import { SnowLayer } from "@/components/theme/SnowLayer";
 import { ResizablePanels } from "@/components/ui/resizable-panels";
 
 const PackageInstaller = lazy(() => import("@/components/packages/PackageInstaller").then(m => ({ default: m.PackageInstaller })));
@@ -35,6 +37,7 @@ export default function App() {
     setInstallerOpen,
     addInstallLog,
     clearInstallLog,
+    theme,
   } = useAppStore();
 
   const { packages, refresh, uninstall } = usePackages();
@@ -61,16 +64,18 @@ export default function App() {
   const handleCycleProtocol = useCallback(() => {
     if (!activeTabId || !activeTab) return;
 
-    const order = ["grpc-web", "grpc", "sdk"] as const;
+    const order = ["grpc-web", "grpc", "sdk", "rest"] as const;
     const idx = order.indexOf(activeTab.protocolTab);
-    const nextProtocol = order[(idx +1) % 3];
+    const nextProtocol = order[(idx +1) % order.length];
 
     const allPkgs =
       nextProtocol === "grpc-web"
         ? useAppStore.getState().grpcWebPackages
         : nextProtocol === "grpc"
           ? useAppStore.getState().grpcPackages
-          : useAppStore.getState().sdkPackages;
+          : nextProtocol === "sdk"
+            ? useAppStore.getState().sdkPackages
+            : [];
 
     const methodName = activeTab.selectedMethod?.name;
     let matchedMethod: typeof activeTab.selectedMethod = null;
@@ -95,6 +100,20 @@ export default function App() {
     }
 
     const newMetadata = getDefaultHeadersForProtocol(nextProtocol);
+    if (nextProtocol === "rest") {
+      updateActiveTab({
+        protocolTab: nextProtocol,
+        selectedPackage: null,
+        selectedService: null,
+        selectedMethod: null,
+        pathOverride: null,
+        restMethod: "POST",
+        restBodyMode: "json",
+        metadata: newMetadata,
+      });
+      return;
+    }
+
     if (matchedMethod) {
       updateActiveTab({
         protocolTab: nextProtocol,
@@ -113,19 +132,15 @@ export default function App() {
 
   const handleInstall = useCallback(
     async (spec: string): Promise<boolean> => {
-      const lower = spec.toLowerCase();
-      const protocol = lower.includes("js-sdk")
-        ? "sdk"
-        : lower.includes("grpc-web") || lower.includes("grpcweb")
-          ? "grpc-web"
-          : "grpc";
+      const protocol = protocolFromSnsoftPackageSpec(spec);
+      if (!protocol) return false;
 
       clearInstallLog();
       addInstallLog(`Installing ${spec}...`);
 
       const { installPackage } = await import("@/lib/package-manager");
       const ok = await installPackage(
-        protocol as "grpc-web" | "grpc" | "sdk",
+        protocol,
         spec,
         addInstallLog
       );
@@ -271,62 +286,65 @@ export default function App() {
   }, []);
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
-      <Header onOpenSettings={() => setSettingsOpen(true)} />
-      <TabBar onCycleProtocol={handleCycleProtocol} />
+    <div className="penguin-app-shell relative h-screen w-screen overflow-hidden bg-background text-foreground">
+      <SnowLayer active={theme === "antarctic-snow"} />
+      <div className="relative z-10 flex h-full flex-col">
+        <Header onOpenSettings={() => setSettingsOpen(true)} />
+        <TabBar onCycleProtocol={handleCycleProtocol} />
 
-      <div className="flex flex-1 min-h-0">
-        <Sidebar
-          packages={displayPackages}
-          onInstallClick={() => setInstallerOpen(true)}
-          onUninstall={(name) => {
-            uninstall(name);
-          }}
-          onUpdate={async (spec) => {
-            const ok = await handleInstall(spec);
-            return ok;
-          }}
-        />
-
-        <div className="flex flex-1 flex-col min-w-0">
-          <UrlBar resolvedUrl={resolvedUrl} />
-          <ResizablePanels
-            left={<RequestPanel />}
-            right={<ResponsePanel />}
-            defaultRatio={0.45}
-            minRatio={0.25}
-            maxRatio={0.75}
+        <div className="flex flex-1 min-h-0">
+          <Sidebar
+            packages={displayPackages}
+            onInstallClick={() => setInstallerOpen(true)}
+            onUninstall={(name) => {
+              uninstall(name);
+            }}
+            onUpdate={async (spec) => {
+              const ok = await handleInstall(spec);
+              return ok;
+            }}
           />
+
+          <div className="flex flex-1 flex-col min-w-0">
+            <UrlBar resolvedUrl={resolvedUrl} />
+            <ResizablePanels
+              left={<RequestPanel />}
+              right={<ResponsePanel />}
+              defaultRatio={0.45}
+              minRatio={0.25}
+              maxRatio={0.75}
+            />
+          </div>
         </div>
-      </div>
 
-      <Suspense fallback={null}>
-        {isInstallerOpen && (
-          <PackageInstaller
-            onInstall={handleInstall}
-            onClose={() => setInstallerOpen(false)}
-          />
-        )}
-        {settingsOpen && (
-          <SettingsDialog
-            onClose={() => setSettingsOpen(false)}
-            onOpenEnvManager={() => setEnvManagerOpen(true)}
-          />
-        )}
-        {envManagerOpen && (
-          <EnvManager onClose={() => setEnvManagerOpen(false)} />
-        )}
-        {searchOpen && <CommandSearch open={searchOpen} onClose={() => setSearchOpen(false)} />}
-        {historyOpen && <HistoryPanel open={historyOpen} onClose={() => setHistoryOpen(false)} />}
-        {savedOpen && <SavedRequestsPanel open={savedOpen} onClose={() => setSavedOpen(false)} />}
-        {docOpen && <RequestDocDialog open={docOpen} onClose={() => setDocOpen(false)} />}
-        {shortcutsOpen && <ShortcutCheatSheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />}
-        {networkOpen && <NetworkCheck open={networkOpen} onClose={() => setNetworkOpen(false)} />}
-        {curlImportOpen && <CurlImport open={curlImportOpen} onClose={() => setCurlImportOpen(false)} />}
-        {protoViewerOpen && <ProtoViewer open={protoViewerOpen} onClose={() => setProtoViewerOpen(false)} />}
-        <Welcome />
-        <InteractiveTutorial />
-      </Suspense>
+        <Suspense fallback={null}>
+          {isInstallerOpen && (
+            <PackageInstaller
+              onInstall={handleInstall}
+              onClose={() => setInstallerOpen(false)}
+            />
+          )}
+          {settingsOpen && (
+            <SettingsDialog
+              onClose={() => setSettingsOpen(false)}
+              onOpenEnvManager={() => setEnvManagerOpen(true)}
+            />
+          )}
+          {envManagerOpen && (
+            <EnvManager onClose={() => setEnvManagerOpen(false)} />
+          )}
+          {searchOpen && <CommandSearch open={searchOpen} onClose={() => setSearchOpen(false)} />}
+          {historyOpen && <HistoryPanel open={historyOpen} onClose={() => setHistoryOpen(false)} />}
+          {savedOpen && <SavedRequestsPanel open={savedOpen} onClose={() => setSavedOpen(false)} />}
+          {docOpen && <RequestDocDialog open={docOpen} onClose={() => setDocOpen(false)} />}
+          {shortcutsOpen && <ShortcutCheatSheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />}
+          {networkOpen && <NetworkCheck open={networkOpen} onClose={() => setNetworkOpen(false)} />}
+          {curlImportOpen && <CurlImport open={curlImportOpen} onClose={() => setCurlImportOpen(false)} />}
+          {protoViewerOpen && <ProtoViewer open={protoViewerOpen} onClose={() => setProtoViewerOpen(false)} />}
+          <Welcome />
+          <InteractiveTutorial />
+        </Suspense>
+      </div>
     </div>
   );
 }

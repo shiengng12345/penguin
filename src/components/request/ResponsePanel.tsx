@@ -3,6 +3,7 @@ import { useActiveTab } from "@/lib/store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Copy, Clock, AlertCircle, CheckCircle2 } from "lucide-react";
+import { isLightAppTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 function stripUnderscoreKeys(obj: unknown): unknown {
@@ -43,12 +44,12 @@ function unwrapNestedJson(obj: unknown): unknown {
   return obj;
 }
 
-function formatBody(body: string | undefined): string {
+function formatBody(body: string | undefined, stripInternalKeys = true): string {
   if (!body) return "(empty)";
   try {
     const parsed = JSON.parse(body);
     const unwrapped = unwrapNestedJson(parsed);
-    const cleaned = stripUnderscoreKeys(unwrapped);
+    const cleaned = stripInternalKeys ? stripUnderscoreKeys(unwrapped) : unwrapped;
     return JSON.stringify(cleaned, null, 2);
   } catch {
     return body;
@@ -99,9 +100,17 @@ const TOKEN_CLASSES_LIGHT: Record<TokenType, string> = {
 function SyntaxJson({ json, className }: { json: string; className?: string }) {
   const tokens = useMemo(() => tokenizeJson(json), [json]);
   const isDark = typeof document !== "undefined"
-    ? document.documentElement.getAttribute("data-theme") !== "light"
+    ? !isLightAppTheme(document.documentElement.getAttribute("data-theme"))
     : true;
   const colors = isDark ? TOKEN_CLASSES : TOKEN_CLASSES_LIGHT;
+
+  if (tokens.length === 0 && json.length > 0) {
+    return (
+      <pre className={cn("font-mono text-xs leading-relaxed whitespace-pre-wrap break-all", className)}>
+        {json}
+      </pre>
+    );
+  }
 
   return (
     <pre className={cn("font-mono text-xs leading-relaxed whitespace-pre-wrap break-all", className)}>
@@ -124,7 +133,7 @@ function VirtualizedJson({ json }: { json: string }) {
 
   const isDark =
     typeof document !== "undefined"
-      ? document.documentElement.getAttribute("data-theme") !== "light"
+      ? !isLightAppTheme(document.documentElement.getAttribute("data-theme"))
       : true;
   const colors = isDark ? TOKEN_CLASSES : TOKEN_CLASSES_LIGHT;
 
@@ -177,9 +186,11 @@ function VirtualizedJson({ json }: { json: string }) {
               style={{ height: LINE_HEIGHT }}
               className="whitespace-pre-wrap break-all leading-[18px]"
             >
-              {tokens.map((t, j) => (
-                <span key={j} className={colors[t.type]}>{t.text}</span>
-              ))}
+              {tokens.length === 0
+                ? lines[idx]
+                : tokens.map((t, j) => (
+                    <span key={j} className={colors[t.type]}>{t.text}</span>
+                  ))}
             </div>
           ))}
         </div>
@@ -188,8 +199,11 @@ function VirtualizedJson({ json }: { json: string }) {
   );
 }
 
+type ResponseView = "pretty" | "raw" | "headers";
+
 export function ResponsePanel() {
   const tab = useActiveTab();
+  const [responseView, setResponseView] = useState<ResponseView>("pretty");
   if (!tab) return null;
 
   if (tab.isLoading) {
@@ -222,15 +236,17 @@ export function ResponsePanel() {
     );
   }
 
+  const isRest = tab.protocolTab === "rest";
   const isError = tab.response.status === "ERROR" ||
-    (!!tab.response.error && tab.response.status !== "OK");
+    (!!tab.response.error && tab.response.status !== "OK") ||
+    (isRest && tab.response.statusCode >= 400);
 
   const rawBody = tab.response.body;
   const hasBody = rawBody && rawBody !== "" && rawBody !== "{}" && rawBody !== "null";
 
   let bodyJson: string;
   if (hasBody) {
-    bodyJson = formatBody(rawBody);
+    bodyJson = formatBody(rawBody, !isRest);
   } else if (tab.response.error) {
     try {
       const parsed = JSON.parse(tab.response.error);
@@ -247,10 +263,21 @@ export function ResponsePanel() {
     bodyJson = "(empty)";
   }
 
-  const bodyLines = bodyJson.split("\n").length;
+  const rawText = rawBody || tab.response.error || "(empty)";
+  const headerText = Object.keys(tab.response.headers).length > 0
+    ? Object.entries(tab.response.headers)
+        .map(([key, value]) => `${key}: ${value}`)
+        .join("\n")
+    : "(none)";
+  const activeBody = isRest && responseView === "raw"
+    ? rawText
+    : isRest && responseView === "headers"
+      ? headerText
+      : bodyJson;
+  const bodyLines = activeBody.split("\n").length;
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(bodyJson);
+    navigator.clipboard.writeText(activeBody);
   };
 
   return (
@@ -275,7 +302,7 @@ export function ResponsePanel() {
       </div>
 
       {/* Response headers */}
-      {Object.keys(tab.response.headers).length > 0 && (
+      {!isRest && Object.keys(tab.response.headers).length > 0 && (
         <div className="border-b border-border px-4 py-2">
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Headers
@@ -294,9 +321,29 @@ export function ResponsePanel() {
       {/* Response body */}
       <div className="flex items-center justify-between px-4 py-1.5 border-b border-border bg-muted/20">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Body
-          </span>
+          {isRest ? (
+            <div className="flex items-center gap-1">
+              {(["pretty", "raw", "headers"] as const).map((view) => (
+                <button
+                  key={view}
+                  type="button"
+                  onClick={() => setResponseView(view)}
+                  className={cn(
+                    "rounded px-2 py-0.5 text-[10px] font-medium uppercase transition-colors",
+                    responseView === view
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )}
+                >
+                  {view}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Body
+            </span>
+          )}
           {bodyLines > VIRTUAL_THRESHOLD && (
             <span className="text-[9px] text-muted-foreground/60 font-mono">
               {bodyLines.toLocaleString()} lines (virtual scroll)
@@ -309,11 +356,11 @@ export function ResponsePanel() {
         </Button>
       </div>
       {bodyLines > VIRTUAL_THRESHOLD ? (
-        <VirtualizedJson json={bodyJson} />
+        <VirtualizedJson json={activeBody} />
       ) : (
         <div className="flex-1 overflow-auto">
           <div className="p-4">
-            <SyntaxJson json={bodyJson} />
+            <SyntaxJson json={activeBody} />
           </div>
         </div>
       )}

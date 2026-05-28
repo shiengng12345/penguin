@@ -33,7 +33,7 @@ export function Welcome() {
             Penguin
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Your gRPC & SDK testing companion
+            Your gRPC, SDK & REST testing companion
           </p>
         </div>
 
@@ -64,7 +64,7 @@ export function Welcome() {
         </form>
 
         <p className="mt-6 text-center text-[10px] text-muted-foreground/50">
-          gRPC-Web · gRPC · SDK
+          gRPC-Web · gRPC · SDK · REST
         </p>
       </div>
     </div>

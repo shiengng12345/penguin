@@ -90,9 +90,9 @@ pnpm install
 pnpm tauri dev
 ```
 
-This starts the Vite dev server on `http://localhost:1420` and launches the Tauri window with hot reload.
+This starts the Vite dev server on `http://localhost:1430` and launches the Tauri window with hot reload.
 
-这会在 `http://localhost:1420` 启动 Vite 开发服务器，并打开带有热重载的 Tauri 窗口。
+这会在 `http://localhost:1430` 启动 Vite 开发服务器，并打开带有热重载的 Tauri 窗口。
 
 ### Build for Production / 生产构建
 
@@ -166,7 +166,7 @@ Click the **gear icon** (⚙) in the header to open Settings:
 
 点击头部的齿轮图标打开设置：
 
-- **Clear Cache / 清除缓存**: Wipes all installed packages, localStorage, and restarts the app (shows welcome page) / 清除所有包、本地存储并重启应用
+- **Clear Cache / 清除缓存**: Wipes all installed packages and restarts the app; environments and settings are preserved / 清除所有已安装包并重启应用；保留环境和设置
 - **Manage Environments / 管理环境**: Add, edit, or delete environments and their variables / 添加、编辑或删除环境及其变量
 
 ---
@@ -260,7 +260,7 @@ The app searches for the config file in this order / 应用按以下顺序查找
 1. `~/.penguin/config.json` (user-level / 用户级别)
 2. Bundled resource (inside `.app` / 内置资源)
 3. Current working directory / 当前工作目录
-4. `http://localhost:1420/.penguin.config.json` (dev server fallback / 开发服务器回退)
+4. `http://localhost:1430/.penguin.config.json` (dev server fallback / 开发服务器回退)
 
 ---
 
@@ -412,9 +412,9 @@ When the app version changes (in `package.json`), the first launch will:
 2. Preserve username, theme, and environment selections / 保留用户名、主题和环境选择
 3. Re-sync environments from `.penguin.config.json` / 从配置文件重新同步环境
 
-To force a full reset, use **Settings → Clear Cache** which wipes everything and restarts.
+To force package reinstall, use **Settings → Clear Cache** which wipes installed packages and restarts.
 
-要强制完全重置，使用 **设置 → 清除缓存**，会清除所有数据并重启。
+要强制重新安装包，使用 **设置 → 清除缓存**，会清除已安装包并重启。
 
 ---
 

@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { SidecarRunner, LoadPackageModule } from "@penguin/core";
+import { isAllowedSnsoftPackageSpec, type SidecarRunner, type LoadPackageModule } from "@penguin/core";
 import { ensurePackageDir, protocolDir, type Protocol } from "./penguin-paths.js";
 
 // Dynamic-imports the @snsoft package's main entry point. Resolves the same
@@ -62,6 +62,15 @@ export async function installPackageViaNpm(
 ): Promise<InstallResult> {
   const dir = ensurePackageDir(protocol);
   const npmBinary = resolveNpmBinary();
+  if (!isAllowedSnsoftPackageSpec(packageSpec)) {
+    return {
+      ok: false,
+      code: -1,
+      output: `Invalid package spec: ${packageSpec}. Expected a versioned @snsoft/*-(grpc-web|grpc) or @snsoft/js-sdk package.`,
+      dir,
+      npmBinary,
+    };
+  }
 
   return await new Promise((resolve) => {
     const child = spawn(

@@ -181,7 +181,7 @@ pnpm install
 pnpm tauri dev
 ```
 
-This starts the Vite dev server on `http://localhost:1420` and opens the Tauri window.
+This starts the Vite dev server on `http://localhost:1430` and opens the Tauri window.
 
 ### Build
 
@@ -350,22 +350,22 @@ The config defines default environments and packages per protocol:
 
 ```json
 {
-  "environments": {
-    "grpc-web": [
+  "grpc-web": {
+    "environments": [
       {
-        "name": "LOCAL",
-        "variables": [
-          { "key": "URL", "value": "http://localhost:8080" },
-          { "key": "TOKEN", "value": "" }
-        ]
+        "name": "QAT",
+        "color": "blue",
+        "variables": {
+          "URL": "https://fpms-nt-swim.platform88.me",
+          "TOKEN": "",
+          "X_ENV_TAG": "QAT"
+        }
       }
-    ]
+    ],
+    "packages": ["@snsoft/player-grpc-web@1.0.0"]
   },
-  "packages": {
-    "grpc-web": ["@snsoft/player-grpc-web"],
-    "grpc": ["@snsoft/player-grpc"],
-    "sdk": ["@snsoft/player-js-sdk"]
-  }
+  "grpc": { "environments": [], "packages": [] },
+  "sdk": { "environments": [], "packages": ["@snsoft/js-sdk@1.0.0"] }
 }
 ```
 

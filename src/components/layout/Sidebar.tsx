@@ -206,6 +206,28 @@ export function Sidebar({ packages, onInstallClick, onUninstall, onUpdate }: Sid
     return version.replace(/^\^|~/, "");
   };
 
+  if (protocolTab === "rest") {
+    return (
+      <aside className="flex h-full w-72 flex-col border-r border-border bg-card" data-tour="sidebar">
+        <div className="flex items-center justify-between border-b border-border px-3 py-2">
+          <div className="flex items-center gap-1.5">
+            <Globe className="h-3.5 w-3.5 text-primary" />
+            <span className="text-sm font-medium text-muted-foreground">
+              REST Requests
+            </span>
+          </div>
+        </div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground">
+          <Server className="h-9 w-9 text-muted-foreground/45" />
+          <p className="text-sm">Manual REST mode</p>
+          <p className="text-xs text-muted-foreground/70">
+            Save requests to build a collection.
+          </p>
+        </div>
+      </aside>
+    );
+  }
+
   return (
     <aside className="flex h-full w-72 flex-col border-r border-border bg-card" data-tour="sidebar">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">

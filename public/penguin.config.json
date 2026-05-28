@@ -2,19 +2,138 @@
   "grpc": {
     "environments": [
       {
-        "name": "auth-local",
-        "color": "green",
+        "name": "admin",
+        "color": "purple",
         "variables": {
-          "URL": "http://0.0.0.0:5004",
-          "TOKEN": ""
+          "URL": "http://0.0.0.0:5006",
+          "TOKEN": "",
+          "X_ENV_TAG": "LOCAL"
         }
       },
       {
-        "name": "player-local",
+        "name": "auth",
+        "color": "green",
+        "variables": {
+          "URL": "http://0.0.0.0:5004",
+          "TOKEN": "",
+          "X_ENV_TAG": "LOCAL"
+        }
+      },
+      {
+        "name": "card-system",
+        "color": "red",
+        "variables": {
+          "URL": "http://0.0.0.0:5008",
+          "TOKEN": "",
+          "X_ENV_TAG": "LOCAL"
+        }
+      },
+      {
+        "name": "cms",
+        "color": "purple",
+        "variables": {
+          "URL": "http://0.0.0.0:5010",
+          "TOKEN": "",
+          "X_ENV_TAG": "LOCAL"
+        }
+      },
+      {
+        "name": "game-provider",
+        "color": "red",
+        "variables": {
+          "URL": "http://0.0.0.0:5015",
+          "TOKEN": "",
+          "X_ENV_TAG": "LOCAL"
+        }
+      },
+      {
+        "name": "internal",
+        "color": "purple",
+        "variables": {
+          "URL": "http://0.0.0.0:5011",
+          "TOKEN": "",
+          "X_ENV_TAG": "LOCAL"
+        }
+      },
+      {
+        "name": "livechat",
+        "color": "cyan",
+        "variables": {
+          "URL": "http://0.0.0.0:5003",
+          "TOKEN": "",
+          "X_ENV_TAG": "LOCAL"
+        }
+      },
+      {
+        "name": "payment",
+        "color": "amber",
+        "variables": {
+          "URL": "http://0.0.0.0:5005",
+          "TOKEN": "",
+          "X_ENV_TAG": "LOCAL"
+        }
+      },
+      {
+        "name": "player",
         "color": "blue",
         "variables": {
           "URL": "http://0.0.0.0:5000",
-          "TOKEN": ""
+          "TOKEN": "",
+          "X_ENV_TAG": "LOCAL"
+        }
+      },
+      {
+        "name": "promotion",
+        "color": "amber",
+        "variables": {
+          "URL": "http://0.0.0.0:5009",
+          "TOKEN": "",
+          "X_ENV_TAG": "LOCAL"
+        }
+      },
+      {
+        "name": "proposal",
+        "color": "purple",
+        "variables": {
+          "URL": "http://0.0.0.0:5001",
+          "TOKEN": "",
+          "X_ENV_TAG": "LOCAL"
+        }
+      },
+      {
+        "name": "push",
+        "color": "cyan",
+        "variables": {
+          "URL": "http://0.0.0.0:5002",
+          "TOKEN": "",
+          "X_ENV_TAG": "LOCAL"
+        }
+      },
+      {
+        "name": "recommend",
+        "color": "orange",
+        "variables": {
+          "URL": "http://0.0.0.0:5020",
+          "TOKEN": "",
+          "X_ENV_TAG": "LOCAL"
+        }
+      },
+      {
+        "name": "risk-control",
+        "color": "green",
+        "variables": {
+          "URL": "http://0.0.0.0:5007",
+          "TOKEN": "",
+          "X_ENV_TAG": "LOCAL"
+        }
+      },
+      {
+        "name": "user-engagement",
+        "color": "blue",
+        "variables": {
+          "URL": "http://0.0.0.0:5012",
+          "TOKEN": "",
+          "X_ENV_TAG": "LOCAL"
         }
       }
     ],
@@ -23,83 +142,21 @@
   "grpc-web": {
     "environments": [
       {
-        "name": "QAT1",
+        "name": "QAT",
         "color": "blue",
         "variables": {
-          "URL": "https://fpms-nt.platform88.me",
-          "TOKEN": ""
+          "URL": "https://fpms-nt-swim.platform88.me",
+          "TOKEN": "",
+          "X_ENV_TAG": "QAT"
         }
       },
       {
-        "name": "QAT2",
-        "color": "blue",
-        "variables": {
-          "URL": "https://fpms-nt2.platform88.me",
-          "TOKEN": ""
-        }
-      },
-      {
-        "name": "QAT3",
-        "color": "blue",
-        "variables": {
-          "URL": "https://fpms-nt3.platform88.me",
-          "TOKEN": ""
-        }
-      },
-      {
-        "name": "QAT4",
-        "color": "blue",
-        "variables": {
-          "URL": "https://fpms-nt4.platform88.me",
-          "TOKEN": ""
-        }
-      },
-      {
-        "name": "QAT5",
-        "color": "blue",
-        "variables": {
-          "URL": "https://fpms-nt5.platform88.me",
-          "TOKEN": ""
-        }
-      },
-      {
-        "name": "QAT6",
-        "color": "blue",
-        "variables": {
-          "URL": "https://fpms-nt6.platform88.me",
-          "TOKEN": ""
-        }
-      },
-      {
-        "name": "UAT1",
+        "name": "UAT",
         "color": "amber",
         "variables": {
-          "URL": "https://fpms-nt.platform99.me",
-          "TOKEN": ""
-        }
-      },
-      {
-        "name": "UAT2",
-        "color": "amber",
-        "variables": {
-          "URL": "https://fpms-nt2.platform99.me",
-          "TOKEN": ""
-        }
-      },
-      {
-        "name": "UAT3",
-        "color": "amber",
-        "variables": {
-          "URL": "https://fpms-nt3.platform99.me",
-          "TOKEN": ""
-        }
-      },
-      {
-        "name": "UAT-STABLE",
-        "color": "purple",
-        "variables": {
-          "URL": "https://fpms-nt-st.platform99.me",
-          "TOKEN": ""
+          "URL": "https://fpms-nt-swim.platform99.me",
+          "TOKEN": "",
+          "X_ENV_TAG": "UAT"
         }
       }
     ],
@@ -108,83 +165,21 @@
   "sdk": {
     "environments": [
       {
-        "name": "QAT1",
+        "name": "QAT",
         "color": "blue",
         "variables": {
-          "URL": "https://fpms-nt.platform88.me",
-          "TOKEN": ""
+          "URL": "https://fpms-nt-swim.platform88.me",
+          "TOKEN": "",
+          "X_ENV_TAG": "QAT"
         }
       },
       {
-        "name": "QAT2",
-        "color": "blue",
-        "variables": {
-          "URL": "https://fpms-nt2.platform88.me",
-          "TOKEN": ""
-        }
-      },
-      {
-        "name": "QAT3",
-        "color": "blue",
-        "variables": {
-          "URL": "https://fpms-nt3.platform88.me",
-          "TOKEN": ""
-        }
-      },
-      {
-        "name": "QAT4",
-        "color": "blue",
-        "variables": {
-          "URL": "https://fpms-nt4.platform88.me",
-          "TOKEN": ""
-        }
-      },
-      {
-        "name": "QAT5",
-        "color": "blue",
-        "variables": {
-          "URL": "https://fpms-nt5.platform88.me",
-          "TOKEN": ""
-        }
-      },
-      {
-        "name": "QAT6",
-        "color": "blue",
-        "variables": {
-          "URL": "https://fpms-nt6.platform88.me",
-          "TOKEN": ""
-        }
-      },
-      {
-        "name": "UAT1",
+        "name": "UAT",
         "color": "amber",
         "variables": {
-          "URL": "https://fpms-nt.platform99.me",
-          "TOKEN": ""
-        }
-      },
-      {
-        "name": "UAT2",
-        "color": "amber",
-        "variables": {
-          "URL": "https://fpms-nt2.platform99.me",
-          "TOKEN": ""
-        }
-      },
-      {
-        "name": "UAT3",
-        "color": "amber",
-        "variables": {
-          "URL": "https://fpms-nt3.platform99.me",
-          "TOKEN": ""
-        }
-      },
-      {
-        "name": "UAT-STABLE",
-        "color": "purple",
-        "variables": {
-          "URL": "https://fpms-nt-st.platform99.me",
-          "TOKEN": ""
+          "URL": "https://fpms-nt-swim.platform99.me",
+          "TOKEN": "",
+          "X_ENV_TAG": "UAT"
         }
       }
     ],

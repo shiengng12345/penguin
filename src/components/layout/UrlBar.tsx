@@ -3,7 +3,9 @@ import { EnvInput } from "@/components/ui/env-input";
 import { Badge } from "@/components/ui/badge";
 import { Send, Globe, Server, RotateCcw, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { REST_METHODS, toRestMethod } from "@/lib/rest";
 
 interface UrlBarProps {
   resolvedUrl: string | null;
@@ -20,6 +22,11 @@ function computeAutoPath(fullName: string): string {
   return `/${protoPackage}/${normalizedType}/${methodName}`;
 }
 
+const REST_METHOD_OPTIONS = REST_METHODS.map((method) => ({
+  value: method,
+  label: method,
+}));
+
 export function UrlBar({ resolvedUrl }: UrlBarProps) {
   const { updateActiveTab } = useAppStore();
   const tab = useActiveTab();
@@ -30,6 +37,7 @@ export function UrlBar({ resolvedUrl }: UrlBarProps) {
   const effectivePath = tab.pathOverride ?? autoPath;
   const isOverridden = tab.pathOverride !== null;
   const displayUrl = resolvedUrl ?? tab.targetUrl;
+  const isRest = tab.protocolTab === "rest";
 
   const handlePathChange = (value: string) => {
     const newOverride = value === "" || value === autoPath ? null : value;
@@ -37,11 +45,11 @@ export function UrlBar({ resolvedUrl }: UrlBarProps) {
   };
 
   return (
-    <div className="border-b border-border bg-card" data-tour="url-bar">
+    <div className="relative z-30 border-b border-border bg-card" data-tour="url-bar">
       {/* Base URL row */}
       <div className="flex items-center gap-2 px-4 py-2">
         <Badge variant="outline" className="shrink-0 font-mono text-[10px] gap-1">
-          {tab.protocolTab === "grpc-web" ? (
+          {tab.protocolTab === "grpc-web" || isRest ? (
             <Globe className="h-3 w-3" />
           ) : (
             <Server className="h-3 w-3" />
@@ -49,16 +57,27 @@ export function UrlBar({ resolvedUrl }: UrlBarProps) {
           {tab.protocolTab.toUpperCase()}
         </Badge>
 
+        {isRest && (
+          <Select
+            value={tab.restMethod}
+            onChange={(e) => updateActiveTab({ restMethod: toRestMethod(e.target.value, tab.restMethod) })}
+            options={REST_METHOD_OPTIONS}
+            className="w-32 shrink-0 font-mono"
+          />
+        )}
+
         <EnvInput
           value={tab.targetUrl}
           onChange={(url) => updateActiveTab({ targetUrl: url })}
-          placeholder="Enter URL — e.g. {{ URL }} or http://localhost:8080"
+          placeholder={isRest
+            ? "https://api.example.com/v1/users or {{URL}}/v1/users"
+            : "Enter URL — e.g. {{ URL }} or http://localhost:8080"}
           className="flex-1"
         />
 
         <Button
           onClick={() => document.dispatchEvent(new CustomEvent("penguin:send-request"))}
-          disabled={tab.isLoading || !tab.targetUrl.trim() || !tab.selectedMethod}
+          disabled={tab.isLoading || !tab.targetUrl.trim() || (!isRest && !tab.selectedMethod)}
           size="default"
           data-tour="send-btn"
         >
@@ -68,7 +87,7 @@ export function UrlBar({ resolvedUrl }: UrlBarProps) {
       </div>
 
       {/* Path row — always-on editable input */}
-      {autoPath && (
+      {!isRest && autoPath && (
         <div className="flex items-center gap-1.5 px-4 pb-2 -mt-0.5 min-w-0">
           <span className="text-[10px] text-muted-foreground shrink-0">POST</span>
           <span className="font-mono text-[10px] text-muted-foreground/50 shrink-0 truncate max-w-[200px]">
@@ -110,7 +129,7 @@ export function UrlBar({ resolvedUrl }: UrlBarProps) {
       )}
 
       {/* Method info row */}
-      {tab.selectedMethod && (
+      {!isRest && tab.selectedMethod && (
         <div className="flex items-center gap-2 px-4 pb-2 -mt-0.5">
           <span className="text-[10px] text-muted-foreground">Method:</span>
           <span className="font-mono text-[10px] text-foreground">

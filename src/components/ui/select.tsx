@@ -147,7 +147,7 @@ const Select = React.forwardRef<HTMLDivElement, SelectProps>(
           <div
             ref={listRef}
             role="listbox"
-            className="absolute left-0 top-full z-50 mt-1 max-h-52 w-full min-w-[10rem] overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-xl animate-in fade-in-0 zoom-in-95"
+            className="absolute left-0 top-full z-[90] mt-1 max-h-52 w-full min-w-[10rem] overflow-y-auto rounded-lg border border-input bg-background p-1 text-foreground shadow-2xl ring-1 ring-border animate-in fade-in-0 zoom-in-95"
           >
             {placeholder && (
               <button
@@ -157,8 +157,8 @@ const Select = React.forwardRef<HTMLDivElement, SelectProps>(
                 onClick={() => pick("")}
                 className={cn(
                   "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
-                  "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                  !value && "bg-accent/60"
+                  "text-muted-foreground hover:bg-primary hover:text-primary-foreground",
+                  !value && "bg-primary text-primary-foreground"
                 )}
               >
                 <span className="h-3.5 w-3.5 shrink-0" />
@@ -178,15 +178,15 @@ const Select = React.forwardRef<HTMLDivElement, SelectProps>(
                   onMouseEnter={() => setHighlightIdx(i)}
                   className={cn(
                     "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
-                    "hover:bg-accent hover:text-accent-foreground",
-                    isHighlighted && "bg-accent text-accent-foreground",
-                    isSelected && "font-medium"
+                    "hover:bg-primary hover:text-primary-foreground",
+                    isHighlighted && "bg-primary text-primary-foreground",
+                    isSelected && "bg-primary text-primary-foreground font-medium"
                   )}
                 >
                   <Check
                     className={cn(
                       "h-3.5 w-3.5 shrink-0",
-                      isSelected ? "opacity-100 text-primary" : "opacity-0"
+                      isSelected ? "opacity-100 text-primary-foreground" : "opacity-0"
                     )}
                   />
                   <ColorDot color={opt.color} size={10} />

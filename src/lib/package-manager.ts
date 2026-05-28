@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { isAllowedSnsoftPackageSpec } from "@penguin/core";
 import type { ProtocolTab, InstalledPackage } from "./store";
 
 interface RawProtoFile {
@@ -155,6 +156,11 @@ export async function installPackage(
   packageSpec: string,
   onLog: (line: string) => void
 ): Promise<boolean> {
+  if (!isAllowedSnsoftPackageSpec(packageSpec)) {
+    onLog(`Invalid package spec: ${packageSpec}`);
+    return false;
+  }
+
   const dir = await ensurePackagesDir(protocol);
   onLog(`Installing ${packageSpec}...`);
   onLog(`Protocol: ${protocol.toUpperCase()}`);

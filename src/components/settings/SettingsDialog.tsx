@@ -34,6 +34,7 @@ const PROTOCOL_TABS: { id: ProtocolTab; label: string; icon: typeof Globe }[] = 
   { id: "grpc-web", label: "gRPC-Web", icon: Globe },
   { id: "grpc", label: "gRPC", icon: Server },
   { id: "sdk", label: "SDK", icon: Box },
+  { id: "rest", label: "REST", icon: Globe },
 ];
 
 const HISTORY_SIZES = [100, 200, 500, 1000];
@@ -68,14 +69,16 @@ export function SettingsDialog({
 
   const [appVersion, setAppVersion] = useState<string>("");
 
-  // MCP integration with Claude Desktop. `mcpStatus` is fetched lazily when
-  // the user opens Settings; the install button refreshes it after writing.
+  // MCP integration. `mcpStatus` is fetched lazily when the user opens
+  // Settings; the one-click setup refreshes it after writing the local client config.
   interface McpStatusShape {
     server_name: string;
     bundled_server_path: string | null;
     node_path: string | null;
     claude_desktop_config_path: string | null;
     claude_desktop_configured: boolean;
+    codex_config_path: string | null;
+    codex_configured: boolean;
   }
   const [mcpStatus, setMcpStatus] = useState<McpStatusShape | null>(null);
   const [mcpInstallState, setMcpInstallState] = useState<
@@ -84,6 +87,7 @@ export function SettingsDialog({
   const [mcpInstallMsg, setMcpInstallMsg] = useState<string>("");
   const [mcpConfigCopied, setMcpConfigCopied] = useState(false);
   const [mcpCliCopied, setMcpCliCopied] = useState(false);
+  const [mcpCodexCliCopied, setMcpCodexCliCopied] = useState(false);
 
   const refreshMcpStatus = useCallback(async () => {
     try {
@@ -98,33 +102,52 @@ export function SettingsDialog({
     setMcpInstallState("installing");
     setMcpInstallMsg("");
     try {
-      const msg = await invoke<string>("mcp_install_to_claude_desktop");
+      const msg = await invoke<string>("mcp_install_to_local_clients");
       setMcpInstallMsg(msg);
       setMcpInstallState("success");
       await refreshMcpStatus();
     } catch (err) {
+      await refreshMcpStatus();
       setMcpInstallMsg(String(err));
       setMcpInstallState("error");
     }
   };
 
-  const handleMcpCopyConfig = async () => {
-    if (!mcpStatus?.bundled_server_path || !mcpStatus?.node_path) return;
-    const snippet = JSON.stringify(
-      {
-        mcpServers: {
-          penguin: {
-            command: mcpStatus.node_path,
-            args: [mcpStatus.bundled_server_path],
-          },
+  const mcpNodePath = mcpStatus?.node_path ?? "<node>";
+  const mcpServerPath = mcpStatus?.bundled_server_path ?? "<path>";
+  const canCopyMcpSetup = Boolean(mcpStatus?.bundled_server_path && mcpStatus?.node_path);
+  const mcpJsonSnippet = JSON.stringify(
+    {
+      mcpServers: {
+        penguin: {
+          command: mcpNodePath,
+          args: [mcpServerPath],
         },
       },
-      null,
-      2,
-    );
-    await navigator.clipboard.writeText(snippet);
-    setMcpConfigCopied(true);
-    setTimeout(() => setMcpConfigCopied(false), 2000);
+    },
+    null,
+    2,
+  );
+  const mcpClaudeCliCommand = `claude mcp add --scope user penguin ${mcpNodePath} ${mcpServerPath}`;
+  const mcpCodexCliCommand = `codex mcp add penguin -- ${mcpNodePath} ${mcpServerPath}`;
+  const mcpClaudeConfigured = Boolean(mcpStatus?.claude_desktop_configured);
+  const mcpCodexConfigured = Boolean(mcpStatus?.codex_configured);
+  const mcpBothConfigured = mcpClaudeConfigured && mcpCodexConfigured;
+  const mcpPartiallyConfigured = !mcpBothConfigured && (mcpClaudeConfigured || mcpCodexConfigured);
+  const mcpStatusLabel = mcpBothConfigured
+    ? "Both Configured"
+    : mcpPartiallyConfigured
+      ? "Partial Setup"
+      : "Manual Setup";
+
+  const copyMcpSetup = async (
+    text: string,
+    setCopiedState: (copied: boolean) => void,
+  ) => {
+    if (!canCopyMcpSetup) return;
+    await navigator.clipboard.writeText(text);
+    setCopiedState(true);
+    setTimeout(() => setCopiedState(false), 2000);
   };
   const [updateStatus, setUpdateStatus] = useState<
     "idle" | "checking" | "available" | "up-to-date" | "downloading" | "ready" | "error"
@@ -193,14 +216,17 @@ export function SettingsDialog({
 
   const currentHeaders = defaultHeaders[headerProtocol];
 
-  const handleClearCache = () => {
+  const handleClearCache = async () => {
     setClearing(true);
     setCleared(false);
-    localStorage.clear();
-    invoke<string>("clear_all_packages").catch((err) =>
-      logger.error("SettingsDialog", "clear_all_packages failed", err),
-    );
-    window.location.reload();
+    try {
+      await invoke<string>("clear_all_packages");
+      setCleared(true);
+      window.location.reload();
+    } catch (err) {
+      logger.error("SettingsDialog", "clear_all_packages failed", err);
+      setClearing(false);
+    }
   };
 
   const updateHeader = (index: number, patch: Partial<MetadataEntry>) => {
@@ -234,11 +260,13 @@ export function SettingsDialog({
           "grpc-web": s.grpcWebEnvironments,
           grpc: s.grpcEnvironments,
           sdk: s.sdkEnvironments,
+          rest: s.restEnvironments,
         },
         activeEnvIds: {
           "grpc-web": s.grpcWebActiveEnvId,
           grpc: s.grpcActiveEnvId,
           sdk: s.sdkActiveEnvId,
+          rest: s.restActiveEnvId,
         },
         defaultHeaders: s.defaultHeaders,
         maxHistorySize: s.maxHistorySize,
@@ -259,11 +287,13 @@ export function SettingsDialog({
         if (data.environments["grpc-web"]) s.setGrpcWebEnvironments(data.environments["grpc-web"]);
         if (data.environments.grpc) s.setGrpcEnvironments(data.environments.grpc);
         if (data.environments.sdk) s.setSdkEnvironments(data.environments.sdk);
+        if (data.environments.rest) s.setRestEnvironments(data.environments.rest);
       }
       if (data.activeEnvIds) {
         if (data.activeEnvIds["grpc-web"] !== undefined) s.setGrpcWebActiveEnvId(data.activeEnvIds["grpc-web"]);
         if (data.activeEnvIds.grpc !== undefined) s.setGrpcActiveEnvId(data.activeEnvIds.grpc);
         if (data.activeEnvIds.sdk !== undefined) s.setSdkActiveEnvId(data.activeEnvIds.sdk);
+        if (data.activeEnvIds.rest !== undefined) s.setRestActiveEnvId(data.activeEnvIds.rest);
       }
       if (Array.isArray(data.savedRequests)) {
         useAppStore.setState({ savedRequests: data.savedRequests });
@@ -274,7 +304,7 @@ export function SettingsDialog({
         localStorage.setItem("penguin-history", JSON.stringify(data.history));
       }
       if (data.defaultHeaders) {
-        for (const p of ["grpc-web", "grpc", "sdk"] as ProtocolTab[]) {
+        for (const p of ["grpc-web", "grpc", "sdk", "rest"] as ProtocolTab[]) {
           if (data.defaultHeaders[p]) s.setDefaultHeaders(p, data.defaultHeaders[p]);
         }
       }
@@ -511,18 +541,24 @@ export function SettingsDialog({
               <span
                 className={cn(
                   "shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
-                  mcpStatus?.claude_desktop_configured
+                  mcpBothConfigured
                     ? "bg-emerald-500/15 text-emerald-500"
+                    : mcpPartiallyConfigured
+                      ? "bg-amber-500/15 text-amber-500"
                     : "bg-muted text-muted-foreground",
                 )}
               >
                 <span
                   className={cn(
                     "h-1.5 w-1.5 rounded-full",
-                    mcpStatus?.claude_desktop_configured ? "bg-emerald-500" : "bg-muted-foreground/40",
+                    mcpBothConfigured
+                      ? "bg-emerald-500"
+                      : mcpPartiallyConfigured
+                        ? "bg-amber-500"
+                        : "bg-muted-foreground/40",
                   )}
                 />
-                {mcpStatus?.claude_desktop_configured ? "Configured" : "Off"}
+                {mcpStatusLabel}
               </span>
             </div>
 
@@ -548,17 +584,17 @@ export function SettingsDialog({
             >
               {mcpInstallState === "installing" ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : mcpStatus?.claude_desktop_configured ? (
+              ) : mcpBothConfigured ? (
                 <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
               ) : (
                 <Sparkles className="mr-1.5 h-3.5 w-3.5" />
               )}
-              {mcpStatus?.claude_desktop_configured ? "Re-add to Claude Desktop" : "Add to Claude Desktop"}
+              {mcpBothConfigured ? "Reconfigure Claude + Codex" : "Configure Claude + Codex"}
             </Button>
 
             {mcpInstallState === "success" && (
               <p className="mt-2 text-[11px] text-emerald-500">
-                ✓ Added. Restart Claude Desktop to load it.
+                ✓ Configured Claude Desktop and Codex CLI. Restart the clients to load it.
               </p>
             )}
             {mcpInstallState === "error" && mcpInstallMsg && (
@@ -567,78 +603,124 @@ export function SettingsDialog({
               </p>
             )}
 
-            {/* Always-visible config snippets for users on Cursor / Claude Code
-                CLI / other MCP clients. Both columns are flex-col so the
+            {/* Always-visible config snippets for common MCP clients. The
+                one-click button covers the desktop auto-config path, while these
+                snippets make it clear Codex and other clients work too.
+                Columns are flex-col so the
                 <pre> blocks stretch to equal heights regardless of line count. */}
-            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 [&>div]:flex [&>div]:flex-col [&>div_pre]:flex-1">
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] font-medium text-muted-foreground">
-                    Claude Desktop / Cursor (JSON)
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleMcpCopyConfig}
-                    disabled={!mcpStatus?.bundled_server_path || !mcpStatus?.node_path}
-                    className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
-                  >
-                    {mcpConfigCopied ? (
-                      <>
-                        <CheckCircle className="h-3 w-3 text-emerald-500" />
-                        <span className="text-emerald-500">Copied</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="h-3 w-3" />
-                        Copy
-                      </>
-                    )}
-                  </button>
+            <div className="mt-3 border-t border-border/60 pt-3">
+              <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Client Setup / 客户端配置
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    Use the same Penguin MCP server in Claude, Cursor, Codex, or any JSON MCP client.
+                  </p>
                 </div>
-                <pre className="font-mono text-[10px] text-muted-foreground rounded bg-muted/40 p-2 max-w-full overflow-x-auto whitespace-pre leading-relaxed">
-{`{
-  "mcpServers": {
-    "penguin": {
-      "command": "${mcpStatus?.node_path ?? "<node>"}",
-      "args": ["${mcpStatus?.bundled_server_path ?? "<path>"}"]
-    }
-  }
-}`}
-                </pre>
               </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[10px] font-medium text-muted-foreground">
-                    Claude Code (CLI)
-                  </span>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const cmd = `claude mcp add --scope user penguin ${mcpStatus?.node_path ?? ""} ${mcpStatus?.bundled_server_path ?? ""}`;
-                      await navigator.clipboard.writeText(cmd);
-                      setMcpCliCopied(true);
-                      setTimeout(() => setMcpCliCopied(false), 2000);
-                    }}
-                    disabled={!mcpStatus?.bundled_server_path || !mcpStatus?.node_path}
-                    className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
-                  >
-                    {mcpCliCopied ? (
-                      <>
-                        <CheckCircle className="h-3 w-3 text-emerald-500" />
-                        <span className="text-emerald-500">Copied</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="h-3 w-3" />
-                        Copy
-                      </>
-                    )}
-                  </button>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3 [&>div]:flex [&>div]:min-w-0 [&>div]:flex-col [&>div_pre]:min-h-24 [&>div_pre]:flex-1">
+                <div className="rounded-md border border-border/60 bg-background/40 p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="min-w-0">
+                      <span className="block text-[10px] font-medium text-foreground">
+                        JSON clients
+                      </span>
+                      <span className="block truncate text-[10px] text-muted-foreground">
+                        Claude Desktop / Cursor
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => copyMcpSetup(mcpJsonSnippet, setMcpConfigCopied)}
+                      disabled={!canCopyMcpSetup}
+                      className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                    >
+                      {mcpConfigCopied ? (
+                        <>
+                          <CheckCircle className="h-3 w-3 text-emerald-500" />
+                          <span className="text-emerald-500">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3 w-3" />
+                          Copy
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <pre className="font-mono text-[10px] text-muted-foreground rounded bg-muted/40 p-2 max-w-full overflow-x-auto whitespace-pre leading-relaxed">
+                    {mcpJsonSnippet}
+                  </pre>
                 </div>
-                <pre className="font-mono text-[10px] text-muted-foreground rounded bg-muted/40 p-2 max-w-full overflow-x-auto whitespace-pre leading-relaxed">
-                  claude mcp add --scope user penguin \{"\n"}  {mcpStatus?.node_path ?? "<node>"} \{"\n"}  {mcpStatus?.bundled_server_path ?? "<path>"}
-                </pre>
+
+                <div className="rounded-md border border-border/60 bg-background/40 p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="min-w-0">
+                      <span className="block text-[10px] font-medium text-foreground">
+                        Claude Code
+                      </span>
+                      <span className="block truncate text-[10px] text-muted-foreground">
+                        CLI command
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => copyMcpSetup(mcpClaudeCliCommand, setMcpCliCopied)}
+                      disabled={!canCopyMcpSetup}
+                      className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                    >
+                      {mcpCliCopied ? (
+                        <>
+                          <CheckCircle className="h-3 w-3 text-emerald-500" />
+                          <span className="text-emerald-500">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3 w-3" />
+                          Copy
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <pre className="font-mono text-[10px] text-muted-foreground rounded bg-muted/40 p-2 max-w-full overflow-x-auto whitespace-pre leading-relaxed">
+                    {mcpClaudeCliCommand.replace(` ${mcpNodePath} `, ` \\\n  ${mcpNodePath} \\\n  `)}
+                  </pre>
+                </div>
+
+                <div className="rounded-md border border-border/60 bg-background/40 p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="min-w-0">
+                      <span className="block text-[10px] font-medium text-foreground">
+                        Codex CLI
+                      </span>
+                      <span className="block truncate text-[10px] text-muted-foreground">
+                        CLI command
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => copyMcpSetup(mcpCodexCliCommand, setMcpCodexCliCopied)}
+                      disabled={!canCopyMcpSetup}
+                      className="text-[10px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                    >
+                      {mcpCodexCliCopied ? (
+                        <>
+                          <CheckCircle className="h-3 w-3 text-emerald-500" />
+                          <span className="text-emerald-500">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3 w-3" />
+                          Copy
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <pre className="font-mono text-[10px] text-muted-foreground rounded bg-muted/40 p-2 max-w-full overflow-x-auto whitespace-pre leading-relaxed">
+                    {mcpCodexCliCommand.replace(` -- ${mcpNodePath} `, ` -- \\\n  ${mcpNodePath} \\\n  `)}
+                  </pre>
+                </div>
               </div>
             </div>
           </div>

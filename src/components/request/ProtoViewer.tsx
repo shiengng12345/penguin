@@ -3,6 +3,7 @@ import { useActiveTab, type FieldInfo } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { X, Code2, ArrowLeft, ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isLightAppTheme } from "@/lib/theme";
 
 interface ProtoViewerProps {
   open: boolean;
@@ -126,7 +127,7 @@ export function ProtoViewer({ open, onClose }: ProtoViewerProps) {
 
   const isDark =
     typeof document !== "undefined"
-      ? document.documentElement.getAttribute("data-theme") !== "light"
+      ? !isLightAppTheme(document.documentElement.getAttribute("data-theme"))
       : true;
   const colors = isDark ? SEGMENT_COLORS : SEGMENT_COLORS_LIGHT;
 

@@ -9,12 +9,14 @@ const STORE_KEYS: Record<ProtocolTab, string> = {
   "grpc-web": "penguin-grpc-web-environments",
   grpc: "penguin-grpc-environments",
   sdk: "penguin-sdk-environments",
+  rest: "penguin-rest-environments",
 };
 
 const ACTIVE_KEYS: Record<ProtocolTab, string> = {
   "grpc-web": "penguin-grpc-web-active-env",
   grpc: "penguin-grpc-active-env",
   sdk: "penguin-sdk-active-env",
+  rest: "penguin-rest-active-env",
 };
 
 interface ConfigEnvironment {
@@ -108,7 +110,7 @@ function saveToStorage(
 
 (function hydrateAll() {
   if (typeof window === "undefined") return;
-  const protocols: ProtocolTab[] = ["grpc-web", "grpc", "sdk"];
+  const protocols: ProtocolTab[] = ["grpc-web", "grpc", "sdk", "rest"];
   for (const p of protocols) {
     const { environments, activeEnvId } = loadFromStorage(p);
     if (environments.length > 0 || activeEnvId) {
@@ -120,9 +122,12 @@ function saveToStorage(
         } else if (p === "grpc") {
           next.grpcEnvironments = environments;
           next.grpcActiveEnvId = activeEnvId;
-        } else {
+        } else if (p === "sdk") {
           next.sdkEnvironments = environments;
           next.sdkActiveEnvId = activeEnvId;
+        } else {
+          next.restEnvironments = environments;
+          next.restActiveEnvId = activeEnvId;
         }
         return next;
       });
@@ -136,13 +141,15 @@ function saveToStorage(
 function getEnvsKey(p: ProtocolTab) {
   return p === "grpc-web" ? "grpcWebEnvironments"
     : p === "grpc" ? "grpcEnvironments"
-    : "sdkEnvironments";
+    : p === "sdk" ? "sdkEnvironments"
+    : "restEnvironments";
 }
 
 function getActiveKey(p: ProtocolTab) {
   return p === "grpc-web" ? "grpcWebActiveEnvId"
     : p === "grpc" ? "grpcActiveEnvId"
-    : "sdkActiveEnvId";
+    : p === "sdk" ? "sdkActiveEnvId"
+    : "restActiveEnvId";
 }
 
 function syncAllProtocolEnvs() {
@@ -151,7 +158,7 @@ function syncAllProtocolEnvs() {
     let config: ConfigShape;
     try { config = JSON.parse(raw); } catch { return; }
 
-    const protocols: ProtocolTab[] = ["grpc-web", "grpc", "sdk"];
+    const protocols: ProtocolTab[] = ["grpc-web", "grpc", "sdk", "rest"];
     const update: Record<string, unknown> = {};
 
     for (const p of protocols) {
@@ -212,14 +219,18 @@ export function useEnvironments(): {
       ? useAppStore((s) => s.grpcWebEnvironments)
       : protocol === "grpc"
         ? useAppStore((s) => s.grpcEnvironments)
-        : useAppStore((s) => s.sdkEnvironments);
+        : protocol === "sdk"
+          ? useAppStore((s) => s.sdkEnvironments)
+          : useAppStore((s) => s.restEnvironments);
 
   const activeEnvId =
     protocol === "grpc-web"
       ? useAppStore((s) => s.grpcWebActiveEnvId)
       : protocol === "grpc"
         ? useAppStore((s) => s.grpcActiveEnvId)
-        : useAppStore((s) => s.sdkActiveEnvId);
+        : protocol === "sdk"
+          ? useAppStore((s) => s.sdkActiveEnvId)
+          : useAppStore((s) => s.restActiveEnvId);
 
   const activeEnv = useMemo(
     () => environments.find((e) => e.id === activeEnvId) ?? null,
@@ -232,11 +243,13 @@ export function useEnvironments(): {
       const p = protocol;
       if (p === "grpc-web") state.setGrpcWebActiveEnvId(id);
       else if (p === "grpc") state.setGrpcActiveEnvId(id);
-      else state.setSdkActiveEnvId(id);
+      else if (p === "sdk") state.setSdkActiveEnvId(id);
+      else state.setRestActiveEnvId(id);
       const envs =
         p === "grpc-web" ? state.grpcWebEnvironments
         : p === "grpc" ? state.grpcEnvironments
-        : state.sdkEnvironments;
+        : p === "sdk" ? state.sdkEnvironments
+        : state.restEnvironments;
       saveToStorage(p, envs, id);
     },
     [protocol]
@@ -247,21 +260,27 @@ export function useEnvironments(): {
       ? useAppStore.getState().addGrpcWebEnvironment
       : protocol === "grpc"
         ? useAppStore.getState().addGrpcEnvironment
-        : useAppStore.getState().addSdkEnvironment;
+        : protocol === "sdk"
+          ? useAppStore.getState().addSdkEnvironment
+          : useAppStore.getState().addRestEnvironment;
 
   const updateEnv =
     protocol === "grpc-web"
       ? useAppStore.getState().updateGrpcWebEnvironment
       : protocol === "grpc"
         ? useAppStore.getState().updateGrpcEnvironment
-        : useAppStore.getState().updateSdkEnvironment;
+        : protocol === "sdk"
+          ? useAppStore.getState().updateSdkEnvironment
+          : useAppStore.getState().updateRestEnvironment;
 
   const deleteEnv =
     protocol === "grpc-web"
       ? useAppStore.getState().deleteGrpcWebEnvironment
       : protocol === "grpc"
         ? useAppStore.getState().deleteGrpcEnvironment
-        : useAppStore.getState().deleteSdkEnvironment;
+        : protocol === "sdk"
+          ? useAppStore.getState().deleteSdkEnvironment
+          : useAppStore.getState().deleteRestEnvironment;
 
   const addEnvironment = useCallback(
     (env: Environment) => {

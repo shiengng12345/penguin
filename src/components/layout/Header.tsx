@@ -16,6 +16,7 @@ const PROTOCOL_LABELS: Record<string, string> = {
   "grpc-web": "gRPC-Web",
   grpc: "gRPC",
   sdk: "SDK",
+  rest: "REST",
 };
 
 const PenguinBrand = memo(function PenguinBrand() {
@@ -104,7 +105,7 @@ export function Header({ onOpenSettings }: HeaderProps) {
                 className="fixed inset-0 z-40"
                 onClick={() => setThemePopoverOpen(false)}
               />
-              <div className="absolute right-0 top-full z-50 mt-1 w-36 rounded-lg border border-border bg-popover p-1 shadow-xl">
+              <div className="absolute right-0 top-full z-50 mt-1 w-44 rounded-lg border border-border bg-popover p-1 shadow-xl">
                 {THEMES.map((t) => (
                   <button
                     key={t.id}

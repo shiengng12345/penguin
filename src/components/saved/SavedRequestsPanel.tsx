@@ -3,6 +3,7 @@ import {
   useAppStore,
   type ProtocolTab,
   type SavedRequest,
+  type RequestTab,
   getDefaultHeadersForProtocol,
 } from "@/lib/store";
 import { Input } from "@/components/ui/input";
@@ -18,6 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tryFormatJson } from "@/lib/json-utils";
+import { inferRestBodyMode, toRestMethod } from "@/lib/rest";
 
 const PROTOCOL_BADGES: Record<
   ProtocolTab,
@@ -37,6 +39,11 @@ const PROTOCOL_BADGES: Record<
     label: "SDK",
     icon: Box,
     className: "bg-purple-500/20 text-purple-600 dark:text-purple-400",
+  },
+  rest: {
+    label: "REST",
+    icon: Globe,
+    className: "bg-cyan-500/20 text-cyan-600 dark:text-cyan-400",
   },
 };
 
@@ -78,6 +85,10 @@ function getMethodShortName(fullName: string): string {
   return parts[parts.length - 1];
 }
 
+function getContentType(metadata: SavedRequest["metadata"]): string {
+  return metadata.find((m) => m.key.trim().toLowerCase() === "content-type")?.value ?? "";
+}
+
 export function SavedRequestsPanel({
   open,
   onClose,
@@ -113,7 +124,8 @@ export function SavedRequestsPanel({
 
   const restoreEntry = (entry: SavedRequest) => {
     addTab();
-    const patch = {
+    const isRest = entry.protocol === "rest";
+    const patch: Partial<RequestTab> = {
       protocolTab: entry.protocol,
       targetUrl: entry.url,
       metadata:
@@ -121,12 +133,17 @@ export function SavedRequestsPanel({
           ? entry.metadata
           : getDefaultHeadersForProtocol(entry.protocol),
       requestBody: entry.requestBody,
-      selectedPackage: entry.packageName || null,
-      selectedService: entry.serviceName || null,
-      selectedMethod: entry.selectedMethod ?? null,
+      selectedPackage: isRest ? null : entry.packageName || null,
+      selectedService: isRest ? null : entry.serviceName || null,
+      selectedMethod: isRest ? null : entry.selectedMethod ?? null,
       response: entry.response,
       origin: "saved" as const,
     };
+    if (isRest) {
+      patch.restMethod = toRestMethod(entry.restMethod ?? entry.methodFullName, "GET");
+      patch.restBodyMode = entry.restBodyMode ?? inferRestBodyMode(entry.requestBody, getContentType(entry.metadata));
+      patch.pathOverride = null;
+    }
     setTimeout(() => {
       useAppStore.getState().updateActiveTab(patch);
       if (entry.packageName && entry.serviceName) {

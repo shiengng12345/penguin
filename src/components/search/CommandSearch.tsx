@@ -29,6 +29,11 @@ const PROTOCOL_BADGES: Record<
     icon: Box,
     className: "bg-purple-500/20 text-purple-600 dark:text-purple-400",
   },
+  rest: {
+    label: "REST",
+    icon: Globe,
+    className: "bg-cyan-500/20 text-cyan-600 dark:text-cyan-400",
+  },
 };
 
 interface SearchResult {
@@ -60,6 +65,7 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
     "grpc-web": grpcWebPackages,
     grpc: grpcPackages,
     sdk: sdkPackages,
+    rest: [],
   };
 
   const allResults = ((): SearchResult[] => {
@@ -125,7 +131,7 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
   })();
 
   const cycleProtocolFilter = () => {
-    const order: (ProtocolTab | "all")[] = ["all", "grpc-web", "grpc", "sdk"];
+    const order: (ProtocolTab | "all")[] = ["all", "grpc-web", "grpc", "sdk", "rest"];
     const idx = order.indexOf(protocolFilter);
     setProtocolFilter(order[(idx +1) % order.length]);
   };
@@ -249,7 +255,7 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
         </div>
 
         <div className="flex gap-1 border-b border-border px-2 py-1">
-          {(["all", "grpc-web", "grpc", "sdk"] as const).map((p) => (
+          {(["all", "grpc-web", "grpc", "sdk", "rest"] as const).map((p) => (
             <button
               key={p}
               type="button"

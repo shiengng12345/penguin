@@ -22,6 +22,11 @@ const PROTOCOL_BADGES: Record<
     icon: Box,
     className: "bg-purple-500/20 text-purple-600 dark:text-purple-400",
   },
+  rest: {
+    label: "REST",
+    icon: Globe,
+    className: "bg-cyan-500/20 text-cyan-600 dark:text-cyan-400",
+  },
 };
 
 interface TabBarProps {
@@ -124,6 +129,9 @@ export function TabBar({ onCycleProtocol }: TabBarProps) {
               )}
               {activeTab.protocolTab === "sdk" && (
                 <Globe className="h-3.5 w-3.5" />
+              )}
+              {activeTab.protocolTab === "rest" && (
+                <Server className="h-3.5 w-3.5" />
               )}
             </>
           )}

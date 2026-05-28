@@ -4,21 +4,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Package, X, Download, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const PACKAGE_REGEX = /^@snsoft\/([\w-]+-(grpc-web|grpc)|js-sdk)@[\w.\-T]+$/;
+import { isAllowedSnsoftPackageSpec, protocolFromSnsoftPackageSpec } from "@penguin/core";
 
 function detectProtocol(spec: string): "grpc-web" | "grpc" | "sdk" | null {
-  const lower = spec.toLowerCase();
-  if (lower.includes("js-sdk")) return "sdk";
-  if (lower.includes("grpc-web") || lower.includes("grpcweb")) return "grpc-web";
-  if (lower.includes("grpc")) return "grpc";
-  return null;
+  return protocolFromSnsoftPackageSpec(spec);
 }
 
 const PROTOCOL_LABELS: Record<string, string> = {
   "grpc-web": "gRPC-Web",
   grpc: "gRPC",
   sdk: "SDK",
+  rest: "REST",
 };
 
 interface PackageInstallerProps {
@@ -31,6 +27,7 @@ const PLACEHOLDERS: Record<string, string> = {
     "e.g. @snsoft/example-grpc-web@1.0.0",
   grpc: "e.g. @snsoft/example-grpc@1.0.0",
   sdk: "e.g. @snsoft/js-sdk@1.0.0",
+  rest: "REST requests do not require package installation",
 };
 
 export function PackageInstaller({ onInstall, onClose }: PackageInstallerProps) {
@@ -73,7 +70,7 @@ export function PackageInstaller({ onInstall, onClose }: PackageInstallerProps) 
   }, [isInstalling]);
 
   const detectedProtocol = detectProtocol(spec);
-  const isValid = PACKAGE_REGEX.test(spec.trim());
+  const isValid = isAllowedSnsoftPackageSpec(spec);
 
   const lastLog = installLog[installLog.length - 1] ?? "";
   const installDone =

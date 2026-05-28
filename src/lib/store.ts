@@ -6,6 +6,8 @@ import type {
   MetadataEntry as CoreMetadataEntry,
   ResponseState as CoreResponseState,
 } from "@penguin/core";
+import { isAppTheme, THEMES, type AppTheme } from "./theme";
+import type { RestBodyMode, RestMethod } from "./rest";
 
 // --- Types ---
 
@@ -58,6 +60,8 @@ export interface HistoryEntry {
   url: string;
   metadata: MetadataEntry[];
   requestBody: string;
+  restMethod?: RestMethod;
+  restBodyMode?: RestBodyMode;
   selectedMethod?: ProtoMethod | null;
 }
 
@@ -72,28 +76,15 @@ export interface SavedRequest {
   url: string;
   metadata: MetadataEntry[];
   requestBody: string;
+  restMethod?: RestMethod;
+  restBodyMode?: RestBodyMode;
   response: ResponseState | null;
   selectedMethod: ProtoMethod | null;
 }
 
-export type ProtocolTab = "grpc-web" | "grpc" | "sdk";
+export type ProtocolTab = "grpc-web" | "grpc" | "sdk" | "rest";
 
-export type AppTheme =
-  | "dark"
-  | "light"
-  | "nord"
-  | "emerald"
-  | "rose"
-  | "violet";
-
-export const THEMES = [
-  { id: "dark" as const, label: "Dark", color: "oklch(0.25 0.02 260)" },
-  { id: "light" as const, label: "Light", color: "oklch(0.98 0.01 260)" },
-  { id: "nord" as const, label: "Nord", color: "oklch(0.55 0.08 220)" },
-  { id: "emerald" as const, label: "Emerald", color: "oklch(0.55 0.12 160)" },
-  { id: "rose" as const, label: "Rose", color: "oklch(0.65 0.15 10)" },
-  { id: "violet" as const, label: "Violet", color: "oklch(0.55 0.2 290)" },
-] as const;
+export { THEMES, type AppTheme };
 
 export type TabOrigin = "history" | "saved" | null;
 
@@ -102,6 +93,8 @@ export interface RequestTab {
   protocolTab: ProtocolTab;
   targetUrl: string;
   pathOverride: string | null;
+  restMethod: RestMethod;
+  restBodyMode: RestBodyMode;
   requestBody: string;
   metadata: MetadataEntry[];
   selectedPackage: string | null;
@@ -146,6 +139,8 @@ function createTab(origin: TabOrigin = null, protocol: ProtocolTab = "grpc-web")
     protocolTab: protocol,
     targetUrl: "{{URL}}",
     pathOverride: null,
+    restMethod: "POST",
+    restBodyMode: "json",
     requestBody: "{}",
     metadata: headers.map((h) => ({ ...h })),
     selectedPackage: null,
@@ -214,24 +209,31 @@ export interface AppState {
   grpcWebEnvironments: Environment[];
   grpcEnvironments: Environment[];
   sdkEnvironments: Environment[];
+  restEnvironments: Environment[];
   grpcWebActiveEnvId: string | null;
   grpcActiveEnvId: string | null;
   sdkActiveEnvId: string | null;
+  restActiveEnvId: string | null;
   setGrpcWebEnvironments: (envs: Environment[]) => void;
   setGrpcEnvironments: (envs: Environment[]) => void;
   setSdkEnvironments: (envs: Environment[]) => void;
+  setRestEnvironments: (envs: Environment[]) => void;
   setGrpcWebActiveEnvId: (id: string | null) => void;
   setGrpcActiveEnvId: (id: string | null) => void;
   setSdkActiveEnvId: (id: string | null) => void;
+  setRestActiveEnvId: (id: string | null) => void;
   addGrpcWebEnvironment: (env: Environment) => void;
   addGrpcEnvironment: (env: Environment) => void;
   addSdkEnvironment: (env: Environment) => void;
+  addRestEnvironment: (env: Environment) => void;
   updateGrpcWebEnvironment: (id: string, patch: Partial<Environment>) => void;
   updateGrpcEnvironment: (id: string, patch: Partial<Environment>) => void;
   updateSdkEnvironment: (id: string, patch: Partial<Environment>) => void;
+  updateRestEnvironment: (id: string, patch: Partial<Environment>) => void;
   deleteGrpcWebEnvironment: (id: string) => void;
   deleteGrpcEnvironment: (id: string) => void;
   deleteSdkEnvironment: (id: string) => void;
+  deleteRestEnvironment: (id: string) => void;
 
   theme: AppTheme;
   setTheme: (theme: AppTheme) => void;
@@ -310,6 +312,12 @@ function loadDefaultHeaders(): Record<ProtocolTab, MetadataEntry[]> {
       { ...X_ENV_TAG_DEFAULT },
       { ...PLATFORM_ID_DEFAULT },
     ],
+    rest: [
+      { key: "Authorization", value: "Bearer ", enabled: true },
+      { key: "Content-Type", value: "application/json", enabled: true },
+      { ...X_ENV_TAG_DEFAULT },
+      { ...PLATFORM_ID_DEFAULT },
+    ],
   };
   if (typeof window === "undefined") return fallback;
   try {
@@ -319,7 +327,7 @@ function loadDefaultHeaders(): Record<ProtocolTab, MetadataEntry[]> {
       const merged = { ...fallback, ...parsed };
       // One-time migration: existing users predate x-env-tag; if their stored
       // default headers don't include it, append it without disturbing other entries.
-      const protocols: ProtocolTab[] = ["grpc-web", "grpc", "sdk"];
+      const protocols: ProtocolTab[] = ["grpc-web", "grpc", "sdk", "rest"];
       let migrated = false;
       for (const protocol of protocols) {
         const current = merged[protocol] ?? [];
@@ -359,6 +367,8 @@ function loadTabs(): { tabs: RequestTab[]; activeTabId: string | null } {
     if (raw) {
       const tabs: RequestTab[] = JSON.parse(raw).map((t: RequestTab) => ({
         ...t,
+        restMethod: t.restMethod ?? "POST",
+        restBodyMode: t.restBodyMode ?? "json",
         origin: t.origin ?? null,
       }));
       if (Array.isArray(tabs) && tabs.length > 0) {
@@ -430,8 +440,7 @@ function saveSavedRequests(entries: SavedRequest[]) {
 function loadTheme(): AppTheme {
   if (typeof window === "undefined") return "dark";
   const stored = localStorage.getItem(THEME_KEY);
-  const valid: AppTheme[] = ["dark", "light", "nord", "emerald", "rose", "violet"];
-  if (stored && valid.includes(stored as AppTheme)) return stored as AppTheme;
+  if (stored && isAppTheme(stored)) return stored;
   return "dark";
 }
 
@@ -527,15 +536,19 @@ export const useAppStore = create<AppState>((set, get) => {
     grpcWebEnvironments: [],
     grpcEnvironments: [],
     sdkEnvironments: [],
+    restEnvironments: [],
     grpcWebActiveEnvId: null,
     grpcActiveEnvId: null,
     sdkActiveEnvId: null,
+    restActiveEnvId: null,
     setGrpcWebEnvironments: (envs) => set({ grpcWebEnvironments: envs }),
     setGrpcEnvironments: (envs) => set({ grpcEnvironments: envs }),
     setSdkEnvironments: (envs) => set({ sdkEnvironments: envs }),
+    setRestEnvironments: (envs) => set({ restEnvironments: envs }),
     setGrpcWebActiveEnvId: (id) => set({ grpcWebActiveEnvId: id }),
     setGrpcActiveEnvId: (id) => set({ grpcActiveEnvId: id }),
     setSdkActiveEnvId: (id) => set({ sdkActiveEnvId: id }),
+    setRestActiveEnvId: (id) => set({ restActiveEnvId: id }),
     addGrpcWebEnvironment: (env) =>
       set((s) => ({
         grpcWebEnvironments: [...s.grpcWebEnvironments, env],
@@ -547,6 +560,10 @@ export const useAppStore = create<AppState>((set, get) => {
     addSdkEnvironment: (env) =>
       set((s) => ({
         sdkEnvironments: [...s.sdkEnvironments, env],
+      })),
+    addRestEnvironment: (env) =>
+      set((s) => ({
+        restEnvironments: [...s.restEnvironments, env],
       })),
     updateGrpcWebEnvironment: (id, patch) =>
       set((s) => ({
@@ -566,6 +583,12 @@ export const useAppStore = create<AppState>((set, get) => {
           e.id === id ? { ...e, ...patch } : e
         ),
       })),
+    updateRestEnvironment: (id, patch) =>
+      set((s) => ({
+        restEnvironments: s.restEnvironments.map((e) =>
+          e.id === id ? { ...e, ...patch } : e
+        ),
+      })),
     deleteGrpcWebEnvironment: (id) =>
       set((s) => ({
         grpcWebEnvironments: s.grpcWebEnvironments.filter((e) => e.id !== id),
@@ -581,6 +604,11 @@ export const useAppStore = create<AppState>((set, get) => {
       set((s) => ({
         sdkEnvironments: s.sdkEnvironments.filter((e) => e.id !== id),
         sdkActiveEnvId: s.sdkActiveEnvId === id ? null : s.sdkActiveEnvId,
+      })),
+    deleteRestEnvironment: (id) =>
+      set((s) => ({
+        restEnvironments: s.restEnvironments.filter((e) => e.id !== id),
+        restActiveEnvId: s.restActiveEnvId === id ? null : s.restActiveEnvId,
       })),
 
     theme: initialTheme,

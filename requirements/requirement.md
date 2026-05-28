@@ -16,7 +16,7 @@
 | Frontend / 前端 | React 19, TypeScript, Vite, shadcn/ui, Tailwind CSS v4 |
 | Proto Parsing / Proto 解析 | protobufjs (dynamic runtime parsing / 动态运行时解析) |
 | gRPC-Web | @connectrpc/connect-web (browser transport / 浏览器传输层) |
-| gRPC Native / 原生 gRPC | @connectrpc/connect-node via Node.js sidecar (HTTP/2) |
+| gRPC Native / 原生 gRPC | @grpc/grpc-js + @grpc/proto-loader via Node.js sidecar (HTTP/2) |
 | Persistence / 持久化 | tauri-plugin-store |
 | Package Manager / 包管理器 | pnpm |
 
@@ -29,8 +29,8 @@
 - Users install npm packages directly in the app (e.g., `@snsoft/player-grpc@1.0.0-20260306172848`)
 - 用户直接在应用内安装 npm 包（例如 `@snsoft/player-grpc@1.0.0-20260306172848`）
 
-- Packages are installed to an isolated directory (`~/.penguin/packages/`)
-- 包安装到隔离目录（`~/.penguin/packages/`）
+- Packages are installed to isolated per-protocol directories (`~/.penguin/{grpc-web,grpc,sdk}/`)
+- 包安装到按协议隔离的目录（`~/.penguin/{grpc-web,grpc,sdk}/`）
 
 - Support multiple packages simultaneously
 - 支持同时管理多个包
@@ -63,7 +63,7 @@ Two tabs for different transport protocols:
 | Tab / 选项卡 | Transport / 传输方式 | Description / 描述 |
 |---|---|---|
 | gRPC-Web | `@connectrpc/connect-web` | Browser context, HTTP/1.1 / 浏览器上下文，HTTP/1.1 |
-| gRPC | `@connectrpc/connect-node` (sidecar) | Native HTTP/2, bidirectional streaming / 原生 HTTP/2，双向流 |
+| gRPC | `@grpc/grpc-js` + `@grpc/proto-loader` (sidecar) | Native HTTP/2 unary calls / 原生 HTTP/2 unary 调用 |
 
 ### 4. Environment Management / 环境管理
 
@@ -136,9 +136,9 @@ Dependencies / 依赖: `@bufbuild/protobuf`, `@connectrpc/connect`, `@connectrpc
 │  ┌──────────────────────┴───────────────────────┐        │
 │  │  Node.js Sidecar / Node.js 侧车进程          │        │
 │  │  - gRPC Client / gRPC 客户端                  │        │
-│  │    (@connectrpc/connect-node, HTTP/2)         │        │
+│  │    (@grpc/grpc-js + @grpc/proto-loader)      │        │
 │  │  - Package Installer / 包安装器               │        │
-│  │    (npm install in ~/.penguin/packages/)        │        │
+│  │    (npm install in ~/.penguin/<protocol>/)      │        │
 │  └───────────────────────────────────────────────┘        │
 └─────────────────────────────────────────────────────────┘
 ```

@@ -12,6 +12,12 @@ export { logger } from "./logger.js";
 export { parseProtoContent, generateDefaultJson, generateMethodPath } from "./proto-parser.js";
 export { parseSdkDts } from "./sdk-parser.js";
 export { discoverServices } from "./discover-services.js";
+export {
+  isAllowedSnsoftPackageSpec,
+  protocolFromSnsoftPackageSpec,
+  snsoftPackageNameFromSpec,
+  type SnsoftPackageProtocol,
+} from "./package-spec.js";
 export { callGrpcWeb, type LoadPackageModule } from "./grpc-web-client.js";
 export type { SidecarRunner, SidecarOutput } from "./sidecar-runner.js";
 export {

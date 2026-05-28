@@ -17,13 +17,25 @@ const PROTOCOL_TABS: { id: ProtocolTab; label: string; icon: typeof Globe }[] = 
   { id: "grpc-web", label: "gRPC-Web", icon: Globe },
   { id: "grpc", label: "gRPC", icon: Server },
   { id: "sdk", label: "SDK", icon: Box },
+  { id: "rest", label: "REST", icon: Globe },
 ];
 
 const STORE_KEYS: Record<ProtocolTab, string> = {
   "grpc-web": "penguin-grpc-web-environments",
   grpc: "penguin-grpc-environments",
   sdk: "penguin-sdk-environments",
+  rest: "penguin-rest-environments",
 };
+
+function envsForProtocolState(state: ReturnType<typeof useAppStore.getState>, protocol: ProtocolTab) {
+  return protocol === "grpc-web"
+    ? state.grpcWebEnvironments
+    : protocol === "grpc"
+      ? state.grpcEnvironments
+      : protocol === "sdk"
+        ? state.sdkEnvironments
+        : state.restEnvironments;
+}
 
 function saveToStorage(protocol: ProtocolTab, environments: Environment[], activeEnvId: string | null): void {
   localStorage.setItem(STORE_KEYS[protocol], JSON.stringify(environments));
@@ -38,22 +50,27 @@ function useEnvsForProtocol(protocol: ProtocolTab) {
       ? useAppStore((s) => s.grpcWebEnvironments)
       : protocol === "grpc"
         ? useAppStore((s) => s.grpcEnvironments)
-        : useAppStore((s) => s.sdkEnvironments);
+        : protocol === "sdk"
+          ? useAppStore((s) => s.sdkEnvironments)
+          : useAppStore((s) => s.restEnvironments);
 
   const activeEnvId =
     protocol === "grpc-web"
       ? useAppStore((s) => s.grpcWebActiveEnvId)
       : protocol === "grpc"
         ? useAppStore((s) => s.grpcActiveEnvId)
-        : useAppStore((s) => s.sdkActiveEnvId);
+        : protocol === "sdk"
+          ? useAppStore((s) => s.sdkActiveEnvId)
+          : useAppStore((s) => s.restActiveEnvId);
 
   const addEnv = useCallback(
     (env: Environment) => {
       const s = useAppStore.getState();
       if (protocol === "grpc-web") s.addGrpcWebEnvironment(env);
       else if (protocol === "grpc") s.addGrpcEnvironment(env);
-      else s.addSdkEnvironment(env);
-      const next = [...(protocol === "grpc-web" ? s.grpcWebEnvironments : protocol === "grpc" ? s.grpcEnvironments : s.sdkEnvironments), env];
+      else if (protocol === "sdk") s.addSdkEnvironment(env);
+      else s.addRestEnvironment(env);
+      const next = [...envsForProtocolState(s, protocol), env];
       saveToStorage(protocol, next, activeEnvId);
     },
     [protocol, activeEnvId],
@@ -64,8 +81,9 @@ function useEnvsForProtocol(protocol: ProtocolTab) {
       const s = useAppStore.getState();
       if (protocol === "grpc-web") s.updateGrpcWebEnvironment(id, patch);
       else if (protocol === "grpc") s.updateGrpcEnvironment(id, patch);
-      else s.updateSdkEnvironment(id, patch);
-      const envs = protocol === "grpc-web" ? s.grpcWebEnvironments : protocol === "grpc" ? s.grpcEnvironments : s.sdkEnvironments;
+      else if (protocol === "sdk") s.updateSdkEnvironment(id, patch);
+      else s.updateRestEnvironment(id, patch);
+      const envs = envsForProtocolState(s, protocol);
       const next = envs.map((e) => (e.id === id ? { ...e, ...patch } : e));
       saveToStorage(protocol, next, activeEnvId);
     },
@@ -77,8 +95,9 @@ function useEnvsForProtocol(protocol: ProtocolTab) {
       const s = useAppStore.getState();
       if (protocol === "grpc-web") s.deleteGrpcWebEnvironment(id);
       else if (protocol === "grpc") s.deleteGrpcEnvironment(id);
-      else s.deleteSdkEnvironment(id);
-      const envs = protocol === "grpc-web" ? s.grpcWebEnvironments : protocol === "grpc" ? s.grpcEnvironments : s.sdkEnvironments;
+      else if (protocol === "sdk") s.deleteSdkEnvironment(id);
+      else s.deleteRestEnvironment(id);
+      const envs = envsForProtocolState(s, protocol);
       const next = envs.filter((e) => e.id !== id);
       const nextActive = activeEnvId === id ? null : activeEnvId;
       saveToStorage(protocol, next, nextActive);
@@ -202,7 +221,9 @@ export function EnvManager({ onClose }: EnvManagerProps) {
                   ? useAppStore.getState().grpcWebEnvironments.length
                   : pt.id === "grpc"
                     ? useAppStore.getState().grpcEnvironments.length
-                    : useAppStore.getState().sdkEnvironments.length;
+                    : pt.id === "sdk"
+                      ? useAppStore.getState().sdkEnvironments.length
+                      : useAppStore.getState().restEnvironments.length;
               return (
                 <button
                   key={pt.id}

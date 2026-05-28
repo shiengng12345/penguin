@@ -1,12 +1,13 @@
 use base64::Engine;
 use notify::{event::EventKind, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, Manager};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::time::{Duration, Instant};
+use tauri::{Emitter, Manager};
+use toml_edit::{value, Array, DocumentMut, Item, Table};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtoFile {
@@ -515,11 +516,11 @@ fn copy_png_to_clipboard(base64_data: String) -> Result<(), String> {
     }
 }
 
-// ---- MCP integration with Claude Desktop ---------------------------------
+// ---- MCP integration with local AI clients --------------------------------
 // The MCP server JS (~/packages/mcp/dist/index.js) is bundled with the app as
 // a Tauri resource. The Settings UI surfaces a one-click flow that writes a
-// pengvi entry into ~/Library/Application Support/Claude/claude_desktop_config.json
-// pointing at that bundled file, merging without disturbing other servers.
+// penguin entry into local MCP client configs pointing at that bundled file,
+// merging without disturbing other servers.
 
 fn claude_desktop_config_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| {
@@ -530,10 +531,16 @@ fn claude_desktop_config_path() -> Option<PathBuf> {
     })
 }
 
+fn codex_config_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".codex").join("config.toml"))
+}
+
 // Resolve the bundled MCP server path from the Tauri resource dir. Bundled at
 // release time via tauri.conf.json `resources`; falls back to the workspace
 // build output during `tauri dev`.
-fn bundled_mcp_server_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
+fn bundled_mcp_server_path<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<PathBuf, String> {
     // Tauri rewrites resources declared with `../foo` to `_up_/foo` inside the
     // bundled .app's Resources directory (matches how .penguin.config.json is
     // shipped). Probe both the rewritten and the literal layout so this works
@@ -591,51 +598,25 @@ fn detect_node_path() -> Option<PathBuf> {
     None
 }
 
-#[derive(serde::Serialize)]
-struct McpStatus {
-    server_name: String,
-    bundled_server_path: Option<String>,
-    node_path: Option<String>,
-    claude_desktop_config_path: Option<String>,
-    claude_desktop_configured: bool,
-}
-
-#[tauri::command]
-fn mcp_status<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> McpStatus {
-    let bundled = bundled_mcp_server_path(&app).ok();
-    let node = detect_node_path();
-    let cfg_path = claude_desktop_config_path();
-
-    let configured = cfg_path
-        .as_ref()
-        .and_then(|p| std::fs::read_to_string(p).ok())
+fn claude_desktop_configured_at(cfg_path: &Path) -> bool {
+    std::fs::read_to_string(cfg_path)
+        .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
         .and_then(|v| v.get("mcpServers")?.get("penguin").cloned())
-        .is_some();
-
-    McpStatus {
-        server_name: "penguin".to_string(),
-        bundled_server_path: bundled.map(|p| p.to_string_lossy().to_string()),
-        node_path: node.map(|p| p.to_string_lossy().to_string()),
-        claude_desktop_config_path: cfg_path.map(|p| p.to_string_lossy().to_string()),
-        claude_desktop_configured: configured,
-    }
+        .is_some()
 }
 
-#[tauri::command]
-fn mcp_install_to_claude_desktop<R: tauri::Runtime>(
-    app: tauri::AppHandle<R>,
-) -> Result<String, String> {
-    let server = bundled_mcp_server_path(&app)?;
-    let node = detect_node_path().ok_or("Could not locate a node binary in common paths")?;
-    let cfg_path = claude_desktop_config_path().ok_or("No home directory")?;
-
+fn write_claude_desktop_mcp_config_at(
+    cfg_path: &Path,
+    node: &Path,
+    server: &Path,
+) -> Result<(), String> {
     if let Some(parent) = cfg_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
     let mut root: serde_json::Value = if cfg_path.exists() {
-        let raw = std::fs::read_to_string(&cfg_path).map_err(|e| e.to_string())?;
+        let raw = std::fs::read_to_string(cfg_path).map_err(|e| e.to_string())?;
         serde_json::from_str(&raw).map_err(|e| format!("Existing config is not valid JSON: {e}"))?
     } else {
         serde_json::json!({})
@@ -664,12 +645,166 @@ fn mcp_install_to_claude_desktop<R: tauri::Runtime>(
     );
 
     let pretty = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
-    std::fs::write(&cfg_path, pretty).map_err(|e| e.to_string())?;
+    std::fs::write(cfg_path, pretty).map_err(|e| e.to_string())
+}
+
+fn codex_mcp_configured_at(cfg_path: &Path) -> bool {
+    let Ok(raw) = std::fs::read_to_string(cfg_path) else {
+        return false;
+    };
+    let Ok(doc) = raw.parse::<DocumentMut>() else {
+        return false;
+    };
+
+    doc.get("mcp_servers")
+        .and_then(|servers| servers.as_table_like())
+        .and_then(|servers| servers.get("penguin"))
+        .and_then(|penguin| penguin.as_table_like())
+        .and_then(|penguin| penguin.get("command"))
+        .and_then(|command| command.as_str())
+        .is_some()
+}
+
+fn write_codex_mcp_config_at(cfg_path: &Path, node: &Path, server: &Path) -> Result<(), String> {
+    if let Some(parent) = cfg_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    let mut doc = if cfg_path.exists() {
+        let raw = std::fs::read_to_string(cfg_path).map_err(|e| e.to_string())?;
+        if raw.trim().is_empty() {
+            DocumentMut::new()
+        } else {
+            raw.parse::<DocumentMut>()
+                .map_err(|e| format!("Existing Codex config is not valid TOML: {e}"))?
+        }
+    } else {
+        DocumentMut::new()
+    };
+
+    let servers_item = doc
+        .as_table_mut()
+        .entry("mcp_servers")
+        .or_insert_with(|| Item::Table(Table::new()));
+
+    if !servers_item.is_table_like() {
+        return Err("mcp_servers field exists but is not a TOML table".to_string());
+    }
+
+    let servers = servers_item
+        .as_table_like_mut()
+        .ok_or_else(|| "mcp_servers field exists but is not a TOML table".to_string())?;
+
+    let mut args = Array::new();
+    args.push(server.to_string_lossy().to_string());
+
+    let mut penguin = Table::new();
+    penguin["command"] = value(node.to_string_lossy().to_string());
+    penguin["args"] = value(args);
+
+    servers.insert("penguin", Item::Table(penguin));
+    std::fs::write(cfg_path, doc.to_string()).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize)]
+struct McpStatus {
+    server_name: String,
+    bundled_server_path: Option<String>,
+    node_path: Option<String>,
+    claude_desktop_config_path: Option<String>,
+    claude_desktop_configured: bool,
+    codex_config_path: Option<String>,
+    codex_configured: bool,
+}
+
+#[tauri::command]
+fn mcp_status<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> McpStatus {
+    let bundled = bundled_mcp_server_path(&app).ok();
+    let node = detect_node_path();
+    let cfg_path = claude_desktop_config_path();
+    let codex_cfg_path = codex_config_path();
+
+    let claude_configured = cfg_path
+        .as_ref()
+        .map(|p| claude_desktop_configured_at(p))
+        .unwrap_or(false);
+    let codex_configured = codex_cfg_path
+        .as_ref()
+        .map(|p| codex_mcp_configured_at(p))
+        .unwrap_or(false);
+
+    McpStatus {
+        server_name: "penguin".to_string(),
+        bundled_server_path: bundled.map(|p| p.to_string_lossy().to_string()),
+        node_path: node.map(|p| p.to_string_lossy().to_string()),
+        claude_desktop_config_path: cfg_path.map(|p| p.to_string_lossy().to_string()),
+        claude_desktop_configured: claude_configured,
+        codex_config_path: codex_cfg_path.map(|p| p.to_string_lossy().to_string()),
+        codex_configured,
+    }
+}
+
+#[tauri::command]
+fn mcp_install_to_local_clients<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<String, String> {
+    let server = bundled_mcp_server_path(&app)?;
+    let node = detect_node_path().ok_or("Could not locate a node binary in common paths")?;
+    let claude_cfg_path = claude_desktop_config_path().ok_or("No home directory")?;
+    let codex_cfg_path = codex_config_path().ok_or("No home directory")?;
+
+    write_claude_desktop_mcp_config_at(&claude_cfg_path, &node, &server)?;
+    write_codex_mcp_config_at(&codex_cfg_path, &node, &server)?;
 
     Ok(format!(
-        "Added penguin MCP server to {}. Restart Claude Desktop to pick it up.",
-        cfg_path.display()
+        "Configured penguin MCP server for Claude Desktop ({}) and Codex CLI ({}). Restart both clients to pick it up.",
+        claude_cfg_path.display(),
+        codex_cfg_path.display()
     ))
+}
+
+#[cfg(test)]
+mod mcp_config_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_config_path(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("penguin-mcp-{name}-{nonce}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir.join("config.toml")
+    }
+
+    #[test]
+    fn write_codex_mcp_config_preserves_existing_servers() {
+        let cfg_path = temp_config_path("preserve");
+        fs::write(
+            &cfg_path,
+            "[mcp_servers.github]\ncommand = \"github-mcp\"\nargs = [\"stdio\"]\n",
+        )
+        .unwrap();
+
+        write_codex_mcp_config_at(
+            &cfg_path,
+            &PathBuf::from("/usr/local/bin/node"),
+            &PathBuf::from(
+                "/Applications/Penguin.app/Contents/Resources/_up_/packages/mcp/dist/index.js",
+            ),
+        )
+        .unwrap();
+
+        let saved = fs::read_to_string(&cfg_path).unwrap();
+        assert!(saved.contains("[mcp_servers.github]"));
+        assert!(saved.contains("[mcp_servers.penguin]"));
+        assert!(saved.contains("command = \"/usr/local/bin/node\""));
+        assert!(saved.contains("args = [\"/Applications/Penguin.app/Contents/Resources/_up_/packages/mcp/dist/index.js\"]"));
+        assert!(codex_mcp_configured_at(&cfg_path));
+
+        let _ = fs::remove_dir_all(cfg_path.parent().unwrap());
+    }
 }
 
 // Watches ~/.penguin/ recursively and emits `packages-changed` whenever a
@@ -757,7 +892,7 @@ pub fn run() {
             clear_all_packages,
             copy_png_to_clipboard,
             mcp_status,
-            mcp_install_to_claude_desktop,
+            mcp_install_to_local_clients,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

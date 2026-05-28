@@ -14,20 +14,36 @@ async function ensureGrpcDeps(): Promise<void> {
   if (depsInstalled) return;
 
   const dir = await ensurePackagesDir("grpc");
-  const check = Command.create("zsh-login", [
-    "-l", "-c",
-    `cd ${JSON.stringify(dir)} && npm ls @grpc/grpc-js --json`,
-  ]);
-  const out = await check.execute();
+  const checkDeps = () =>
+    Command.create("zsh-login", [
+      "-l", "-c",
+      `cd ${JSON.stringify(dir)} && npm ls @grpc/grpc-js @grpc/proto-loader --json`,
+    ]).execute();
+
+  const out = await checkDeps();
   const needsInstall =
-    out.code !== 0 || !out.stdout.includes("@grpc/grpc-js");
+    out.code !== 0 ||
+    !out.stdout.includes("@grpc/grpc-js") ||
+    !out.stdout.includes("@grpc/proto-loader");
 
   if (needsInstall) {
     const install = Command.create("zsh-login", [
       "-l", "-c",
       `cd ${JSON.stringify(dir)} && npm install --save --prefer-offline --no-audit --no-fund @grpc/grpc-js @grpc/proto-loader`,
     ]);
-    await install.execute();
+    const installOut = await install.execute();
+    if (installOut.code !== 0) {
+      throw new Error(installOut.stderr || installOut.stdout || "Failed to install gRPC dependencies");
+    }
+
+    const verify = await checkDeps();
+    if (
+      verify.code !== 0 ||
+      !verify.stdout.includes("@grpc/grpc-js") ||
+      !verify.stdout.includes("@grpc/proto-loader")
+    ) {
+      throw new Error(verify.stderr || verify.stdout || "gRPC dependencies were not installed");
+    }
   }
   depsInstalled = true;
 }

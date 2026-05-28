@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
-import { useEnvironments } from "@/hooks/useEnvironments";
 import { generateEnvId } from "@/lib/environment-store";
-import { useAppStore, useActiveTab, type RequestTab } from "@/lib/store";
+import { getDefaultHeadersForProtocol, useAppStore, useActiveTab, type RequestTab } from "@/lib/store";
 import type { Environment } from "@/lib/store";
+import { inferRestBodyMode, toRestMethod } from "@/lib/rest";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { X, Terminal, ArrowRight, Check, AlertCircle, Plus } from "lucide-react";
@@ -158,13 +158,38 @@ function parseCurl(input: string): ParsedCurl | null {
   return { url, method, headers, body, suggestedEnvName };
 }
 
+function getHeader(headers: Record<string, string>, name: string): string {
+  const target = name.toLowerCase();
+  const found = Object.entries(headers).find(([key]) => key.toLowerCase() === target);
+  return found?.[1] ?? "";
+}
+
+function envBaseUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return url;
+  }
+}
+
+function saveRestEnvironment(env: Environment): void {
+  const state = useAppStore.getState();
+  const next = [...state.restEnvironments, env];
+  state.setRestEnvironments(next);
+  state.setRestActiveEnvId(env.id);
+  if (typeof window !== "undefined") {
+    localStorage.setItem("penguin-rest-environments", JSON.stringify(next));
+    localStorage.setItem("penguin-rest-active-env", env.id);
+  }
+}
+
 export function CurlImport({ open, onClose }: CurlImportProps) {
   const [curlInput, setCurlInput] = useState("");
   const [envName, setEnvName] = useState("");
   const [parsed, setParsed] = useState<ParsedCurl | null>(null);
   const [error, setError] = useState("");
   const [created, setCreated] = useState(false);
-  const { addEnvironment } = useEnvironments();
   const tab = useActiveTab();
   const { updateActiveTab } = useAppStore();
 
@@ -227,59 +252,37 @@ export function CurlImport({ open, onClose }: CurlImportProps) {
       name: envName.trim(),
       color: "blue",
       variables: [
-        { key: "URL", value: parsed.url },
-        ...(parsed.headers["Authorization"]
-          ? [{ key: "TOKEN", value: parsed.headers["Authorization"].replace(/^Bearer\s+/i, "") }]
+        { key: "URL", value: envBaseUrl(parsed.url) },
+        ...(getHeader(parsed.headers, "Authorization")
+          ? [{ key: "TOKEN", value: getHeader(parsed.headers, "Authorization").replace(/^Bearer\s+/i, "") }]
           : []),
       ],
     };
-    addEnvironment(env);
+    saveRestEnvironment(env);
     setCreated(true);
   };
 
   const buildPatch = (): Partial<RequestTab> => {
     if (!parsed) return {};
-    const patch: Partial<RequestTab> = {};
-    if (parsed.body) patch.requestBody = parsed.body;
-    if (parsed.url) patch.targetUrl = parsed.url;
+    const hdrs = Object.entries(parsed.headers).map(([key, value]) => ({
+      key,
+      value,
+      enabled: true,
+    }));
 
-    const hdrs = Object.entries(parsed.headers)
-      .filter(([k]) => k.toLowerCase() !== "content-type")
-      .map(([key, value]) => ({ key, value, enabled: true }));
-    if (hdrs.length > 0) patch.metadata = hdrs;
-
-    try {
-      const u = new URL(parsed.url);
-      const pathParts = u.pathname.split("/").filter(Boolean);
-      if (pathParts.length >= 2) {
-        const methodName = pathParts[pathParts.length - 1];
-        const state = useAppStore.getState();
-        const allPkgs = [
-          ...state.grpcWebPackages,
-          ...state.grpcPackages,
-          ...state.sdkPackages,
-        ];
-        for (const pkg of allPkgs) {
-          for (const svc of pkg.services) {
-            const m = svc.methods.find(
-              (mm) => mm.name.toLowerCase() === methodName.toLowerCase()
-            );
-            if (m) {
-              patch.selectedPackage = pkg.name;
-              patch.selectedService = svc.fullName;
-              patch.selectedMethod = m;
-              break;
-            }
-          }
-          if (patch.selectedMethod) break;
-        }
-        patch.targetUrl = `${u.protocol}//${u.host}`;
-      }
-    } catch {
-      // URL parsing failed, keep the full URL
-    }
-
-    return patch;
+    return {
+      protocolTab: "rest",
+      targetUrl: parsed.url,
+      pathOverride: null,
+      restMethod: toRestMethod(parsed.method, "GET"),
+      restBodyMode: inferRestBodyMode(parsed.body, getHeader(parsed.headers, "Content-Type")),
+      requestBody: parsed.body,
+      metadata: hdrs.length > 0 ? hdrs : getDefaultHeadersForProtocol("rest"),
+      selectedPackage: null,
+      selectedService: null,
+      selectedMethod: null,
+      response: null,
+    };
   };
 
   const handleFillCurrent = () => {
@@ -438,7 +441,7 @@ export function CurlImport({ open, onClose }: CurlImportProps) {
                   </Button>
                 </div>
                 <p className="text-[10px] text-muted-foreground/70">
-                  Fill will set URL, headers, and body. If a matching method is found in installed packages, it will also be selected.
+                  Fill will create a REST tab with method, URL, headers, and body from the cURL command.
                 </p>
               </div>
             </>

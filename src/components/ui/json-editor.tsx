@@ -8,6 +8,7 @@ import { bracketMatching, foldGutter, indentOnInput, syntaxHighlighting, default
 import { closeBrackets, closeBracketsKeymap, autocompletion, type CompletionContext, type Completion } from "@codemirror/autocomplete";
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import { tags } from "@lezer/highlight";
+import { isLightAppTheme } from "@/lib/theme";
 import type { FieldInfo } from "@/lib/store";
 
 const themeCompartment = new Compartment();
@@ -277,7 +278,7 @@ export const JsonEditor = memo(function JsonEditor({
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const isDark = document.documentElement.getAttribute("data-theme") !== "light";
+    const isDark = !isLightAppTheme(document.documentElement.getAttribute("data-theme"));
 
     const state = EditorState.create({
       doc: value,
@@ -426,7 +427,7 @@ export const JsonEditor = memo(function JsonEditor({
     if (!view) return;
 
     const observer = new MutationObserver(() => {
-      const isDark = document.documentElement.getAttribute("data-theme") !== "light";
+      const isDark = !isLightAppTheme(document.documentElement.getAttribute("data-theme"));
       view.dispatch({
         effects: themeCompartment.reconfigure(buildTheme(isDark)),
       });

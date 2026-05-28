@@ -16,6 +16,7 @@ import {
   callGrpcNative,
   callSdk,
   generateDefaultJson,
+  snsoftPackageNameFromSpec,
   type MetadataEntry,
   type ProtoMethod,
   type ResponseState,
@@ -205,18 +206,8 @@ async function invokeRpc(args: {
   );
 }
 
-// Extract the @snsoft package name out of a config-declared spec like
-// "@snsoft/auth-grpc-web@1.2.3" or bare "@snsoft/auth-grpc-web". Returns null
-// for shapes we don't understand so package_status surfaces them as-is.
 function packageNameFromSpec(spec: string): string | null {
-  if (!spec.startsWith("@")) return null;
-  // "@snsoft/foo" or "@snsoft/foo@1.2.3"
-  const firstSlash = spec.indexOf("/");
-  if (firstSlash === -1) return null;
-  const afterScope = spec.slice(firstSlash + 1);
-  const at = afterScope.indexOf("@");
-  const namePart = at === -1 ? afterScope : afterScope.slice(0, at);
-  return `${spec.slice(0, firstSlash)}/${namePart}`;
+  return snsoftPackageNameFromSpec(spec);
 }
 
 function jsonResult(value: unknown, isError = false) {
