@@ -1,12 +1,12 @@
 use base64::Engine;
 use notify::{event::EventKind, RecursiveMode, Watcher};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, RecvTimeoutError};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager};
 use toml_edit::{value, Array, DocumentMut, Item, Table};
 
@@ -530,6 +530,11 @@ fn open_product_db_at(path: &Path) -> Result<Connection, String> {
     conn.execute_batch(
         r#"
         PRAGMA journal_mode = WAL;
+        CREATE TABLE IF NOT EXISTS app_kv (
+            key TEXT PRIMARY KEY NOT NULL,
+            value TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS saved_requests (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -552,6 +557,71 @@ fn open_product_db_at(path: &Path) -> Result<Connection, String> {
 fn open_product_db() -> Result<Connection, String> {
     let path = penguin_db_path()?;
     open_product_db_at(&path)
+}
+
+fn unix_millis() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
+}
+
+#[tauri::command]
+fn db_set_app_value(key: String, value: String) -> Result<(), String> {
+    if key.trim().is_empty() {
+        return Err("app value key is required".to_string());
+    }
+    let conn = open_product_db()?;
+    conn.execute(
+        r#"
+        INSERT INTO app_kv (key, value, updated_at)
+        VALUES (?1, ?2, ?3)
+        ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = excluded.updated_at
+        "#,
+        params![key, value, unix_millis()],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn db_get_app_value(key: String) -> Result<Option<String>, String> {
+    let conn = open_product_db()?;
+    conn.query_row(
+        "SELECT value FROM app_kv WHERE key = ?1",
+        params![key],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn db_list_app_values() -> Result<HashMap<String, String>, String> {
+    let conn = open_product_db()?;
+    let mut stmt = conn
+        .prepare("SELECT key, value FROM app_kv")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|e| e.to_string())?;
+
+    let mut values = HashMap::new();
+    for row in rows {
+        let (key, value) = row.map_err(|e| e.to_string())?;
+        values.insert(key, value);
+    }
+    Ok(values)
+}
+
+#[tauri::command]
+fn db_delete_app_value(key: String) -> Result<(), String> {
+    let conn = open_product_db()?;
+    conn.execute("DELETE FROM app_kv WHERE key = ?1", params![key])
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 fn json_text(entry: &serde_json::Value, key: &str) -> String {
@@ -676,6 +746,34 @@ mod product_db_tests {
         std::env::temp_dir()
             .join(format!("penguin-db-{name}-{nonce}"))
             .join("penguin.sqlite3")
+    }
+
+    #[test]
+    fn product_db_schema_can_store_app_values() {
+        let path = temp_db_path("kv");
+        let conn = open_product_db_at(&path).unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO app_kv (key, value, updated_at)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+            "#,
+            params!["penguin-theme", "dark", 10_i64],
+        )
+        .unwrap();
+
+        let value: String = conn
+            .query_row(
+                "SELECT value FROM app_kv WHERE key = ?1",
+                params!["penguin-theme"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(value, "dark");
+
+        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
@@ -1088,6 +1186,10 @@ pub fn run() {
             read_package_bundle,
             clear_all_packages,
             copy_png_to_clipboard,
+            db_set_app_value,
+            db_get_app_value,
+            db_list_app_values,
+            db_delete_app_value,
             db_upsert_saved_request,
             db_list_saved_requests,
             db_delete_saved_request,

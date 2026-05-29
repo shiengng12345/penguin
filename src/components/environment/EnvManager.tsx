@@ -8,6 +8,7 @@ import {
   type ProtocolTab,
 } from "@/lib/store";
 import { generateEnvId } from "@/lib/environment-store";
+import { persistEnvironmentSnapshot } from "@/lib/environment-persistence";
 import {
   configEnvsForProtocol,
   fetchRemoteConfig,
@@ -25,13 +26,6 @@ const PROTOCOL_TABS: { id: ProtocolTab; label: string; icon: typeof Globe }[] = 
   { id: "rest", label: "REST", icon: Globe },
 ];
 
-const STORE_KEYS: Record<ProtocolTab, string> = {
-  "grpc-web": "penguin-grpc-web-environments",
-  grpc: "penguin-grpc-environments",
-  sdk: "penguin-sdk-environments",
-  rest: "penguin-rest-environments",
-};
-
 function envsForProtocolState(state: ReturnType<typeof useAppStore.getState>, protocol: ProtocolTab) {
   return protocol === "grpc-web"
     ? state.grpcWebEnvironments
@@ -40,13 +34,6 @@ function envsForProtocolState(state: ReturnType<typeof useAppStore.getState>, pr
       : protocol === "sdk"
         ? state.sdkEnvironments
         : state.restEnvironments;
-}
-
-function saveToStorage(protocol: ProtocolTab, environments: Environment[], activeEnvId: string | null): void {
-  localStorage.setItem(STORE_KEYS[protocol], JSON.stringify(environments));
-  const activeKey = `penguin-${protocol === "grpc-web" ? "grpc-web" : protocol}-active-env`;
-  if (activeEnvId) localStorage.setItem(activeKey, activeEnvId);
-  else localStorage.removeItem(activeKey);
 }
 
 function setEnvsForProtocolState(
@@ -98,7 +85,7 @@ function useEnvsForProtocol(protocol: ProtocolTab) {
       else if (protocol === "sdk") s.addSdkEnvironment(env);
       else s.addRestEnvironment(env);
       const next = [...envsForProtocolState(s, protocol), env];
-      saveToStorage(protocol, next, activeEnvId);
+      persistEnvironmentSnapshot(protocol, next, activeEnvId);
     },
     [protocol, activeEnvId],
   );
@@ -112,7 +99,7 @@ function useEnvsForProtocol(protocol: ProtocolTab) {
       else s.updateRestEnvironment(id, patch);
       const envs = envsForProtocolState(s, protocol);
       const next = envs.map((e) => (e.id === id ? { ...e, ...patch } : e));
-      saveToStorage(protocol, next, activeEnvId);
+      persistEnvironmentSnapshot(protocol, next, activeEnvId);
     },
     [protocol, activeEnvId],
   );
@@ -127,7 +114,7 @@ function useEnvsForProtocol(protocol: ProtocolTab) {
       const envs = envsForProtocolState(s, protocol);
       const next = envs.filter((e) => e.id !== id);
       const nextActive = activeEnvId === id ? null : activeEnvId;
-      saveToStorage(protocol, next, nextActive);
+      persistEnvironmentSnapshot(protocol, next, nextActive);
     },
     [protocol, activeEnvId],
   );
@@ -180,7 +167,7 @@ export function EnvManager({ onClose }: EnvManagerProps) {
         const state = useAppStore.getState();
         setEnvsForProtocolState(state, selectedProtocol, result.environments);
         setActiveEnvForProtocolState(state, selectedProtocol, nextActiveEnvId);
-        saveToStorage(selectedProtocol, result.environments, nextActiveEnvId);
+        persistEnvironmentSnapshot(selectedProtocol, result.environments, nextActiveEnvId);
       }
 
       setPullStatus({

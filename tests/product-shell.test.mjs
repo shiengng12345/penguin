@@ -56,26 +56,50 @@ test("request sidebar does not duplicate method search", async () => {
   assert.doesNotMatch(sidebarSource, /filteredPackages/);
 });
 
-test("desktop persistence has SQLite commands for saved requests", async () => {
+test("desktop persistence has SQLite commands for app state and saved requests", async () => {
   const rustSource = await readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
   const cargoSource = await readFile(new URL("../src-tauri/Cargo.toml", import.meta.url), "utf8");
   const dbBridgeSource = await readFile(new URL("../src/lib/penguin-db.ts", import.meta.url), "utf8");
 
   assert.match(cargoSource, /rusqlite/);
+  assert.match(rustSource, /CREATE TABLE IF NOT EXISTS app_kv/);
+  assert.match(rustSource, /fn db_set_app_value/);
+  assert.match(rustSource, /fn db_get_app_value/);
+  assert.match(rustSource, /fn db_list_app_values/);
   assert.match(rustSource, /CREATE TABLE IF NOT EXISTS saved_requests/);
   assert.match(rustSource, /fn db_upsert_saved_request/);
   assert.match(rustSource, /fn db_list_saved_requests/);
+  assert.match(rustSource, /db_set_app_value,/);
+  assert.match(rustSource, /db_get_app_value,/);
+  assert.match(rustSource, /db_list_app_values,/);
   assert.match(rustSource, /db_upsert_saved_request,/);
+  assert.match(dbBridgeSource, /invoke\("db_set_app_value"/);
+  assert.match(dbBridgeSource, /invoke<string \| null>\("db_get_app_value"/);
+  assert.match(dbBridgeSource, /invoke<Record<string, string>>\("db_list_app_values"/);
   assert.match(dbBridgeSource, /invoke\("db_upsert_saved_request"/);
   assert.match(dbBridgeSource, /invoke<SavedRequest\[\]>\("db_list_saved_requests"/);
 });
 
-test("version cache migration preserves tutorial and user local data", async () => {
+test("app state no longer writes browser storage from product surfaces", async () => {
+  const productFiles = [
+    "../src/main.tsx",
+    "../src/lib/store.ts",
+    "../src/hooks/useEnvironments.ts",
+    "../src/components/environment/EnvManager.tsx",
+    "../src/components/environment/CurlImport.tsx",
+    "../src/components/settings/SettingsDialog.tsx",
+  ];
+
+  for (const file of productFiles) {
+    const source = await readFile(new URL(file, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /localStorage/, `${file} should persist through SQLite helpers`);
+  }
+});
+
+test("version cache uses SQLite app values", async () => {
   const mainSource = await readFile(new URL("../src/main.tsx", import.meta.url), "utf8");
 
-  assert.match(mainSource, /shouldPreserveLocalStorageKey/);
-  assert.match(mainSource, /key\.startsWith\("penguin-"\)/);
-  assert.match(mainSource, /key !== CACHE_VERSION_KEY/);
-  assert.match(mainSource, /penguin-tutorial-seen/);
-  assert.doesNotMatch(mainSource, /const keep = \[/);
+  assert.match(mainSource, /getAppValueFromDatabase/);
+  assert.match(mainSource, /setAppValueInDatabase/);
+  assert.doesNotMatch(mainSource, /localStorage/);
 });

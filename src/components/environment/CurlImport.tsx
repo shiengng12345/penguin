@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { generateEnvId } from "@/lib/environment-store";
 import { getDefaultHeadersForProtocol, useAppStore, useActiveTab, type RequestTab } from "@/lib/store";
 import type { Environment } from "@/lib/store";
+import { persistEnvironmentSnapshot } from "@/lib/environment-persistence";
 import { inferRestBodyMode, toRestMethod } from "@/lib/rest";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -178,10 +179,7 @@ function saveRestEnvironment(env: Environment): void {
   const next = [...state.restEnvironments, env];
   state.setRestEnvironments(next);
   state.setRestActiveEnvId(env.id);
-  if (typeof window !== "undefined") {
-    localStorage.setItem("penguin-rest-environments", JSON.stringify(next));
-    localStorage.setItem("penguin-rest-active-env", env.id);
-  }
+  persistEnvironmentSnapshot("rest", next, env.id);
 }
 
 export function CurlImport({ open, onClose }: CurlImportProps) {

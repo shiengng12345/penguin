@@ -6,6 +6,13 @@ import {
   persistSavedRequests,
   renameSavedRequestInDatabase,
 } from "./penguin-db";
+import {
+  deletePersistedValue,
+  getPersistedValue,
+  hydratePersistedValues,
+  setPersistedValue,
+} from "./app-persistence";
+import { APP_VALUE_KEYS } from "./persistence-keys";
 import type {
   ProtoService as CoreProtoService,
   ProtoMethod as CoreProtoMethod,
@@ -278,20 +285,19 @@ export interface AppState {
   setDefaultHeaders: (protocol: ProtocolTab, headers: MetadataEntry[]) => void;
 }
 
-const THEME_KEY = "penguin-theme";
-const TUTORIAL_KEY = "penguin-tutorial-seen";
-const USERNAME_KEY = "penguin-username";
-const TABS_KEY = "penguin-tabs";
-const ACTIVE_TAB_KEY = "penguin-active-tab";
-const HISTORY_KEY = "penguin-history";
-const MAX_HISTORY_KEY = "penguin-max-history";
+const THEME_KEY = APP_VALUE_KEYS.theme;
+const TUTORIAL_KEY = APP_VALUE_KEYS.tutorialSeen;
+const USERNAME_KEY = APP_VALUE_KEYS.userName;
+const TABS_KEY = APP_VALUE_KEYS.tabs;
+const ACTIVE_TAB_KEY = APP_VALUE_KEYS.activeTab;
+const HISTORY_KEY = APP_VALUE_KEYS.history;
+const MAX_HISTORY_KEY = APP_VALUE_KEYS.maxHistory;
 const DEFAULT_MAX_HISTORY = 500;
-const SAVED_REQUESTS_KEY = "penguin-saved-requests";
-const DEFAULT_HEADERS_KEY = "penguin-default-headers";
+const SAVED_REQUESTS_KEY = APP_VALUE_KEYS.savedRequests;
+const DEFAULT_HEADERS_KEY = APP_VALUE_KEYS.defaultHeaders;
 
 function loadMaxHistorySize(): number {
-  if (typeof window === "undefined") return DEFAULT_MAX_HISTORY;
-  const raw = localStorage.getItem(MAX_HISTORY_KEY);
+  const raw = getPersistedValue(MAX_HISTORY_KEY);
   if (raw) {
     const n = parseInt(raw, 10);
     if (!isNaN(n) && n > 0) return n;
@@ -326,9 +332,8 @@ function loadDefaultHeaders(): Record<ProtocolTab, MetadataEntry[]> {
       { ...PLATFORM_ID_DEFAULT },
     ],
   };
-  if (typeof window === "undefined") return fallback;
   try {
-    const raw = localStorage.getItem(DEFAULT_HEADERS_KEY);
+    const raw = getPersistedValue(DEFAULT_HEADERS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Record<ProtocolTab, MetadataEntry[]>;
       const merged = { ...fallback, ...parsed };
@@ -354,7 +359,7 @@ function loadDefaultHeaders(): Record<ProtocolTab, MetadataEntry[]> {
         }
       }
       if (migrated) {
-        localStorage.setItem(DEFAULT_HEADERS_KEY, JSON.stringify(merged));
+        setPersistedValue(DEFAULT_HEADERS_KEY, JSON.stringify(merged));
       }
       return merged;
     }
@@ -363,14 +368,12 @@ function loadDefaultHeaders(): Record<ProtocolTab, MetadataEntry[]> {
 }
 
 function loadUserName(): string {
-  if (typeof window === "undefined") return "";
-  return localStorage.getItem(USERNAME_KEY) ?? "";
+  return getPersistedValue(USERNAME_KEY) ?? "";
 }
 
 function loadTabs(): { tabs: RequestTab[]; activeTabId: string | null } {
-  if (typeof window === "undefined") return { tabs: [], activeTabId: null };
   try {
-    const raw = localStorage.getItem(TABS_KEY);
+    const raw = getPersistedValue(TABS_KEY);
     if (raw) {
       const tabs: RequestTab[] = JSON.parse(raw).map((t: RequestTab) => ({
         ...t,
@@ -380,7 +383,7 @@ function loadTabs(): { tabs: RequestTab[]; activeTabId: string | null } {
       }));
       if (Array.isArray(tabs) && tabs.length > 0) {
         const activeTabId =
-          localStorage.getItem(ACTIVE_TAB_KEY) ?? tabs[0].id;
+          getPersistedValue(ACTIVE_TAB_KEY) ?? tabs[0].id;
         return { tabs, activeTabId };
       }
     }
@@ -390,23 +393,21 @@ function loadTabs(): { tabs: RequestTab[]; activeTabId: string | null } {
 
 let _saveTabsTimer: ReturnType<typeof setTimeout> | null = null;
 function saveTabs(tabs: RequestTab[], activeTabId: string | null) {
-  if (typeof window === "undefined") return;
   if (_saveTabsTimer) clearTimeout(_saveTabsTimer);
   _saveTabsTimer = setTimeout(() => {
-    localStorage.setItem(TABS_KEY, JSON.stringify(tabs));
+    setPersistedValue(TABS_KEY, JSON.stringify(tabs));
     if (activeTabId) {
-      localStorage.setItem(ACTIVE_TAB_KEY, activeTabId);
+      setPersistedValue(ACTIVE_TAB_KEY, activeTabId);
     } else {
-      localStorage.removeItem(ACTIVE_TAB_KEY);
+      deletePersistedValue(ACTIVE_TAB_KEY);
     }
     _saveTabsTimer = null;
   }, 300);
 }
 
 function loadHistory(): HistoryEntry[] {
-  if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(HISTORY_KEY);
+    const raw = getPersistedValue(HISTORY_KEY);
     if (raw) {
       const arr = JSON.parse(raw);
       if (Array.isArray(arr)) return arr;
@@ -417,19 +418,17 @@ function loadHistory(): HistoryEntry[] {
 
 let _saveHistoryTimer: ReturnType<typeof setTimeout> | null = null;
 function saveHistory(entries: HistoryEntry[], maxSize?: number) {
-  if (typeof window === "undefined") return;
   if (_saveHistoryTimer) clearTimeout(_saveHistoryTimer);
   const limit = maxSize ?? useAppStore.getState().maxHistorySize;
   _saveHistoryTimer = setTimeout(() => {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, limit)));
+    setPersistedValue(HISTORY_KEY, JSON.stringify(entries.slice(0, limit)));
     _saveHistoryTimer = null;
   }, 500);
 }
 
 function loadSavedRequests(): SavedRequest[] {
-  if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(SAVED_REQUESTS_KEY);
+    const raw = getPersistedValue(SAVED_REQUESTS_KEY);
     if (raw) {
       const arr = JSON.parse(raw);
       if (Array.isArray(arr)) return arr;
@@ -438,26 +437,14 @@ function loadSavedRequests(): SavedRequest[] {
   return [];
 }
 
-let _saveSavedTimer: ReturnType<typeof setTimeout> | null = null;
-function saveSavedRequests(entries: SavedRequest[]) {
-  if (typeof window === "undefined") return;
-  if (_saveSavedTimer) clearTimeout(_saveSavedTimer);
-  _saveSavedTimer = setTimeout(() => {
-    localStorage.setItem(SAVED_REQUESTS_KEY, JSON.stringify(entries));
-    _saveSavedTimer = null;
-  }, 500);
-}
-
 function loadTheme(): AppTheme {
-  if (typeof window === "undefined") return "dark";
-  const stored = localStorage.getItem(THEME_KEY);
+  const stored = getPersistedValue(THEME_KEY);
   if (stored && isAppTheme(stored)) return stored;
   return "dark";
 }
 
 function loadShowTutorial(): boolean {
-  if (typeof window === "undefined") return true;
-  return localStorage.getItem(TUTORIAL_KEY) !== "true";
+  return getPersistedValue(TUTORIAL_KEY) !== "true";
 }
 
 export const useAppStore = create<AppState>((set, get) => {
@@ -633,7 +620,7 @@ export const useAppStore = create<AppState>((set, get) => {
     theme: initialTheme,
     setTheme: (theme) => {
       if (typeof window !== "undefined") {
-        localStorage.setItem(THEME_KEY, theme);
+        setPersistedValue(THEME_KEY, theme);
         document.documentElement.setAttribute("data-theme", theme);
       }
       set({ theme });
@@ -653,17 +640,13 @@ export const useAppStore = create<AppState>((set, get) => {
 
     showTutorial: loadShowTutorial(),
     setShowTutorial: (show) => {
-      if (typeof window !== "undefined") {
-        localStorage.setItem(TUTORIAL_KEY, show ? "false" : "true");
-      }
+      setPersistedValue(TUTORIAL_KEY, show ? "false" : "true");
       set({ showTutorial: show });
     },
 
     userName: loadUserName(),
     setUserName: (name) => {
-      if (typeof window !== "undefined") {
-        localStorage.setItem(USERNAME_KEY, name);
-      }
+      setPersistedValue(USERNAME_KEY, name);
       set({ userName: name });
     },
 
@@ -685,7 +668,6 @@ export const useAppStore = create<AppState>((set, get) => {
       void persistSavedRequest(entry);
       set((s) => {
         const next = [entry, ...s.savedRequests];
-        saveSavedRequests(next);
         return { savedRequests: next };
       });
     },
@@ -693,7 +675,6 @@ export const useAppStore = create<AppState>((set, get) => {
       void deleteSavedRequestFromDatabase(id);
       set((s) => {
         const next = s.savedRequests.filter((r) => r.id !== id);
-        saveSavedRequests(next);
         return { savedRequests: next };
       });
     },
@@ -703,14 +684,13 @@ export const useAppStore = create<AppState>((set, get) => {
         const next = s.savedRequests.map((r) =>
           r.id === id ? { ...r, name } : r
         );
-        saveSavedRequests(next);
         return { savedRequests: next };
       });
     },
 
     maxHistorySize: loadMaxHistorySize(),
     setMaxHistorySize: (size) => {
-      localStorage.setItem(MAX_HISTORY_KEY, String(size));
+      setPersistedValue(MAX_HISTORY_KEY, String(size));
       set((s) => {
         const trimmed = s.history.slice(0, size);
         saveHistory(trimmed, size);
@@ -722,7 +702,7 @@ export const useAppStore = create<AppState>((set, get) => {
     setDefaultHeaders: (protocol, headers) => {
       set((s) => {
         const next = { ...s.defaultHeaders, [protocol]: headers };
-        localStorage.setItem(DEFAULT_HEADERS_KEY, JSON.stringify(next));
+        setPersistedValue(DEFAULT_HEADERS_KEY, JSON.stringify(next));
         return { defaultHeaders: next };
       });
     },
@@ -732,18 +712,41 @@ export const useAppStore = create<AppState>((set, get) => {
 // Defer loading heavy data until after initial render
 if (typeof window !== "undefined") {
   requestAnimationFrame(() => {
-    const history = loadHistory();
-    const savedRequests = loadSavedRequests();
-    if (history.length > 0 || savedRequests.length > 0) {
-      useAppStore.setState({ history, savedRequests });
-    }
-    if (savedRequests.length > 0) {
-      void persistSavedRequests(savedRequests);
-    }
-    void loadSavedRequestsFromDatabase().then((databaseSavedRequests) => {
+    void hydratePersistedValues().then(async () => {
+      const theme = loadTheme();
+      document.documentElement.setAttribute("data-theme", theme);
+
+      const restored = loadTabs();
+      const update: Partial<AppState> = {
+        defaultHeaders: loadDefaultHeaders(),
+        history: loadHistory(),
+        maxHistorySize: loadMaxHistorySize(),
+        showTutorial: loadShowTutorial(),
+        theme,
+        userName: loadUserName(),
+      };
+
+      if (restored.tabs.length > 0) {
+        update.tabs = restored.tabs;
+        update.activeTabId =
+          restored.activeTabId &&
+          restored.tabs.some((tab) => tab.id === restored.activeTabId)
+            ? restored.activeTabId
+            : restored.tabs[0].id;
+      }
+
+      const legacySavedRequests = loadSavedRequests();
+      if (legacySavedRequests.length > 0) {
+        await persistSavedRequests(legacySavedRequests);
+        deletePersistedValue(SAVED_REQUESTS_KEY);
+        update.savedRequests = legacySavedRequests;
+      }
+
+      useAppStore.setState(update);
+
+      const databaseSavedRequests = await loadSavedRequestsFromDatabase();
       if (databaseSavedRequests.length > 0) {
         useAppStore.setState({ savedRequests: databaseSavedRequests });
-        saveSavedRequests(databaseSavedRequests);
       }
     });
   });

@@ -5,6 +5,10 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { logger } from "@/lib/logger";
 import { useAppStore, type ProtocolTab, type MetadataEntry } from "@/lib/store";
+import { setPersistedValue } from "@/lib/app-persistence";
+import { persistEnvironmentSnapshot } from "@/lib/environment-persistence";
+import { APP_VALUE_KEYS } from "@/lib/persistence-keys";
+import { persistSavedRequests } from "@/lib/penguin-db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -36,6 +40,26 @@ const PROTOCOL_TABS: { id: ProtocolTab; label: string; icon: typeof Globe }[] = 
   { id: "sdk", label: "JS-SDK", icon: Box },
   { id: "rest", label: "REST", icon: Globe },
 ];
+
+function envsForProtocol(protocol: ProtocolTab, s: ReturnType<typeof useAppStore.getState>) {
+  return protocol === "grpc-web"
+    ? s.grpcWebEnvironments
+    : protocol === "grpc"
+      ? s.grpcEnvironments
+      : protocol === "sdk"
+        ? s.sdkEnvironments
+        : s.restEnvironments;
+}
+
+function activeEnvForProtocol(protocol: ProtocolTab, s: ReturnType<typeof useAppStore.getState>) {
+  return protocol === "grpc-web"
+    ? s.grpcWebActiveEnvId
+    : protocol === "grpc"
+      ? s.grpcActiveEnvId
+      : protocol === "sdk"
+        ? s.sdkActiveEnvId
+        : s.restActiveEnvId;
+}
 
 const HISTORY_SIZES = [100, 200, 500, 1000];
 
@@ -295,13 +319,18 @@ export function SettingsDialog({
         if (data.activeEnvIds.sdk !== undefined) s.setSdkActiveEnvId(data.activeEnvIds.sdk);
         if (data.activeEnvIds.rest !== undefined) s.setRestActiveEnvId(data.activeEnvIds.rest);
       }
+      for (const p of ["grpc-web", "grpc", "sdk", "rest"] as ProtocolTab[]) {
+        if (data.environments?.[p] || data.activeEnvIds?.[p] !== undefined) {
+          persistEnvironmentSnapshot(p, envsForProtocol(p, useAppStore.getState()), activeEnvForProtocol(p, useAppStore.getState()));
+        }
+      }
       if (Array.isArray(data.savedRequests)) {
         useAppStore.setState({ savedRequests: data.savedRequests });
-        localStorage.setItem("penguin-saved-requests", JSON.stringify(data.savedRequests));
+        void persistSavedRequests(data.savedRequests);
       }
       if (Array.isArray(data.history)) {
         useAppStore.setState({ history: data.history });
-        localStorage.setItem("penguin-history", JSON.stringify(data.history));
+        setPersistedValue(APP_VALUE_KEYS.history, JSON.stringify(data.history));
       }
       if (data.defaultHeaders) {
         for (const p of ["grpc-web", "grpc", "sdk", "rest"] as ProtocolTab[]) {

@@ -43,6 +43,51 @@ export async function deleteSavedRequestFromDatabase(id: string): Promise<void> 
   }
 }
 
+export async function setAppValueInDatabase(
+  key: string,
+  value: string,
+): Promise<boolean> {
+  if (shouldSkipDatabase()) return false;
+  try {
+    await invoke("db_set_app_value", { key, value });
+    return true;
+  } catch {
+    databaseUnavailable = true;
+    return false;
+  }
+}
+
+export async function getAppValueFromDatabase(key: string): Promise<string | null> {
+  if (shouldSkipDatabase()) return null;
+  try {
+    return await invoke<string | null>("db_get_app_value", { key });
+  } catch {
+    databaseUnavailable = true;
+    return null;
+  }
+}
+
+export async function loadAppValuesFromDatabase(): Promise<Record<string, string>> {
+  if (shouldSkipDatabase()) return {};
+  try {
+    return await invoke<Record<string, string>>("db_list_app_values");
+  } catch {
+    databaseUnavailable = true;
+    return {};
+  }
+}
+
+export async function deleteAppValueFromDatabase(key: string): Promise<boolean> {
+  if (shouldSkipDatabase()) return false;
+  try {
+    await invoke("db_delete_app_value", { key });
+    return true;
+  } catch {
+    databaseUnavailable = true;
+    return false;
+  }
+}
+
 export async function renameSavedRequestInDatabase(
   id: string,
   name: string,

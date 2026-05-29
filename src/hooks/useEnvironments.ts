@@ -2,6 +2,11 @@ import { useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "@/lib/store";
 import { useActiveTab } from "@/lib/store";
+import { hydratePersistedValues } from "@/lib/app-persistence";
+import {
+  loadEnvironmentSnapshot,
+  persistEnvironmentSnapshot,
+} from "@/lib/environment-persistence";
 import {
   configEnvsForProtocol,
   mergeConfigEnvironments,
@@ -9,20 +14,6 @@ import {
   type ConfigShape,
 } from "@/lib/config-sync";
 import type { Environment, ProtocolTab } from "@/lib/store";
-
-const STORE_KEYS: Record<ProtocolTab, string> = {
-  "grpc-web": "penguin-grpc-web-environments",
-  grpc: "penguin-grpc-environments",
-  sdk: "penguin-sdk-environments",
-  rest: "penguin-rest-environments",
-};
-
-const ACTIVE_KEYS: Record<ProtocolTab, string> = {
-  "grpc-web": "penguin-grpc-web-active-env",
-  grpc: "penguin-grpc-active-env",
-  sdk: "penguin-sdk-active-env",
-  rest: "penguin-rest-active-env",
-};
 
 async function fetchConfig(): Promise<string> {
   try {
@@ -38,73 +29,36 @@ async function fetchConfig(): Promise<string> {
   return "";
 }
 
-function loadFromStorage(protocol: ProtocolTab): {
-  environments: Environment[];
-  activeEnvId: string | null;
-} {
-  if (typeof window === "undefined") {
-    return { environments: [], activeEnvId: null };
-  }
-  const storeKey = STORE_KEYS[protocol];
-  const activeKey = ACTIVE_KEYS[protocol];
-  let environments: Environment[] = [];
-  let activeEnvId: string | null = null;
-  try {
-    const raw = localStorage.getItem(storeKey);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      environments = Array.isArray(parsed) ? parsed : [];
-    }
-    const activeRaw = localStorage.getItem(activeKey);
-    if (activeRaw) activeEnvId = activeRaw;
-  } catch {
-    // ignore
-  }
-  return { environments, activeEnvId };
-}
-
-function saveToStorage(
-  protocol: ProtocolTab,
-  environments: Environment[],
-  activeEnvId: string | null
-): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(STORE_KEYS[protocol], JSON.stringify(environments));
-  if (activeEnvId) {
-    localStorage.setItem(ACTIVE_KEYS[protocol], activeEnvId);
-  } else {
-    localStorage.removeItem(ACTIVE_KEYS[protocol]);
-  }
-}
-
 (function hydrateAll() {
   if (typeof window === "undefined") return;
-  const protocols: ProtocolTab[] = ["grpc-web", "grpc", "sdk", "rest"];
-  for (const p of protocols) {
-    const { environments, activeEnvId } = loadFromStorage(p);
-    if (environments.length > 0 || activeEnvId) {
-      useAppStore.setState((s) => {
-        const next = { ...s };
-        if (p === "grpc-web") {
-          next.grpcWebEnvironments = environments;
-          next.grpcWebActiveEnvId = activeEnvId;
-        } else if (p === "grpc") {
-          next.grpcEnvironments = environments;
-          next.grpcActiveEnvId = activeEnvId;
-        } else if (p === "sdk") {
-          next.sdkEnvironments = environments;
-          next.sdkActiveEnvId = activeEnvId;
-        } else {
-          next.restEnvironments = environments;
-          next.restActiveEnvId = activeEnvId;
-        }
-        return next;
-      });
+  void hydratePersistedValues().then(() => {
+    const protocols: ProtocolTab[] = ["grpc-web", "grpc", "sdk", "rest"];
+    for (const p of protocols) {
+      const { environments, activeEnvId } = loadEnvironmentSnapshot(p);
+      if (environments.length > 0 || activeEnvId) {
+        useAppStore.setState((s) => {
+          const next = { ...s };
+          if (p === "grpc-web") {
+            next.grpcWebEnvironments = environments;
+            next.grpcWebActiveEnvId = activeEnvId;
+          } else if (p === "grpc") {
+            next.grpcEnvironments = environments;
+            next.grpcActiveEnvId = activeEnvId;
+          } else if (p === "sdk") {
+            next.sdkEnvironments = environments;
+            next.sdkActiveEnvId = activeEnvId;
+          } else {
+            next.restEnvironments = environments;
+            next.restActiveEnvId = activeEnvId;
+          }
+          return next;
+        });
+      }
     }
-  }
 
-  // Defer Tauri IPC config sync to after first paint
-  requestAnimationFrame(() => syncAllProtocolEnvs());
+    // Defer Tauri IPC config sync to after first paint
+    requestAnimationFrame(() => syncAllProtocolEnvs());
+  });
 })();
 
 function getEnvsKey(p: ProtocolTab) {
@@ -149,7 +103,7 @@ function syncAllProtocolEnvs() {
 
       update[getEnvsKey(p)] = result.environments;
       update[getActiveKey(p)] = nextActiveId;
-      saveToStorage(p, result.environments, nextActiveId);
+      persistEnvironmentSnapshot(p, result.environments, nextActiveId);
     }
 
     if (Object.keys(update).length > 0) {
@@ -207,7 +161,7 @@ export function useEnvironments(): {
         : p === "grpc" ? state.grpcEnvironments
         : p === "sdk" ? state.sdkEnvironments
         : state.restEnvironments;
-      saveToStorage(p, envs, id);
+      persistEnvironmentSnapshot(p, envs, id);
     },
     [protocol]
   );
@@ -243,7 +197,7 @@ export function useEnvironments(): {
     (env: Environment) => {
       addEnv(env);
       const next = [...environments, env];
-      saveToStorage(protocol, next, activeEnvId);
+      persistEnvironmentSnapshot(protocol, next, activeEnvId);
     },
     [protocol, environments, activeEnvId, addEnv]
   );
@@ -254,7 +208,7 @@ export function useEnvironments(): {
       const next = environments.map((e) =>
         e.id === id ? { ...e, ...patch } : e
       );
-      saveToStorage(protocol, next, activeEnvId);
+      persistEnvironmentSnapshot(protocol, next, activeEnvId);
     },
     [protocol, environments, activeEnvId, updateEnv]
   );
@@ -264,7 +218,7 @@ export function useEnvironments(): {
       deleteEnv(id);
       const next = environments.filter((e) => e.id !== id);
       const nextActive = activeEnvId === id ? null : activeEnvId;
-      saveToStorage(protocol, next, nextActive);
+      persistEnvironmentSnapshot(protocol, next, nextActive);
     },
     [protocol, environments, activeEnvId, deleteEnv]
   );

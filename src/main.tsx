@@ -3,30 +3,25 @@ import { invoke } from "@tauri-apps/api/core";
 import App from "./App";
 import "./index.css";
 import pkg from "../package.json";
+import { getPersistedValue, hydratePersistedValues } from "./lib/app-persistence";
+import { getAppValueFromDatabase, setAppValueInDatabase } from "./lib/penguin-db";
+import { APP_VALUE_KEYS } from "./lib/persistence-keys";
 
 const APP_VERSION = pkg.version;
-const CACHE_VERSION_KEY = "penguin-cache-version";
-const lastVersion = localStorage.getItem(CACHE_VERSION_KEY);
+const CACHE_VERSION_KEY = APP_VALUE_KEYS.cacheVersion;
 
-function shouldPreserveLocalStorageKey(key: string): boolean {
-  return key.startsWith("penguin-") && key !== CACHE_VERSION_KEY;
+async function syncPackageCacheVersion(): Promise<void> {
+  await hydratePersistedValues();
+  const lastVersion =
+    getPersistedValue(CACHE_VERSION_KEY) ??
+    await getAppValueFromDatabase(CACHE_VERSION_KEY);
+  if (lastVersion === APP_VERSION) return;
+  const persisted = await setAppValueInDatabase(CACHE_VERSION_KEY, APP_VERSION);
+  if (persisted) {
+    invoke("clear_all_packages").catch(() => {});
+  }
 }
 
-if (lastVersion !== APP_VERSION) {
-  // Keep user data across app upgrades, including penguin-tutorial-seen.
-  // Version changes only invalidate installed package files.
-  const saved: Record<string, string> = {};
-  for (const key of Object.keys(localStorage)) {
-    if (!shouldPreserveLocalStorageKey(key)) continue;
-    const val = localStorage.getItem(key);
-    if (val !== null) saved[key] = val;
-  }
-  localStorage.clear();
-  localStorage.setItem(CACHE_VERSION_KEY, APP_VERSION);
-  for (const [key, val] of Object.entries(saved)) {
-    localStorage.setItem(key, val);
-  }
-  invoke("clear_all_packages").catch(() => {});
-}
+void syncPackageCacheVersion();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(<App />);
