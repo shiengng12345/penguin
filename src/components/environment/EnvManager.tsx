@@ -8,9 +8,14 @@ import {
   type ProtocolTab,
 } from "@/lib/store";
 import { generateEnvId } from "@/lib/environment-store";
+import {
+  configEnvsForProtocol,
+  fetchRemoteConfig,
+  mergeConfigEnvironments,
+} from "@/lib/config-sync";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, Edit, X, Save, Globe, Server, Box } from "lucide-react";
+import { Plus, Trash2, Edit, X, Save, Globe, Server, Box, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const PROTOCOL_TABS: { id: ProtocolTab; label: string; icon: typeof Globe }[] = [
@@ -42,6 +47,28 @@ function saveToStorage(protocol: ProtocolTab, environments: Environment[], activ
   const activeKey = `penguin-${protocol === "grpc-web" ? "grpc-web" : protocol}-active-env`;
   if (activeEnvId) localStorage.setItem(activeKey, activeEnvId);
   else localStorage.removeItem(activeKey);
+}
+
+function setEnvsForProtocolState(
+  state: ReturnType<typeof useAppStore.getState>,
+  protocol: ProtocolTab,
+  environments: Environment[],
+): void {
+  if (protocol === "grpc-web") state.setGrpcWebEnvironments(environments);
+  else if (protocol === "grpc") state.setGrpcEnvironments(environments);
+  else if (protocol === "sdk") state.setSdkEnvironments(environments);
+  else state.setRestEnvironments(environments);
+}
+
+function setActiveEnvForProtocolState(
+  state: ReturnType<typeof useAppStore.getState>,
+  protocol: ProtocolTab,
+  activeEnvId: string | null,
+): void {
+  if (protocol === "grpc-web") state.setGrpcWebActiveEnvId(activeEnvId);
+  else if (protocol === "grpc") state.setGrpcActiveEnvId(activeEnvId);
+  else if (protocol === "sdk") state.setSdkActiveEnvId(activeEnvId);
+  else state.setRestActiveEnvId(activeEnvId);
 }
 
 function useEnvsForProtocol(protocol: ProtocolTab) {
@@ -108,6 +135,11 @@ function useEnvsForProtocol(protocol: ProtocolTab) {
   return { environments, activeEnvId, addEnvironment: addEnv, updateEnvironment: updateEnv, deleteEnvironment: deleteEnv };
 }
 
+type PullStatus =
+  | { kind: "idle" }
+  | { kind: "success"; added: number; skipped: number; conflicts: number }
+  | { kind: "error"; message: string };
+
 interface EnvManagerProps {
   onClose: () => void;
 }
@@ -117,6 +149,7 @@ export function EnvManager({ onClose }: EnvManagerProps) {
   const [selectedProtocol, setSelectedProtocol] = useState<ProtocolTab>(activeTab?.protocolTab ?? "grpc-web");
   const {
     environments,
+    activeEnvId,
     addEnvironment,
     updateEnvironment,
     deleteEnvironment,
@@ -127,6 +160,44 @@ export function EnvManager({ onClose }: EnvManagerProps) {
   const [formName, setFormName] = useState("");
   const [formColor, setFormColor] = useState("green");
   const [formVars, setFormVars] = useState<EnvVariable[]>([]);
+  const [isPullingConfig, setIsPullingConfig] = useState(false);
+  const [pullStatus, setPullStatus] = useState<PullStatus>({ kind: "idle" });
+
+  const pullLatestConfig = useCallback(async () => {
+    setIsPullingConfig(true);
+    setPullStatus({ kind: "idle" });
+
+    try {
+      const config = await fetchRemoteConfig();
+      const configEnvs = configEnvsForProtocol(config, selectedProtocol);
+      const result = mergeConfigEnvironments(environments, configEnvs, selectedProtocol);
+      const nextActiveEnvId =
+        activeEnvId && result.environments.some((env) => env.id === activeEnvId)
+          ? activeEnvId
+          : result.environments[0]?.id ?? null;
+
+      if (result.changed || nextActiveEnvId !== activeEnvId) {
+        const state = useAppStore.getState();
+        setEnvsForProtocolState(state, selectedProtocol, result.environments);
+        setActiveEnvForProtocolState(state, selectedProtocol, nextActiveEnvId);
+        saveToStorage(selectedProtocol, result.environments, nextActiveEnvId);
+      }
+
+      setPullStatus({
+        kind: "success",
+        added: result.added.length,
+        skipped: result.skipped.length,
+        conflicts: result.conflicts.length,
+      });
+    } catch (error) {
+      setPullStatus({
+        kind: "error",
+        message: error instanceof Error ? error.message : "Failed to pull latest config",
+      });
+    } finally {
+      setIsPullingConfig(false);
+    }
+  }, [activeEnvId, environments, selectedProtocol]);
 
   const startAdd = () => {
     setIsAdding(true);
@@ -230,6 +301,7 @@ export function EnvManager({ onClose }: EnvManagerProps) {
                   type="button"
                   onClick={() => {
                     setSelectedProtocol(pt.id);
+                    setPullStatus({ kind: "idle" });
                     cancelForm();
                   }}
                   className={cn(
@@ -254,6 +326,29 @@ export function EnvManager({ onClose }: EnvManagerProps) {
                 </button>
               );
             })}
+          </div>
+          <div className="flex flex-col gap-2 px-4 pb-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full justify-center"
+              onClick={pullLatestConfig}
+              disabled={isPullingConfig}
+            >
+              <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", isPullingConfig && "animate-spin")} />
+              {isPullingConfig ? "Pulling..." : "Pull Latest Config"}
+            </Button>
+            {pullStatus.kind === "success" && (
+              <p className="text-xs text-muted-foreground">
+                Added {pullStatus.added} · Unchanged {pullStatus.skipped} · Local kept {pullStatus.conflicts}
+              </p>
+            )}
+            {pullStatus.kind === "error" && (
+              <p className="text-xs text-destructive">
+                {pullStatus.message}
+              </p>
+            )}
           </div>
         </div>
 

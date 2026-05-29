@@ -1,9 +1,14 @@
 import { useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { generateEnvId } from "@/lib/environment-store";
 import { useAppStore } from "@/lib/store";
 import { useActiveTab } from "@/lib/store";
-import type { Environment, EnvVariable, ProtocolTab } from "@/lib/store";
+import {
+  configEnvsForProtocol,
+  mergeConfigEnvironments,
+  parseConfig,
+  type ConfigShape,
+} from "@/lib/config-sync";
+import type { Environment, ProtocolTab } from "@/lib/store";
 
 const STORE_KEYS: Record<ProtocolTab, string> = {
   "grpc-web": "penguin-grpc-web-environments",
@@ -19,19 +24,6 @@ const ACTIVE_KEYS: Record<ProtocolTab, string> = {
   rest: "penguin-rest-active-env",
 };
 
-interface ConfigEnvironment {
-  name: string;
-  color: string;
-  variables: Record<string, string>;
-}
-
-interface ConfigProtocolSection {
-  environments?: ConfigEnvironment[];
-  packages?: string[];
-}
-
-type ConfigShape = Record<string, ConfigProtocolSection | undefined>;
-
 async function fetchConfig(): Promise<string> {
   try {
     return await invoke<string>("read_config");
@@ -44,29 +36,6 @@ async function fetchConfig(): Promise<string> {
     }
   }
   return "";
-}
-
-function configEnvsForProtocol(
-  config: ConfigShape,
-  protocol: ProtocolTab
-): ConfigEnvironment[] {
-  const section = config[protocol];
-  if (section?.environments) {
-    return section.environments;
-  }
-  return [];
-}
-
-function configEnvToEnvironment(cfg: ConfigEnvironment): Environment {
-  const variables: EnvVariable[] = Object.entries(cfg.variables ?? {}).map(
-    ([key, value]) => ({ key, value })
-  );
-  return {
-    id: generateEnvId(),
-    name: cfg.name,
-    color: cfg.color ?? "green",
-    variables,
-  };
 }
 
 function loadFromStorage(protocol: ProtocolTab): {
@@ -156,7 +125,7 @@ function syncAllProtocolEnvs() {
   fetchConfig().then((raw) => {
     if (!raw?.trim()) return;
     let config: ConfigShape;
-    try { config = JSON.parse(raw); } catch { return; }
+    try { config = parseConfig(raw); } catch { return; }
 
     const protocols: ProtocolTab[] = ["grpc-web", "grpc", "sdk", "rest"];
     const update: Record<string, unknown> = {};
@@ -169,30 +138,18 @@ function syncAllProtocolEnvs() {
       const existing = state[getEnvsKey(p)] as Environment[];
       const currentActiveId = state[getActiveKey(p)] as string | null;
 
-      const byName = new Map(existing.map((e) => [e.name, e]));
-      const merged: Environment[] = [];
-
-      for (const cfg of configEnvs) {
-        const ex = byName.get(cfg.name);
-        if (ex) {
-          merged.push({
-            ...ex,
-            color: cfg.color ?? ex.color,
-            variables: Object.entries(cfg.variables ?? {}).map(([key, value]) => ({ key, value })),
-          });
-        } else {
-          merged.push(configEnvToEnvironment(cfg));
-        }
-      }
+      const result = mergeConfigEnvironments(existing, configEnvs, p);
 
       const nextActiveId =
-        currentActiveId && merged.some((e) => e.id === currentActiveId)
+        currentActiveId && result.environments.some((e) => e.id === currentActiveId)
           ? currentActiveId
-          : merged[0]?.id ?? null;
+          : result.environments[0]?.id ?? null;
 
-      update[getEnvsKey(p)] = merged;
+      if (!result.changed && nextActiveId === currentActiveId) continue;
+
+      update[getEnvsKey(p)] = result.environments;
       update[getActiveKey(p)] = nextActiveId;
-      saveToStorage(p, merged, nextActiveId);
+      saveToStorage(p, result.environments, nextActiveId);
     }
 
     if (Object.keys(update).length > 0) {
