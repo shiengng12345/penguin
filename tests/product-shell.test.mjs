@@ -69,3 +69,13 @@ test("desktop persistence has SQLite commands for saved requests", async () => {
   assert.match(dbBridgeSource, /invoke\("db_upsert_saved_request"/);
   assert.match(dbBridgeSource, /invoke<SavedRequest\[\]>\("db_list_saved_requests"/);
 });
+
+test("version cache migration preserves tutorial and user local data", async () => {
+  const mainSource = await readFile(new URL("../src/main.tsx", import.meta.url), "utf8");
+
+  assert.match(mainSource, /shouldPreserveLocalStorageKey/);
+  assert.match(mainSource, /key\.startsWith\("penguin-"\)/);
+  assert.match(mainSource, /key !== CACHE_VERSION_KEY/);
+  assert.match(mainSource, /penguin-tutorial-seen/);
+  assert.doesNotMatch(mainSource, /const keep = \[/);
+});
