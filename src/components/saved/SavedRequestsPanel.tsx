@@ -3,8 +3,6 @@ import {
   useAppStore,
   type ProtocolTab,
   type SavedRequest,
-  type RequestTab,
-  getDefaultHeadersForProtocol,
 } from "@/lib/store";
 import { Input } from "@/components/ui/input";
 import {
@@ -19,7 +17,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tryFormatJson } from "@/lib/json-utils";
-import { inferRestBodyMode, toRestMethod } from "@/lib/rest";
+import { openSavedRequest } from "@/lib/saved-request";
 
 const PROTOCOL_BADGES: Record<
   ProtocolTab,
@@ -36,7 +34,7 @@ const PROTOCOL_BADGES: Record<
     className: "bg-blue-500/20 text-blue-600 dark:text-blue-400",
   },
   sdk: {
-    label: "SDK",
+    label: "JS-SDK",
     icon: Box,
     className: "bg-purple-500/20 text-purple-600 dark:text-purple-400",
   },
@@ -85,10 +83,6 @@ function getMethodShortName(fullName: string): string {
   return parts[parts.length - 1];
 }
 
-function getContentType(metadata: SavedRequest["metadata"]): string {
-  return metadata.find((m) => m.key.trim().toLowerCase() === "content-type")?.value ?? "";
-}
-
 export function SavedRequestsPanel({
   open,
   onClose,
@@ -97,7 +91,6 @@ export function SavedRequestsPanel({
     savedRequests,
     deleteSavedRequest,
     renameSavedRequest,
-    addTab,
   } = useAppStore();
 
   const [query, setQuery] = useState("");
@@ -123,40 +116,7 @@ export function SavedRequestsPanel({
     : savedRequests;
 
   const restoreEntry = (entry: SavedRequest) => {
-    addTab();
-    const isRest = entry.protocol === "rest";
-    const patch: Partial<RequestTab> = {
-      protocolTab: entry.protocol,
-      targetUrl: entry.url,
-      metadata:
-        entry.metadata.length > 0
-          ? entry.metadata
-          : getDefaultHeadersForProtocol(entry.protocol),
-      requestBody: entry.requestBody,
-      selectedPackage: isRest ? null : entry.packageName || null,
-      selectedService: isRest ? null : entry.serviceName || null,
-      selectedMethod: isRest ? null : entry.selectedMethod ?? null,
-      response: entry.response,
-      origin: "saved" as const,
-    };
-    if (isRest) {
-      patch.restMethod = toRestMethod(entry.restMethod ?? entry.methodFullName, "GET");
-      patch.restBodyMode = entry.restBodyMode ?? inferRestBodyMode(entry.requestBody, getContentType(entry.metadata));
-      patch.pathOverride = null;
-    }
-    setTimeout(() => {
-      useAppStore.getState().updateActiveTab(patch);
-      if (entry.packageName && entry.serviceName) {
-        document.dispatchEvent(
-          new CustomEvent("penguin:focus-method", {
-            detail: {
-              packageName: entry.packageName,
-              serviceName: entry.serviceName,
-            },
-          })
-        );
-      }
-    }, 0);
+    openSavedRequest(entry);
     onClose();
   };
 

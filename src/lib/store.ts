@@ -1,4 +1,11 @@
 import { create } from "zustand";
+import {
+  deleteSavedRequestFromDatabase,
+  loadSavedRequestsFromDatabase,
+  persistSavedRequest,
+  persistSavedRequests,
+  renameSavedRequestInDatabase,
+} from "./penguin-db";
 import type {
   ProtoService as CoreProtoService,
   ProtoMethod as CoreProtoMethod,
@@ -187,10 +194,10 @@ export { createTab };
 export interface AppState {
   tabs: RequestTab[];
   activeTabId: string | null;
-  addTab: () => void;
+  addTab: (protocol?: ProtocolTab) => RequestTab;
   removeTab: (id: string) => void;
   resetActiveTab: () => void;
-  setActiveTab: (id: string) => void;
+  setActiveTab: (id: string | null) => void;
   updateActiveTab: (patch: Partial<RequestTab>) => void;
 
   grpcWebPackages: InstalledPackage[];
@@ -387,7 +394,11 @@ function saveTabs(tabs: RequestTab[], activeTabId: string | null) {
   if (_saveTabsTimer) clearTimeout(_saveTabsTimer);
   _saveTabsTimer = setTimeout(() => {
     localStorage.setItem(TABS_KEY, JSON.stringify(tabs));
-    if (activeTabId) localStorage.setItem(ACTIVE_TAB_KEY, activeTabId);
+    if (activeTabId) {
+      localStorage.setItem(ACTIVE_TAB_KEY, activeTabId);
+    } else {
+      localStorage.removeItem(ACTIVE_TAB_KEY);
+    }
     _saveTabsTimer = null;
   }, 300);
 }
@@ -457,23 +468,31 @@ export const useAppStore = create<AppState>((set, get) => {
   const restored = loadTabs();
   const initialTab = restored.tabs.length > 0 ? null : createTab();
   const startTabs = restored.tabs.length > 0 ? restored.tabs : [initialTab!];
-  const startActiveId = restored.tabs.length > 0 ? restored.activeTabId : initialTab!.id;
+  const startActiveId =
+    restored.activeTabId && restored.tabs.some((tab) => tab.id === restored.activeTabId)
+      ? restored.activeTabId
+      : startTabs[0].id;
   return {
     tabs: startTabs,
     activeTabId: startActiveId,
-    addTab: () => {
-      const tab = createTab();
+    addTab: (protocol = "grpc-web") => {
+      const tab = createTab(null, protocol);
       set((s) => {
         const next = { tabs: [...s.tabs, tab], activeTabId: tab.id };
         saveTabs(next.tabs, next.activeTabId);
         return next;
       });
+      return tab;
     },
     removeTab: (id) => {
       set((s) => {
-        if (s.tabs.length <= 1) return s;
         const idx = s.tabs.findIndex((t) => t.id === id);
         const next = s.tabs.filter((t) => t.id !== id);
+        if (next.length === 0) {
+          const fresh = createTab();
+          saveTabs([fresh], fresh.id);
+          return { tabs: [fresh], activeTabId: fresh.id };
+        }
         const nextActive =
           s.activeTabId === id
             ? (next[Math.min(idx, next.length - 1)]?.id ?? next[0]?.id ?? null)
@@ -484,9 +503,9 @@ export const useAppStore = create<AppState>((set, get) => {
     },
     resetActiveTab: () => {
       const tabs = get().tabs;
-      if (tabs.length === 0) return;
-      set({ activeTabId: tabs[0].id });
-      saveTabs(tabs, tabs[0].id);
+      const activeTabId = tabs[0]?.id ?? null;
+      set({ activeTabId });
+      saveTabs(tabs, activeTabId);
     },
     setActiveTab: (id) => {
       set({ activeTabId: id });
@@ -663,6 +682,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
     savedRequests: [],
     saveRequest: (entry) => {
+      void persistSavedRequest(entry);
       set((s) => {
         const next = [entry, ...s.savedRequests];
         saveSavedRequests(next);
@@ -670,6 +690,7 @@ export const useAppStore = create<AppState>((set, get) => {
       });
     },
     deleteSavedRequest: (id) => {
+      void deleteSavedRequestFromDatabase(id);
       set((s) => {
         const next = s.savedRequests.filter((r) => r.id !== id);
         saveSavedRequests(next);
@@ -677,6 +698,7 @@ export const useAppStore = create<AppState>((set, get) => {
       });
     },
     renameSavedRequest: (id, name) => {
+      void renameSavedRequestInDatabase(id, name);
       set((s) => {
         const next = s.savedRequests.map((r) =>
           r.id === id ? { ...r, name } : r
@@ -715,6 +737,15 @@ if (typeof window !== "undefined") {
     if (history.length > 0 || savedRequests.length > 0) {
       useAppStore.setState({ history, savedRequests });
     }
+    if (savedRequests.length > 0) {
+      void persistSavedRequests(savedRequests);
+    }
+    void loadSavedRequestsFromDatabase().then((databaseSavedRequests) => {
+      if (databaseSavedRequests.length > 0) {
+        useAppStore.setState({ savedRequests: databaseSavedRequests });
+        saveSavedRequests(databaseSavedRequests);
+      }
+    });
   });
 }
 

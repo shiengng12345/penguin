@@ -1,5 +1,6 @@
 use base64::Engine;
 use notify::{event::EventKind, RecursiveMode, Watcher};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -516,6 +517,202 @@ fn copy_png_to_clipboard(base64_data: String) -> Result<(), String> {
     }
 }
 
+fn penguin_db_path() -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or("Could not determine home directory")?;
+    Ok(home.join(".penguin").join("penguin.sqlite3"))
+}
+
+fn open_product_db_at(path: &Path) -> Result<Connection, String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let conn = Connection::open(path).map_err(|e| e.to_string())?;
+    conn.execute_batch(
+        r#"
+        PRAGMA journal_mode = WAL;
+        CREATE TABLE IF NOT EXISTS saved_requests (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            saved_at INTEGER NOT NULL,
+            protocol TEXT NOT NULL,
+            method_full_name TEXT NOT NULL,
+            service_name TEXT NOT NULL,
+            package_name TEXT NOT NULL,
+            url TEXT NOT NULL,
+            entry_json TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_saved_requests_saved_at
+            ON saved_requests(saved_at DESC);
+        "#,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(conn)
+}
+
+fn open_product_db() -> Result<Connection, String> {
+    let path = penguin_db_path()?;
+    open_product_db_at(&path)
+}
+
+fn json_text(entry: &serde_json::Value, key: &str) -> String {
+    entry
+        .get(key)
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn json_i64(entry: &serde_json::Value, key: &str) -> i64 {
+    entry
+        .get(key)
+        .and_then(|value| value.as_i64())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn db_upsert_saved_request(entry: serde_json::Value) -> Result<(), String> {
+    let id = json_text(&entry, "id");
+    if id.trim().is_empty() {
+        return Err("saved request id is required".to_string());
+    }
+
+    let conn = open_product_db()?;
+    let entry_json = serde_json::to_string(&entry).map_err(|e| e.to_string())?;
+    conn.execute(
+        r#"
+        INSERT INTO saved_requests (
+            id, name, saved_at, protocol, method_full_name,
+            service_name, package_name, url, entry_json
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            saved_at = excluded.saved_at,
+            protocol = excluded.protocol,
+            method_full_name = excluded.method_full_name,
+            service_name = excluded.service_name,
+            package_name = excluded.package_name,
+            url = excluded.url,
+            entry_json = excluded.entry_json
+        "#,
+        params![
+            id,
+            json_text(&entry, "name"),
+            json_i64(&entry, "savedAt"),
+            json_text(&entry, "protocol"),
+            json_text(&entry, "methodFullName"),
+            json_text(&entry, "serviceName"),
+            json_text(&entry, "packageName"),
+            json_text(&entry, "url"),
+            entry_json,
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn db_list_saved_requests() -> Result<Vec<serde_json::Value>, String> {
+    let conn = open_product_db()?;
+    let mut stmt = conn
+        .prepare("SELECT entry_json FROM saved_requests ORDER BY saved_at DESC")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?;
+
+    let mut entries = Vec::new();
+    for row in rows {
+        let raw = row.map_err(|e| e.to_string())?;
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
+            entries.push(value);
+        }
+    }
+    Ok(entries)
+}
+
+#[tauri::command]
+fn db_delete_saved_request(id: String) -> Result<(), String> {
+    let conn = open_product_db()?;
+    conn.execute("DELETE FROM saved_requests WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn db_rename_saved_request(id: String, name: String) -> Result<(), String> {
+    let conn = open_product_db()?;
+    let raw: String = conn
+        .query_row(
+            "SELECT entry_json FROM saved_requests WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    let mut entry: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    if let Some(obj) = entry.as_object_mut() {
+        obj.insert("name".to_string(), serde_json::Value::String(name.clone()));
+    }
+    let entry_json = serde_json::to_string(&entry).map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE saved_requests SET name = ?1, entry_json = ?2 WHERE id = ?3",
+        params![name, entry_json, id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod product_db_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_db_path(name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir()
+            .join(format!("penguin-db-{name}-{nonce}"))
+            .join("penguin.sqlite3")
+    }
+
+    #[test]
+    fn product_db_schema_can_store_saved_requests() {
+        let path = temp_db_path("saved");
+        let conn = open_product_db_at(&path).unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO saved_requests (
+                id, name, saved_at, protocol, method_full_name,
+                service_name, package_name, url, entry_json
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "#,
+            params![
+                "saved_1",
+                "Auth.login",
+                10_i64,
+                "grpc-web",
+                "Auth.login",
+                "Auth",
+                "@snsoft/auth-grpc-web",
+                "{{URL}}",
+                r#"{"id":"saved_1","name":"Auth.login","savedAt":10}"#,
+            ],
+        )
+        .unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM saved_requests", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+}
+
 // ---- MCP integration with local AI clients --------------------------------
 // The MCP server JS (~/packages/mcp/dist/index.js) is bundled with the app as
 // a Tauri resource. The Settings UI surfaces a one-click flow that writes a
@@ -891,6 +1088,10 @@ pub fn run() {
             read_package_bundle,
             clear_all_packages,
             copy_png_to_clipboard,
+            db_upsert_saved_request,
+            db_list_saved_requests,
+            db_delete_saved_request,
+            db_rename_saved_request,
             mcp_status,
             mcp_install_to_local_clients,
         ])

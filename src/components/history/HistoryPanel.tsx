@@ -22,7 +22,7 @@ const PROTOCOL_BADGES: Record<
     className: "bg-blue-500/20 text-blue-600 dark:text-blue-400",
   },
   sdk: {
-    label: "SDK",
+    label: "JS-SDK",
     icon: Box,
     className: "bg-purple-500/20 text-purple-600 dark:text-purple-400",
   },

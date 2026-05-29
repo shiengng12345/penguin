@@ -73,6 +73,16 @@ test("ResponsePanel renders the readable gRPC status summary", async () => {
   assert.match(source, /Error details/);
 });
 
+test("ResponsePanel renders response bodies as a contained code viewer", async () => {
+  const source = await readFile(new URL("../src/components/request/ResponsePanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /data-response-code-surface/);
+  assert.match(source, /bg-background\/95/);
+  assert.match(source, /whitespace-pre/);
+  assert.match(source, /min-w-max/);
+  assert.doesNotMatch(source, /whitespace-pre-wrap break-all/);
+});
+
 test("normalizes proto enum strings through the generated request fromJson", async () => {
   const { normalizeGrpcJsonBody } = await loadGrpcJsonModule();
   const requestType = {

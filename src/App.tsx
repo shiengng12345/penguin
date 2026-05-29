@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useState, lazy, Suspense } from "react";
 import { protocolFromSnsoftPackageSpec } from "@penguin/core";
-import { useAppStore, useActiveTab, createTab, getDefaultHeadersForProtocol } from "@/lib/store";
+import { useAppStore, useActiveTab, getDefaultHeadersForProtocol, type ProtocolTab } from "@/lib/store";
 import { usePackages } from "@/hooks/usePackages";
 import { useEnvironments } from "@/hooks/useEnvironments";
 import { interpolate } from "@/lib/environment-store";
@@ -19,6 +19,7 @@ const SettingsDialog = lazy(() => import("@/components/settings/SettingsDialog")
 const CommandSearch = lazy(() => import("@/components/search/CommandSearch").then(m => ({ default: m.CommandSearch })));
 const HistoryPanel = lazy(() => import("@/components/history/HistoryPanel").then(m => ({ default: m.HistoryPanel })));
 const SavedRequestsPanel = lazy(() => import("@/components/saved/SavedRequestsPanel").then(m => ({ default: m.SavedRequestsPanel })));
+const NewRequestDialog = lazy(() => import("@/components/request/NewRequestDialog").then(m => ({ default: m.NewRequestDialog })));
 const RequestDocDialog = lazy(() => import("@/components/request/RequestDocDialog").then(m => ({ default: m.RequestDocDialog })));
 const ShortcutCheatSheet = lazy(() => import("@/components/shortcuts/ShortcutCheatSheet").then(m => ({ default: m.ShortcutCheatSheet })));
 const NetworkCheck = lazy(() => import("@/components/network/NetworkCheck").then(m => ({ default: m.NetworkCheck })));
@@ -30,7 +31,6 @@ const Welcome = lazy(() => import("@/components/onboarding/Welcome").then(m => (
 export default function App() {
   const {
     activeTabId,
-    addTab,
     removeTab,
     updateActiveTab,
     isInstallerOpen,
@@ -50,12 +50,11 @@ export default function App() {
   const [docOpen, setDocOpen] = useState(false);
   const [envManagerOpen, setEnvManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [newRequestOpen, setNewRequestOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [networkOpen, setNetworkOpen] = useState(false);
   const [curlImportOpen, setCurlImportOpen] = useState(false);
   const [protoViewerOpen, setProtoViewerOpen] = useState(false);
-
-  const displayPackages = packages;
 
   const resolvedUrl = activeEnv
     ? interpolate(activeTab?.targetUrl ?? "", activeEnv)
@@ -131,9 +130,9 @@ export default function App() {
   }, [activeTabId, activeTab, updateActiveTab]);
 
   const handleInstall = useCallback(
-    async (spec: string): Promise<boolean> => {
-      const protocol = protocolFromSnsoftPackageSpec(spec);
-      if (!protocol) return false;
+    async (spec: string, overrideProtocol?: ProtocolTab): Promise<boolean> => {
+      const protocol = overrideProtocol ?? protocolFromSnsoftPackageSpec(spec);
+      if (!protocol || protocol === "rest") return false;
 
       clearInstallLog();
       addInstallLog(`Installing ${spec}...`);
@@ -164,30 +163,27 @@ export default function App() {
           break;
         case "n":
           e.preventDefault();
-          addTab();
+          setNewRequestOpen(true);
           break;
         case "w": {
           e.preventDefault();
-          const state = useAppStore.getState();
-          if (state.tabs.length <= 1) {
-            const fresh = createTab();
-            useAppStore.setState({ tabs: [fresh], activeTabId: fresh.id });
-            document.dispatchEvent(new CustomEvent("penguin:collapse-sidebar"));
-          } else if (activeTabId) {
+          if (activeTabId) {
             removeTab(activeTabId);
           }
           break;
         }
         case "r":
           e.preventDefault();
-          updateActiveTab({
-            requestBody: "{}",
-            response: undefined,
-            selectedMethod: null,
-            selectedService: null,
-            selectedPackage: null,
-            metadata: getDefaultHeadersForProtocol(activeTab?.protocolTab ?? "grpc-web"),
-          });
+          if (activeTab) {
+            updateActiveTab({
+              requestBody: "{}",
+              response: undefined,
+              selectedMethod: null,
+              selectedService: null,
+              selectedPackage: null,
+              metadata: getDefaultHeadersForProtocol(activeTab.protocolTab),
+            });
+          }
           refresh();
           document.dispatchEvent(new CustomEvent("penguin:collapse-sidebar"));
           break;
@@ -242,7 +238,6 @@ export default function App() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [
     activeTabId,
-    addTab,
     removeTab,
     refresh,
     setInstallerOpen,
@@ -269,6 +264,7 @@ export default function App() {
       setDocOpen(false);
       setEnvManagerOpen(false);
       setSettingsOpen(false);
+      setNewRequestOpen(false);
       setShortcutsOpen(false);
       setNetworkOpen(false);
       setCurlImportOpen(false);
@@ -290,11 +286,14 @@ export default function App() {
       <SnowLayer active={theme === "antarctic-snow"} />
       <div className="relative z-10 flex h-full flex-col">
         <Header onOpenSettings={() => setSettingsOpen(true)} />
-        <TabBar onCycleProtocol={handleCycleProtocol} />
+        <TabBar
+          onCycleProtocol={handleCycleProtocol}
+          onNewRequest={() => setNewRequestOpen(true)}
+        />
 
         <div className="flex flex-1 min-h-0">
           <Sidebar
-            packages={displayPackages}
+            packages={packages}
             onInstallClick={() => setInstallerOpen(true)}
             onUninstall={(name) => {
               uninstall(name);
@@ -336,6 +335,7 @@ export default function App() {
           {searchOpen && <CommandSearch open={searchOpen} onClose={() => setSearchOpen(false)} />}
           {historyOpen && <HistoryPanel open={historyOpen} onClose={() => setHistoryOpen(false)} />}
           {savedOpen && <SavedRequestsPanel open={savedOpen} onClose={() => setSavedOpen(false)} />}
+          {newRequestOpen && <NewRequestDialog open={newRequestOpen} onClose={() => setNewRequestOpen(false)} />}
           {docOpen && <RequestDocDialog open={docOpen} onClose={() => setDocOpen(false)} />}
           {shortcutsOpen && <ShortcutCheatSheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />}
           {networkOpen && <NetworkCheck open={networkOpen} onClose={() => setNetworkOpen(false)} />}

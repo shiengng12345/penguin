@@ -1,4 +1,4 @@
-import { useAppStore, useActiveTab, createTab, type ProtocolTab } from "@/lib/store";
+import { useAppStore, useActiveTab, type ProtocolTab } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Globe, Server, Box, Plus, X, History, Bookmark } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -18,7 +18,7 @@ const PROTOCOL_BADGES: Record<
     className: "bg-blue-500/20 text-blue-600 dark:text-blue-400",
   },
   sdk: {
-    label: "SDK",
+    label: "JS-SDK",
     icon: Box,
     className: "bg-purple-500/20 text-purple-600 dark:text-purple-400",
   },
@@ -31,10 +31,14 @@ const PROTOCOL_BADGES: Record<
 
 interface TabBarProps {
   onCycleProtocol: () => void;
+  onNewRequest: () => void;
 }
 
-export function TabBar({ onCycleProtocol }: TabBarProps) {
-  const { tabs, activeTabId, setActiveTab, removeTab, addTab } = useAppStore();
+export function TabBar({
+  onCycleProtocol,
+  onNewRequest,
+}: TabBarProps) {
+  const { tabs, activeTabId, setActiveTab, removeTab } = useAppStore();
   const activeTab = useActiveTab();
 
   return (
@@ -87,25 +91,17 @@ export function TabBar({ onCycleProtocol }: TabBarProps) {
                   </span>
                 )}
               </button>
-              {tabs.length > 1 && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (tabs.length <= 1) {
-                      const fresh = createTab();
-                      useAppStore.setState({ tabs: [fresh], activeTabId: fresh.id });
-                      document.dispatchEvent(new CustomEvent("penguin:collapse-sidebar"));
-                    } else {
-                      removeTab(tab.id);
-                    }
-                  }}
-                  className="rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/20 hover:opacity-100 group-hover:opacity-70"
-                  title="Close tab / 关闭标签"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeTab(tab.id);
+                }}
+                className="rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/20 hover:opacity-100 group-hover:opacity-70"
+                title="Close tab / 关闭标签"
+              >
+                <X className="h-3 w-3" />
+              </button>
             </div>
           );
         })}
@@ -117,6 +113,7 @@ export function TabBar({ onCycleProtocol }: TabBarProps) {
           size="icon"
           className="h-7 w-7"
           onClick={onCycleProtocol}
+          disabled={!activeTab}
           title="Cycle protocol (⌘ +E) / 切换协议"
         >
           {activeTab && (
@@ -138,7 +135,7 @@ export function TabBar({ onCycleProtocol }: TabBarProps) {
         </Button>
         <button
           type="button"
-          onClick={() => addTab()}
+          onClick={onNewRequest}
           className="flex h-7 w-7 items-center justify-center rounded hover:bg-accent"
           title="Add tab / 添加标签"
         >

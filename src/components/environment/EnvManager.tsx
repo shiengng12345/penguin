@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 const PROTOCOL_TABS: { id: ProtocolTab; label: string; icon: typeof Globe }[] = [
   { id: "grpc-web", label: "gRPC-Web", icon: Globe },
   { id: "grpc", label: "gRPC", icon: Server },
-  { id: "sdk", label: "SDK", icon: Box },
+  { id: "sdk", label: "JS-SDK", icon: Box },
   { id: "rest", label: "REST", icon: Globe },
 ];
 

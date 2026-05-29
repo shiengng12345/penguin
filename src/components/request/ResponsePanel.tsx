@@ -107,14 +107,14 @@ function SyntaxJson({ json, className }: { json: string; className?: string }) {
 
   if (tokens.length === 0 && json.length > 0) {
     return (
-      <pre className={cn("font-mono text-xs leading-relaxed whitespace-pre-wrap break-all", className)}>
+      <pre className={cn("min-w-max whitespace-pre font-mono text-[11px] leading-5", className)}>
         {json}
       </pre>
     );
   }
 
   return (
-    <pre className={cn("font-mono text-xs leading-relaxed whitespace-pre-wrap break-all", className)}>
+    <pre className={cn("min-w-max whitespace-pre font-mono text-[11px] leading-5", className)}>
       {tokens.map((t, i) => (
         <span key={i} className={colors[t.type]}>{t.text}</span>
       ))}
@@ -168,12 +168,13 @@ function VirtualizedJson({ json }: { json: string }) {
   return (
     <div
       ref={containerRef}
-      className="flex-1 overflow-auto"
+      data-response-code-surface
+      className="flex-1 overflow-auto bg-background/95 text-foreground"
       onScroll={handleScroll}
     >
       <div style={{ height: totalHeight, position: "relative" }}>
         <div
-          className="p-4 font-mono text-xs"
+          className="p-3 font-mono text-[11px]"
           style={{
             position: "absolute",
             top: startIdx * LINE_HEIGHT,
@@ -185,7 +186,7 @@ function VirtualizedJson({ json }: { json: string }) {
             <div
               key={idx}
               style={{ height: LINE_HEIGHT }}
-              className="whitespace-pre-wrap break-all leading-[18px]"
+              className="min-w-max whitespace-pre leading-[18px]"
             >
               {tokens.length === 0
                 ? lines[idx]
@@ -335,15 +336,15 @@ export function ResponsePanel() {
 
       {/* Response headers */}
       {!isRest && Object.keys(tab.response.headers).length > 0 && (
-        <div className="border-b border-border px-4 py-2">
+        <div className="border-b border-border bg-card/95 px-4 py-2">
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Headers
           </div>
-          <div className="space-y-0.5">
+          <div className="grid gap-y-1">
             {Object.entries(tab.response.headers).map(([key, value]) => (
-              <div key={key} className="flex gap-2 text-[11px] font-mono">
-                <span className="text-primary">{key}:</span>
-                <span className="text-muted-foreground truncate">{value}</span>
+              <div key={key} className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-3 font-mono text-[11px]">
+                <span className="whitespace-nowrap text-primary">{key}:</span>
+                <span className="truncate text-muted-foreground" title={value}>{value}</span>
               </div>
             ))}
           </div>
@@ -390,8 +391,8 @@ export function ResponsePanel() {
       {bodyLines > VIRTUAL_THRESHOLD ? (
         <VirtualizedJson json={activeBody} />
       ) : (
-        <div className="flex-1 overflow-auto">
-          <div className="p-4">
+        <div data-response-code-surface className="flex-1 overflow-auto bg-background/95 text-foreground">
+          <div className="min-w-max p-3">
             <SyntaxJson json={activeBody} />
           </div>
         </div>

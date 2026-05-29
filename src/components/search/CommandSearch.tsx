@@ -10,8 +10,10 @@ import { Input } from "@/components/ui/input";
 import { Globe, Server, Box, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+type MethodProtocol = Exclude<ProtocolTab, "rest">;
+
 const PROTOCOL_BADGES: Record<
-  ProtocolTab,
+  MethodProtocol,
   { label: string; icon: typeof Globe; className: string }
 > = {
   "grpc-web": {
@@ -25,14 +27,9 @@ const PROTOCOL_BADGES: Record<
     className: "bg-blue-500/20 text-blue-600 dark:text-blue-400",
   },
   sdk: {
-    label: "SDK",
+    label: "JS-SDK",
     icon: Box,
     className: "bg-purple-500/20 text-purple-600 dark:text-purple-400",
-  },
-  rest: {
-    label: "REST",
-    icon: Globe,
-    className: "bg-cyan-500/20 text-cyan-600 dark:text-cyan-400",
   },
 };
 
@@ -40,7 +37,7 @@ interface SearchResult {
   method: ProtoMethod;
   packageName: string;
   serviceName: string;
-  protocol: ProtocolTab;
+  protocol: MethodProtocol;
 }
 
 interface CommandSearchProps {
@@ -56,21 +53,20 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
   const showTutorial = useAppStore((s) => s.showTutorial);
 
   const [query, setQuery] = useState("");
-  const [protocolFilter, setProtocolFilter] = useState<ProtocolTab | "all">("all");
+  const [protocolFilter, setProtocolFilter] = useState<MethodProtocol | "all">("all");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const packagesByProtocol: Record<ProtocolTab, InstalledPackage[]> = {
+  const packagesByProtocol: Record<MethodProtocol, InstalledPackage[]> = {
     "grpc-web": grpcWebPackages,
     grpc: grpcPackages,
     sdk: sdkPackages,
-    rest: [],
   };
 
   const allResults = ((): SearchResult[] => {
     const results: SearchResult[] = [];
-    const protocols: ProtocolTab[] = ["grpc-web", "grpc", "sdk"];
+    const protocols: MethodProtocol[] = ["grpc-web", "grpc", "sdk"];
 
     for (const protocol of protocols) {
       if (protocolFilter !== "all" && protocolFilter !== protocol) continue;
@@ -131,7 +127,7 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
   })();
 
   const cycleProtocolFilter = () => {
-    const order: (ProtocolTab | "all")[] = ["all", "grpc-web", "grpc", "sdk", "rest"];
+    const order: (MethodProtocol | "all")[] = ["all", "grpc-web", "grpc", "sdk"];
     const idx = order.indexOf(protocolFilter);
     setProtocolFilter(order[(idx +1) % order.length]);
   };
@@ -255,7 +251,7 @@ export function CommandSearch({ open, onClose }: CommandSearchProps) {
         </div>
 
         <div className="flex gap-1 border-b border-border px-2 py-1">
-          {(["all", "grpc-web", "grpc", "sdk", "rest"] as const).map((p) => (
+          {(["all", "grpc-web", "grpc", "sdk"] as const).map((p) => (
             <button
               key={p}
               type="button"

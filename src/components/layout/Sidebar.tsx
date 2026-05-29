@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   Package,
+  Bookmark,
   ChevronRight,
   ChevronDown,
   Plus,
@@ -14,10 +15,10 @@ import {
   Network,
   RefreshCw,
   X,
-  ChevronsDownUp,
-  Search,
 } from "lucide-react";
 import { useEffect, useMemo, useState, useCallback } from "react";
+import { openSavedRequest } from "@/lib/saved-request";
+import { cn } from "@/lib/utils";
 
 interface SidebarProps {
   packages: InstalledPackage[];
@@ -27,7 +28,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ packages, onInstallClick, onUninstall, onUpdate }: SidebarProps) {
-  const { updateActiveTab } = useAppStore();
+  const { updateActiveTab, savedRequests } = useAppStore();
   const tab = useActiveTab();
   if (!tab) return null;
 
@@ -41,23 +42,22 @@ export function Sidebar({ packages, onInstallClick, onUninstall, onUpdate }: Sid
   const [updatingPkg, setUpdatingPkg] = useState<string | null>(null);
   const [newVersion, setNewVersion] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [sidebarView, setSidebarView] = useState<"packages" | "collections">("packages");
+  const collectionEntries = savedRequests;
 
   useEffect(() => {
-    setSearchQuery("");
     setExpandedPkgs(new Set());
     setExpandedSvcs(new Set());
+    setSidebarView("packages");
   }, [protocolTab]);
 
   useEffect(() => {
     const collapse = () => {
-      setSearchQuery("");
       setExpandedPkgs(new Set());
       setExpandedSvcs(new Set());
     };
     const focusMethod = (e: Event) => {
       const { packageName, serviceName } = (e as CustomEvent).detail;
-      setSearchQuery("");
       setExpandedPkgs(new Set([packageName]));
       setExpandedSvcs(new Set([serviceName]));
     };
@@ -96,47 +96,8 @@ export function Sidebar({ packages, onInstallClick, onUninstall, onUpdate }: Sid
       }));
   }, [packages]);
 
-  const { filteredPackages, autoExpandPkgs, autoExpandSvcs } = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return { filteredPackages: sortedPackages, autoExpandPkgs: new Set<string>(), autoExpandSvcs: new Set<string>() };
-    }
-    const q = searchQuery.trim().toLowerCase();
-    const fp: InstalledPackage[] = [];
-    const aePkgs = new Set<string>();
-    const aeSvcs = new Set<string>();
-
-    let matchName: (text: string) => boolean;
-    if (q.includes("*")) {
-      const regex = new RegExp(
-        "^" +q.split("*").map(s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") +"$"
-      );
-      matchName = (text) => regex.test(text.toLowerCase());
-    } else {
-      matchName = (text) => text.toLowerCase().includes(q);
-    }
-
-    for (const pkg of sortedPackages) {
-      const matchedServices = pkg.services
-        .map((svc) => {
-          const matchedMethods = svc.methods.filter((m) => matchName(m.name));
-          if (matchedMethods.length > 0) return { ...svc, methods: matchedMethods };
-          if (matchName(svc.name)) return svc;
-          return null;
-        })
-        .filter((s): s is NonNullable<typeof s> => s !== null);
-
-      if (matchedServices.length > 0) {
-        fp.push({ ...pkg, services: matchedServices.length > 0 ? matchedServices : pkg.services });
-        aePkgs.add(pkg.name);
-        for (const svc of matchedServices) aeSvcs.add(svc.fullName);
-      }
-    }
-    return { filteredPackages: fp, autoExpandPkgs: aePkgs, autoExpandSvcs: aeSvcs };
-  }, [sortedPackages, searchQuery]);
-
-  const isSearching = searchQuery.trim().length > 0;
-  const effectivePkgs = isSearching ? autoExpandPkgs : expandedPkgs;
-  const effectiveSvcs = isSearching ? autoExpandSvcs : expandedSvcs;
+  const effectivePkgs = expandedPkgs;
+  const effectiveSvcs = expandedSvcs;
 
   const togglePkg = (name: string) => {
     const next = new Set(expandedPkgs);
@@ -206,107 +167,129 @@ export function Sidebar({ packages, onInstallClick, onUninstall, onUpdate }: Sid
     return version.replace(/^\^|~/, "");
   };
 
-  if (protocolTab === "rest") {
-    return (
-      <aside className="flex h-full w-72 flex-col border-r border-border bg-card" data-tour="sidebar">
-        <div className="flex items-center justify-between border-b border-border px-3 py-2">
-          <div className="flex items-center gap-1.5">
-            <Globe className="h-3.5 w-3.5 text-primary" />
-            <span className="text-sm font-medium text-muted-foreground">
-              REST Requests
-            </span>
-          </div>
-        </div>
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground">
-          <Server className="h-9 w-9 text-muted-foreground/45" />
-          <p className="text-sm">Manual REST mode</p>
-          <p className="text-xs text-muted-foreground/70">
-            Save requests to build a collection.
-          </p>
-        </div>
-      </aside>
-    );
-  }
+  const protocolName = protocolTab === "grpc-web" ? "gRPC-Web" : protocolTab === "sdk" ? "JS-SDK" : protocolTab === "rest" ? "REST" : "gRPC";
+  const protocolIcon = protocolTab === "grpc-web" || protocolTab === "rest" ? (
+    <Globe className="h-3.5 w-3.5 text-primary" />
+  ) : protocolTab === "sdk" ? (
+    <Zap className="h-3.5 w-3.5 text-primary" />
+  ) : (
+    <Network className="h-3.5 w-3.5 text-primary" />
+  );
 
-  return (
-    <aside className="flex h-full w-72 flex-col border-r border-border bg-card" data-tour="sidebar">
-      <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <div className="flex items-center gap-1.5">
-          {protocolTab === "grpc-web" ? (
-            <Globe className="h-3.5 w-3.5 text-primary" />
-          ) : protocolTab === "sdk" ? (
-            <Zap className="h-3.5 w-3.5 text-primary" />
-          ) : (
-            <Network className="h-3.5 w-3.5 text-primary" />
+  const sidebarTabs = (
+    <div className="grid grid-cols-2 border-b border-border px-2">
+      <button
+        type="button"
+        aria-pressed={sidebarView === "packages"}
+        onClick={() => setSidebarView("packages")}
+        className={cn(
+          "flex h-7 min-w-0 items-center justify-center gap-1.5 border-b-2 border-transparent px-2 text-[11px] font-medium transition-colors",
+          sidebarView === "packages"
+            ? "border-primary text-primary"
+            : "text-muted-foreground hover:border-border hover:text-foreground",
+        )}
+      >
+        <Package className="h-3 w-3 shrink-0" />
+        <span className="truncate">Packages</span>
+        <span
+          className={cn(
+            "ml-auto rounded px-1 py-0.5 text-[10px] leading-none",
+            sidebarView === "packages"
+              ? "bg-primary/10 text-primary"
+              : "bg-muted/60 text-muted-foreground",
           )}
-          <span className="text-sm font-medium text-muted-foreground">
-            {protocolTab === "grpc-web" ? "gRPC-Web" : protocolTab === "sdk" ? "SDK" : "gRPC"} Packages
-          </span>
+        >
+          {packages.length}
+        </span>
+      </button>
+      <button
+        type="button"
+        aria-pressed={sidebarView === "collections"}
+        onClick={() => setSidebarView("collections")}
+        className={cn(
+          "flex h-7 min-w-0 items-center justify-center gap-1.5 border-b-2 border-transparent px-2 text-[11px] font-medium transition-colors",
+          sidebarView === "collections"
+            ? "border-primary text-primary"
+            : "text-muted-foreground hover:border-border hover:text-foreground",
+        )}
+      >
+        <Bookmark className="h-3 w-3 shrink-0" />
+        <span className="truncate">Collections</span>
+        <span
+          className={cn(
+            "ml-auto rounded px-1 py-0.5 text-[10px] leading-none",
+            sidebarView === "collections"
+              ? "bg-primary/10 text-primary"
+              : "bg-muted/60 text-muted-foreground",
+          )}
+        >
+          {savedRequests.length}
+        </span>
+      </button>
+    </div>
+  );
+
+  const collectionsContent = (
+    <div className="flex-1 overflow-y-auto">
+      {collectionEntries.length === 0 ? (
+        <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+          <Bookmark className="h-9 w-9 text-muted-foreground/45" />
+          <p className="text-sm text-muted-foreground">No saved requests</p>
         </div>
-        <div className="flex items-center gap-0.5">
-          {packages.length > 0 && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => {
-                setExpandedPkgs(new Set());
-                setExpandedSvcs(new Set());
-              }}
-              title="Collapse all / 折叠全部"
+      ) : (
+        <div className="space-y-1 p-2">
+          {collectionEntries.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              onClick={() => openSavedRequest(entry)}
+              className="flex w-full min-w-0 items-center gap-2 rounded border border-transparent px-2 py-2 text-left hover:border-border hover:bg-accent/50"
+              title={entry.name}
             >
-              <ChevronsDownUp className="h-4 w-4" />
-            </Button>
-          )}
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onInstallClick} data-tour="install-btn">
-            <Plus className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-
-      {packages.length > 0 && (
-        <div className="border-b border-border px-2 py-1.5">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search methods... (* wildcard)"
-              className="h-7 pl-7 pr-7 text-xs"
-            />
-            {searchQuery && (
-              <button
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                onClick={() => setSearchQuery("")}
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
+              <Bookmark className="h-3.5 w-3.5 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-medium text-foreground">
+                  {entry.name}
+                </span>
+                <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                  {entry.methodFullName || entry.url}
+                </span>
+              </span>
+              <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">
+                {entry.protocol === "grpc-web" ? "gw" : entry.protocol === "sdk" ? "js" : entry.protocol}
+              </span>
+            </button>
+          ))}
         </div>
       )}
+    </div>
+  );
 
+  const restPackagesContent = (
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground">
+      <Server className="h-9 w-9 text-muted-foreground/45" />
+      <p className="text-sm">Manual REST mode</p>
+    </div>
+  );
+
+  const packagesContent = (
+    <>
       <div className="flex-1 overflow-y-auto">
         {packages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 p-6 text-center">
+          <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
             <Package className="h-10 w-10 text-muted-foreground/50" />
             <div>
               <p className="text-sm text-muted-foreground">
-                No {protocolTab === "grpc-web" ? "gRPC-Web" : protocolTab === "sdk" ? "SDK" : "gRPC"} packages
+                No {protocolName} packages
               </p>
               <p className="text-xs text-muted-foreground/60">
-                Click +to install a package
+                Click + to install a package
               </p>
             </div>
           </div>
-        ) : filteredPackages.length === 0 && isSearching ? (
-          <div className="flex flex-col items-center justify-center gap-2 p-6 text-center">
-            <Search className="h-8 w-8 text-muted-foreground/40" />
-            <p className="text-xs text-muted-foreground">No results for "{searchQuery}"</p>
-          </div>
         ) : (
           <div className="py-1">
-            {filteredPackages.map((pkg) => (
+            {sortedPackages.map((pkg) => (
               <div key={pkg.name}>
                 <div
                   className={`group flex items-center gap-1.5 px-2 py-1.5 cursor-pointer hover:bg-accent/50 ${
@@ -445,11 +428,35 @@ export function Sidebar({ packages, onInstallClick, onUninstall, onUpdate }: Sid
       </div>
 
       <div className="border-t border-border px-3 py-2 text-[10px] text-muted-foreground">
-        {isSearching && filteredPackages.length !== packages.length
-          ? `${filteredPackages.length}/${packages.length} packages · `
-          : `${packages.length} package${packages.length !== 1 ? "s" : ""} · `}
-        {packages.reduce((sum, p) => sum +p.services.length, 0)} services
+        {packages.length} package{packages.length !== 1 ? "s" : ""} ·{" "}
+        {packages.reduce((sum, p) => sum + p.services.length, 0)} services
       </div>
+    </>
+  );
+
+  return (
+    <aside className="flex h-full w-72 flex-col border-r border-border bg-card" data-tour="sidebar">
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          {protocolIcon}
+          <span className="truncate text-sm font-medium text-muted-foreground">
+            {protocolTab === "rest" ? "REST Requests" : `${protocolName} Packages`}
+          </span>
+        </div>
+        {protocolTab !== "rest" && (
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onInstallClick} data-tour="install-btn">
+            <Plus className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+
+      {sidebarTabs}
+
+      {sidebarView === "packages"
+        ? protocolTab === "rest"
+          ? restPackagesContent
+          : packagesContent
+        : collectionsContent}
     </aside>
   );
 }

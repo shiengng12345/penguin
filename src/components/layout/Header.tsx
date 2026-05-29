@@ -15,7 +15,7 @@ interface HeaderProps {
 const PROTOCOL_LABELS: Record<string, string> = {
   "grpc-web": "gRPC-Web",
   grpc: "gRPC",
-  sdk: "SDK",
+  sdk: "JS-SDK",
   rest: "REST",
 };
 

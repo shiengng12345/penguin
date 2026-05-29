@@ -13,7 +13,7 @@ function detectProtocol(spec: string): "grpc-web" | "grpc" | "sdk" | null {
 const PROTOCOL_LABELS: Record<string, string> = {
   "grpc-web": "gRPC-Web",
   grpc: "gRPC",
-  sdk: "SDK",
+  sdk: "JS-SDK",
   rest: "REST",
 };
 
