@@ -26,13 +26,15 @@ test("tab plus button opens the same new request dialog", async () => {
 test("new request dialog offers Penguin request types and creates protocol tabs", async () => {
   const source = await readFile(new URL("../src/components/request/NewRequestDialog.tsx", import.meta.url), "utf8");
 
-  for (const label of ["gRPC-Web", "gRPC", "JS-SDK", "REST"]) {
+  for (const label of ["gRPC-Web", "gRPC", "JS-SDK"]) {
     assert.match(source, new RegExp(label));
   }
+  assert.doesNotMatch(source, /protocol: "rest"/);
+  assert.doesNotMatch(source, /REST Request/);
   assert.match(source, /addTab\(option.protocol\)/);
 });
 
-test("new request dialog orders transport types with REST last", async () => {
+test("new request dialog hides REST while the feature is disabled", async () => {
   const source = await readFile(new URL("../src/components/request/NewRequestDialog.tsx", import.meta.url), "utf8");
 
   const grpcWeb = source.indexOf('protocol: "grpc-web"');
@@ -43,7 +45,7 @@ test("new request dialog orders transport types with REST last", async () => {
   assert.ok(grpcWeb > -1);
   assert.ok(grpc > grpcWeb);
   assert.ok(sdk > grpc);
-  assert.ok(rest > sdk);
+  assert.equal(rest, -1);
 });
 
 test("new request dialog uses option titles as accessible button labels", async () => {
@@ -96,4 +98,25 @@ test("method command search omits REST because REST has no indexed methods", asy
   assert.match(source, /\["all", "grpc-web", "grpc", "sdk"\]/);
   assert.doesNotMatch(source, /\["all", "grpc-web", "grpc", "sdk", "rest"\]/);
   assert.doesNotMatch(source, /rest: \[\]/);
+});
+
+test("protocol cycling skips REST while the feature is disabled", async () => {
+  const source = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const start = source.indexOf("  const handleCycleProtocol");
+  const end = source.indexOf("  const handleInstall", start);
+  const handler = source.slice(start, end);
+
+  assert.match(handler, /const order = \["grpc-web", "grpc", "sdk"\] as const/);
+  assert.doesNotMatch(handler, /"rest"/);
+});
+
+test("cURL import fills the current visible protocol instead of creating REST", async () => {
+  const source = await readFile(new URL("../src/components/environment/CurlImport.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /const targetProtocol = visibleProtocolForTab/);
+  assert.match(source, /getDefaultHeadersForProtocol\(targetProtocol\)/);
+  assert.doesNotMatch(source, /protocolTab: "rest"/);
+  assert.doesNotMatch(source, /saveRestEnvironment/);
+  assert.doesNotMatch(source, /getDefaultHeadersForProtocol\("rest"\)/);
+  assert.doesNotMatch(source, /REST tab/);
 });

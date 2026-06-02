@@ -102,8 +102,10 @@ export function SavedRequestsPanel({
   const listRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
 
+  const visibleSavedRequests = savedRequests.filter((r) => r.protocol !== "rest");
+
   const filtered = query.trim()
-    ? savedRequests.filter((r) => {
+    ? visibleSavedRequests.filter((r) => {
         const q = query.toLowerCase();
         return (
           r.name.toLowerCase().includes(q) ||
@@ -113,7 +115,7 @@ export function SavedRequestsPanel({
           r.url.toLowerCase().includes(q)
         );
       })
-    : savedRequests;
+    : visibleSavedRequests;
 
   const restoreEntry = (entry: SavedRequest) => {
     openSavedRequest(entry);

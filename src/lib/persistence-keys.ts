@@ -11,6 +11,11 @@ export const APP_VALUE_KEYS = {
   savedRequests: "penguin-saved-requests",
   defaultHeaders: "penguin-default-headers",
   cacheVersion: "penguin-cache-version",
+  remoteConfigCache: "penguin-remote-config-cache",
+  remoteConfigLastPulledAt: "penguin-remote-config-last-pulled-at",
+  remoteConfigSource: "penguin-remote-config-source",
+  updateLastCheckedAt: "penguin-update-last-checked-at",
+  updateDismissedVersion: "penguin-update-dismissed-version",
 } as const;
 
 export const ENVIRONMENT_VALUE_KEYS: Record<PersistedProtocol, string> = {

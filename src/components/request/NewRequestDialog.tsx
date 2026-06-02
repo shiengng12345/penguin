@@ -2,7 +2,6 @@ import { useEffect, useRef } from "react";
 import {
   Box,
   Braces,
-  Globe,
   Network,
   Server,
   X,
@@ -10,7 +9,7 @@ import {
 } from "lucide-react";
 import {
   useAppStore,
-  type ProtocolTab,
+  type VisibleProtocolTab,
 } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +19,7 @@ interface NewRequestDialogProps {
 }
 
 interface RequestOption {
-  protocol: ProtocolTab;
+  protocol: VisibleProtocolTab;
   label: string;
   title: string;
   description: string;
@@ -52,14 +51,6 @@ const REQUEST_OPTIONS: RequestOption[] = [
     description: "Invoke @snsoft/js-sdk methods with the same env headers.",
     icon: Box,
     accent: "text-purple-500 border-purple-500/40 bg-purple-500/10",
-  },
-  {
-    protocol: "rest",
-    label: "REST",
-    title: "REST Request",
-    description: "Call an HTTP endpoint with method, headers, and body.",
-    icon: Globe,
-    accent: "text-cyan-500 border-cyan-500/40 bg-cyan-500/10",
   },
 ];
 
@@ -116,7 +107,7 @@ export function NewRequestDialog({ open, onClose }: NewRequestDialogProps) {
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-3">
           {REQUEST_OPTIONS.map((option, index) => {
             const Icon = option.icon;
             return (

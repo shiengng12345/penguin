@@ -31,6 +31,11 @@ Thumbs.db
 
 # Claude Code session data
 .claude/
+.superpowers/
+.playwright-mcp/
+
+# Local screenshot artifacts
+config-editor-*.png
 
 # Accidental shell redirect artifacts
 pengvi@*

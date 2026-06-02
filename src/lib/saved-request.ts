@@ -1,6 +1,7 @@
 import {
   getDefaultHeadersForProtocol,
   useAppStore,
+  visibleProtocolForTab,
   type RequestTab,
   type SavedRequest,
 } from "@/lib/store";
@@ -11,15 +12,16 @@ function getContentType(metadata: SavedRequest["metadata"]): string {
 }
 
 export function openSavedRequest(entry: SavedRequest): void {
-  useAppStore.getState().addTab(entry.protocol);
+  const targetProtocol = visibleProtocolForTab(entry.protocol);
+  useAppStore.getState().addTab(targetProtocol);
   const isRest = entry.protocol === "rest";
   const patch: Partial<RequestTab> = {
-    protocolTab: entry.protocol,
+    protocolTab: targetProtocol,
     targetUrl: entry.url,
     metadata:
       entry.metadata.length > 0
         ? entry.metadata
-        : getDefaultHeadersForProtocol(entry.protocol),
+        : getDefaultHeadersForProtocol(targetProtocol),
     requestBody: entry.requestBody,
     selectedPackage: isRest ? null : entry.packageName || null,
     selectedService: isRest ? null : entry.serviceName || null,

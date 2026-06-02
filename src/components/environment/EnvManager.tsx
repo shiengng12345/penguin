@@ -3,27 +3,24 @@ import {
   useAppStore,
   useActiveTab,
   ENV_COLORS,
+  visibleProtocolForTab,
   type Environment,
   type EnvVariable,
   type ProtocolTab,
+  type VisibleProtocolTab,
 } from "@/lib/store";
 import { generateEnvId } from "@/lib/environment-store";
 import { persistEnvironmentSnapshot } from "@/lib/environment-persistence";
-import {
-  configEnvsForProtocol,
-  fetchRemoteConfig,
-  mergeConfigEnvironments,
-} from "@/lib/config-sync";
+import { syncRemoteConfigForProtocol } from "@/lib/environment-sync";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Trash2, Edit, X, Save, Globe, Server, Box, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const PROTOCOL_TABS: { id: ProtocolTab; label: string; icon: typeof Globe }[] = [
+const PROTOCOL_TABS: { id: VisibleProtocolTab; label: string; icon: typeof Globe }[] = [
   { id: "grpc-web", label: "gRPC-Web", icon: Globe },
   { id: "grpc", label: "gRPC", icon: Server },
   { id: "sdk", label: "JS-SDK", icon: Box },
-  { id: "rest", label: "REST", icon: Globe },
 ];
 
 function envsForProtocolState(state: ReturnType<typeof useAppStore.getState>, protocol: ProtocolTab) {
@@ -124,7 +121,14 @@ function useEnvsForProtocol(protocol: ProtocolTab) {
 
 type PullStatus =
   | { kind: "idle" }
-  | { kind: "success"; added: number; skipped: number; conflicts: number }
+  | {
+      kind: "success";
+      added: number;
+      skipped: number;
+      conflicts: number;
+      conflictNames: string[];
+      pulledAt: string;
+    }
   | { kind: "error"; message: string };
 
 interface EnvManagerProps {
@@ -133,7 +137,9 @@ interface EnvManagerProps {
 
 export function EnvManager({ onClose }: EnvManagerProps) {
   const activeTab = useActiveTab();
-  const [selectedProtocol, setSelectedProtocol] = useState<ProtocolTab>(activeTab?.protocolTab ?? "grpc-web");
+  const [selectedProtocol, setSelectedProtocol] = useState<VisibleProtocolTab>(
+    visibleProtocolForTab(activeTab?.protocolTab ?? "grpc-web"),
+  );
   const {
     environments,
     activeEnvId,
@@ -155,19 +161,16 @@ export function EnvManager({ onClose }: EnvManagerProps) {
     setPullStatus({ kind: "idle" });
 
     try {
-      const config = await fetchRemoteConfig();
-      const configEnvs = configEnvsForProtocol(config, selectedProtocol);
-      const result = mergeConfigEnvironments(environments, configEnvs, selectedProtocol);
-      const nextActiveEnvId =
-        activeEnvId && result.environments.some((env) => env.id === activeEnvId)
-          ? activeEnvId
-          : result.environments[0]?.id ?? null;
+      const result = await syncRemoteConfigForProtocol({
+        protocol: selectedProtocol,
+        environments,
+        activeEnvId,
+      });
 
-      if (result.changed || nextActiveEnvId !== activeEnvId) {
+      if (result.changed) {
         const state = useAppStore.getState();
         setEnvsForProtocolState(state, selectedProtocol, result.environments);
-        setActiveEnvForProtocolState(state, selectedProtocol, nextActiveEnvId);
-        persistEnvironmentSnapshot(selectedProtocol, result.environments, nextActiveEnvId);
+        setActiveEnvForProtocolState(state, selectedProtocol, result.activeEnvId);
       }
 
       setPullStatus({
@@ -175,6 +178,8 @@ export function EnvManager({ onClose }: EnvManagerProps) {
         added: result.added.length,
         skipped: result.skipped.length,
         conflicts: result.conflicts.length,
+        conflictNames: result.conflictNames,
+        pulledAt: result.pulledAt,
       });
     } catch (error) {
       setPullStatus({
@@ -327,9 +332,16 @@ export function EnvManager({ onClose }: EnvManagerProps) {
               {isPullingConfig ? "Pulling..." : "Pull Latest Config"}
             </Button>
             {pullStatus.kind === "success" && (
-              <p className="text-xs text-muted-foreground">
-                Added {pullStatus.added} · Unchanged {pullStatus.skipped} · Local kept {pullStatus.conflicts}
-              </p>
+              <div className="space-y-1 text-xs text-muted-foreground">
+                <p>
+                  Synced {new Date(pullStatus.pulledAt).toLocaleTimeString()} · Added {pullStatus.added} · Unchanged {pullStatus.skipped} · Local kept {pullStatus.conflicts}
+                </p>
+                {pullStatus.conflictNames.length > 0 && (
+                  <p className="truncate">
+                    Local kept: {pullStatus.conflictNames.join(", ")}
+                  </p>
+                )}
+              </div>
             )}
             {pullStatus.kind === "error" && (
               <p className="text-xs text-destructive">

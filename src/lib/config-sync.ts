@@ -39,6 +39,13 @@ export interface ConfigSyncResult {
   changed: boolean;
 }
 
+export interface RemoteConfigCacheSnapshot {
+  version: 1;
+  source: string;
+  pulledAt: string;
+  config: ConfigShape;
+}
+
 export const REMOTE_CONFIG_URL =
   "https://raw.githubusercontent.com/shiengng12345/penguin/main/config/penguin.remote-config.json";
 
@@ -65,6 +72,22 @@ function variablesFromRecord(variables?: Record<string, string>): EnvVariable[] 
   return Object.entries(variables ?? {}).map(([key, value]) => ({ key, value }));
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isPlainObject(value) && Object.values(value).every((entry) => typeof entry === "string");
+}
+
+function isConfigEnvironment(value: unknown): value is ConfigEnvironment {
+  if (!isPlainObject(value)) return false;
+  if (typeof value.name !== "string" || value.name.trim().length === 0) return false;
+  if (value.color !== undefined && typeof value.color !== "string") return false;
+  if (value.variables !== undefined && !isStringRecord(value.variables)) return false;
+  return true;
+}
+
 function variablesKey(variables: EnvVariable[]): string {
   return variables
     .map((entry) => [entry.key.trim(), entry.value] as const)
@@ -75,16 +98,17 @@ function variablesKey(variables: EnvVariable[]): string {
 }
 
 export function parseConfig(raw: string): ConfigShape {
-  const parsed = JSON.parse(raw) as ConfigShape;
-  return parsed && typeof parsed === "object" ? parsed : {};
+  const parsed = JSON.parse(raw);
+  return isPlainObject(parsed) ? (parsed as ConfigShape) : {};
 }
 
 export function configEnvsForProtocol(
   config: ConfigShape,
   protocol: ConfigProtocol,
 ): ConfigEnvironment[] {
-  const environments = config[protocol]?.environments;
-  return Array.isArray(environments) ? environments : [];
+  const section = config[protocol];
+  if (!isPlainObject(section) || !Array.isArray(section.environments)) return [];
+  return section.environments.filter(isConfigEnvironment);
 }
 
 export function configEnvToEnvironment(
@@ -112,6 +136,8 @@ export function mergeConfigEnvironments(
   const conflicts: ConfigSyncConflict[] = [];
 
   for (const cfg of configEnvs) {
+    if (!isConfigEnvironment(cfg)) continue;
+
     const remote = configEnvToEnvironment(cfg, protocol);
     const local = byName.get(normalizeName(remote.name));
     if (!local) {
@@ -148,4 +174,36 @@ export async function fetchRemoteConfig(
     throw new Error(`Failed to pull latest config: ${status}${statusText}`);
   }
   return parseConfig(await response.text());
+}
+
+export function createRemoteConfigCacheSnapshot(
+  config: ConfigShape,
+  options: { source?: string; pulledAt?: string } = {},
+): RemoteConfigCacheSnapshot {
+  return {
+    version: 1,
+    source: options.source ?? REMOTE_CONFIG_URL,
+    pulledAt: options.pulledAt ?? new Date().toISOString(),
+    config,
+  };
+}
+
+export function parseRemoteConfigCacheSnapshot(
+  raw: string | null | undefined,
+): RemoteConfigCacheSnapshot | null {
+  if (!raw?.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<RemoteConfigCacheSnapshot>;
+    if (
+      parsed?.version !== 1
+      || typeof parsed.source !== "string"
+      || typeof parsed.pulledAt !== "string"
+      || !isPlainObject(parsed.config)
+    ) {
+      return null;
+    }
+    return parsed as RemoteConfigCacheSnapshot;
+  } catch {
+    return null;
+  }
 }

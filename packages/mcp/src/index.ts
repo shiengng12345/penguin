@@ -41,8 +41,16 @@ import {
   nodeSidecarRunner,
   uninstallPackageViaNpm,
 } from "./runners.js";
+import {
+  desktopStateStatus,
+  readDefaultHeaders,
+  readRequestHistory,
+  readSavedRequests,
+  type DesktopProtocol,
+} from "./app-db.js";
 
 const PROTOCOLS: readonly Protocol[] = ["grpc-web", "grpc", "sdk"] as const;
+const DESKTOP_PROTOCOLS: readonly DesktopProtocol[] = ["grpc-web", "grpc", "sdk", "rest"] as const;
 
 function asMetadata(headers: Record<string, string> | undefined): MetadataEntry[] {
   if (!headers) return [];
@@ -51,7 +59,7 @@ function asMetadata(headers: Record<string, string> | undefined): MetadataEntry[
 
 // Map environment variables to the conventional HTTP headers backend services
 // expect. Penguin's desktop UI lets users override default headers in the
-// localStorage-backed Settings panel — those overrides aren't visible here,
+// desktop Settings panel — those overrides are stored in the app database and aren't visible here,
 // so we only emit headers derivable from the config-declared variables.
 function buildDefaultHeaders(variables: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
@@ -479,6 +487,43 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: "get_default_headers",
+      description:
+        "Read desktop default request headers from the SQLite app database. Optional protocol filter includes rest.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          protocol: { type: "string", enum: [...DESKTOP_PROTOCOLS] },
+        },
+      },
+    },
+    {
+      name: "list_saved_requests",
+      description:
+        "Read saved requests from Penguin's SQLite database. Returns replayable request metadata and a capped request body preview.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          protocol: { type: "string", enum: [...DESKTOP_PROTOCOLS] },
+          query: { type: "string", description: "Substring match against name, method, service, package, URL, or body" },
+          limit: { type: "number", description: "Max saved requests to return (default 20, max 100)" },
+        },
+      },
+    },
+    {
+      name: "search_request_history",
+      description:
+        "Search recent request history persisted in the SQLite app database. Useful for finding a prior call and replaying it with call_method.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          protocol: { type: "string", enum: [...DESKTOP_PROTOCOLS] },
+          query: { type: "string", description: "Substring match against method, service, package, URL, or body" },
+          limit: { type: "number", description: "Max history entries to return (default 20, max 100)" },
+        },
+      },
+    },
+    {
       name: "compare_environments",
       description:
         "Invoke the same RPC across multiple environments and return all responses side-by-side. The AI can then diff them. Routing fields work the same as call_method.",
@@ -559,6 +604,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         nodeVersion: process.version,
         platform: process.platform,
         cwd: process.cwd(),
+        desktopState: desktopStateStatus(),
         protocols,
       });
     }
@@ -728,6 +774,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return jsonResult(out);
     }
 
+    if (name === "get_default_headers") {
+      const protocol = a.protocol as DesktopProtocol | undefined;
+      return jsonResult({
+        sqlite: desktopStateStatus(),
+        headers: readDefaultHeaders({ protocol }),
+      });
+    }
+
+    if (name === "list_saved_requests") {
+      return jsonResult({
+        sqlite: desktopStateStatus(),
+        requests: readSavedRequests({
+          protocol: a.protocol as DesktopProtocol | undefined,
+          query: a.query as string | undefined,
+          limit: a.limit as number | undefined,
+        }),
+      });
+    }
+
+    if (name === "search_request_history") {
+      return jsonResult({
+        sqlite: desktopStateStatus(),
+        history: readRequestHistory({
+          protocol: a.protocol as DesktopProtocol | undefined,
+          query: a.query as string | undefined,
+          limit: a.limit as number | undefined,
+        }),
+      });
+    }
+
     if (name === "compare_environments") {
       const protocol = a.protocol as Protocol;
       const envNames = (a.environmentNames as string[]) ?? [];
@@ -804,7 +880,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     throw new Error(
-      `Unknown tool: ${name}. Valid tools: mcp_health, search_methods, list_packages, list_methods, describe_method, describe_service, install_package, uninstall_package, list_environments, resolve_environment, package_status, compare_environments, call_method.`,
+      `Unknown tool: ${name}. Valid tools: mcp_health, search_methods, list_packages, list_methods, describe_method, describe_service, install_package, uninstall_package, list_environments, resolve_environment, package_status, get_default_headers, list_saved_requests, search_request_history, compare_environments, call_method.`,
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

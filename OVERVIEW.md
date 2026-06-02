@@ -18,7 +18,7 @@ Penguin（产品名：**Penguin**）是一款专为测试 **gRPC**、**gRPC-Web*
 | Layer / 层级 | Technology / 技术 |
 |---|---|
 | UI | React 19, TypeScript 5.7, Tailwind CSS 4, CodeMirror 6 |
-| State / 状态管理 | Zustand 5（持久化至 localStorage） |
+| State / 状态管理 | Zustand 5（通过 Tauri 持久化至 SQLite） |
 | gRPC-Web | @connectrpc/connect-web 1.5 + protobufjs 7 |
 | gRPC Native / 原生 gRPC | Node.js sidecar via Tauri shell（HTTP/2，支持双向流） |
 | SDK | Node.js sidecar + 动态 `.d.ts` 解析 |

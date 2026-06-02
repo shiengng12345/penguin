@@ -1,10 +1,9 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
-import { check, type Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { logger } from "@/lib/logger";
-import { useAppStore, type ProtocolTab, type MetadataEntry } from "@/lib/store";
+import { useAppStore, type ProtocolTab, type VisibleProtocolTab, type MetadataEntry } from "@/lib/store";
+import type { AppUpdateController } from "@/hooks/useAppUpdateScheduler";
 import { setPersistedValue } from "@/lib/app-persistence";
 import { persistEnvironmentSnapshot } from "@/lib/environment-persistence";
 import { APP_VALUE_KEYS } from "@/lib/persistence-keys";
@@ -31,14 +30,15 @@ import {
   RotateCcw,
   Plug,
   Sparkles,
+  Settings2,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const PROTOCOL_TABS: { id: ProtocolTab; label: string; icon: typeof Globe }[] = [
+const PROTOCOL_TABS: { id: VisibleProtocolTab; label: string; icon: typeof Globe }[] = [
   { id: "grpc-web", label: "gRPC-Web", icon: Globe },
   { id: "grpc", label: "gRPC", icon: Server },
   { id: "sdk", label: "JS-SDK", icon: Box },
-  { id: "rest", label: "REST", icon: Globe },
 ];
 
 function envsForProtocol(protocol: ProtocolTab, s: ReturnType<typeof useAppStore.getState>) {
@@ -66,11 +66,15 @@ const HISTORY_SIZES = [100, 200, 500, 1000];
 interface SettingsDialogProps {
   onClose: () => void;
   onOpenEnvManager: () => void;
+  appUpdate: AppUpdateController;
+  onPackagesCleared: () => Promise<void>;
 }
 
 export function SettingsDialog({
   onClose,
   onOpenEnvManager,
+  appUpdate,
+  onPackagesCleared,
 }: SettingsDialogProps) {
   const [clearing, setClearing] = useState(false);
   const [cleared, setCleared] = useState(false);
@@ -78,7 +82,7 @@ export function SettingsDialog({
   const [importText, setImportText] = useState("");
   const [importStatus, setImportStatus] = useState<"idle" | "success" | "error">("idle");
   const [copied, setCopied] = useState(false);
-  const [headerProtocol, setHeaderProtocol] = useState<ProtocolTab>("grpc-web");
+  const [headerProtocol, setHeaderProtocol] = useState<VisibleProtocolTab>("grpc-web");
   const [editingName, setEditingName] = useState(false);
   const exportRef = useRef<HTMLTextAreaElement>(null);
 
@@ -173,70 +177,10 @@ export function SettingsDialog({
     setCopiedState(true);
     setTimeout(() => setCopiedState(false), 2000);
   };
-  const [updateStatus, setUpdateStatus] = useState<
-    "idle" | "checking" | "available" | "up-to-date" | "downloading" | "ready" | "error"
-  >("idle");
-  const [updateInfo, setUpdateInfo] = useState<Update | null>(null);
-  const [updateError, setUpdateError] = useState<string>("");
-  const [downloadProgress, setDownloadProgress] = useState(0);
-
-  useState(() => {
+  useEffect(() => {
     getVersion().then(setAppVersion).catch(() => setAppVersion("unknown"));
     refreshMcpStatus();
-  });
-
-  const handleCheckUpdate = useCallback(async () => {
-    setUpdateStatus("checking");
-    setUpdateError("");
-    try {
-      const update = await check();
-      if (update) {
-        setUpdateInfo(update);
-        setUpdateStatus("available");
-      } else {
-        setUpdateStatus("up-to-date");
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const normalized = msg.toLowerCase();
-      const friendlyError =
-        normalized.includes("fetch") || normalized.includes("release") || normalized.includes("remote")
-          ? "Unable to reach the update feed. Publish the GitHub release and make sure latest.json is reachable."
-          : msg;
-      setUpdateError(friendlyError);
-      setUpdateStatus("error");
-    }
-  }, []);
-
-  const handleDownloadAndInstall = useCallback(async () => {
-    if (!updateInfo) return;
-    setUpdateStatus("downloading");
-    setDownloadProgress(0);
-    try {
-      let totalLen = 0;
-      let downloaded = 0;
-      await updateInfo.downloadAndInstall((event) => {
-        if (event.event === "Started" && event.data.contentLength) {
-          totalLen = event.data.contentLength;
-        } else if (event.event === "Progress") {
-          downloaded += event.data.chunkLength;
-          if (totalLen > 0) {
-            setDownloadProgress(Math.round((downloaded / totalLen) * 100));
-          }
-        } else if (event.event === "Finished") {
-          setDownloadProgress(100);
-        }
-      });
-      setUpdateStatus("ready");
-    } catch (err) {
-      setUpdateError(err instanceof Error ? err.message : String(err));
-      setUpdateStatus("error");
-    }
-  }, [updateInfo]);
-
-  const handleRelaunch = useCallback(async () => {
-    await relaunch();
-  }, []);
+  }, [refreshMcpStatus]);
 
   const currentHeaders = defaultHeaders[headerProtocol];
 
@@ -245,8 +189,9 @@ export function SettingsDialog({
     setCleared(false);
     try {
       await invoke<string>("clear_all_packages");
+      await onPackagesCleared();
       setCleared(true);
-      window.location.reload();
+      setClearing(false);
     } catch (err) {
       logger.error("SettingsDialog", "clear_all_packages failed", err);
       setClearing(false);
@@ -454,26 +399,26 @@ export function SettingsDialog({
             </p>
 
             <div className="mt-3">
-              {updateStatus === "idle" && (
+              {appUpdate.status === "idle" && (
                 <Button
                   variant="outline"
                   size="sm"
                   className="w-full"
-                  onClick={handleCheckUpdate}
+                  onClick={appUpdate.checkNow}
                 >
                   <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
                   Check for Updates
                 </Button>
               )}
 
-              {updateStatus === "checking" && (
+              {appUpdate.status === "checking" && (
                 <Button variant="outline" size="sm" className="w-full" disabled>
                   <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                   Checking...
                 </Button>
               )}
 
-              {updateStatus === "up-to-date" && (
+              {appUpdate.status === "up-to-date" && (
                 <div className="flex items-center justify-between">
                   <span className="flex items-center gap-1.5 text-xs text-green-500">
                     <CheckCircle className="h-3.5 w-3.5" />
@@ -483,22 +428,22 @@ export function SettingsDialog({
                     variant="ghost"
                     size="sm"
                     className="h-7 text-xs text-muted-foreground"
-                    onClick={handleCheckUpdate}
+                    onClick={appUpdate.checkNow}
                   >
                     Check again
                   </Button>
                 </div>
               )}
 
-              {updateStatus === "available" && updateInfo && (
+              {appUpdate.status === "available" && appUpdate.updateVersion && (
                 <div className="space-y-2">
                   <p className="text-xs text-foreground">
-                    New version <span className="font-mono font-semibold">{updateInfo.version}</span> is available.
+                    New version <span className="font-mono font-semibold">{appUpdate.updateVersion}</span> is available.
                   </p>
                   <Button
                     size="sm"
                     className="w-full"
-                    onClick={handleDownloadAndInstall}
+                    onClick={appUpdate.downloadAndInstall}
                   >
                     <Download className="mr-1.5 h-3.5 w-3.5" />
                     Download & Install
@@ -506,46 +451,46 @@ export function SettingsDialog({
                 </div>
               )}
 
-              {updateStatus === "downloading" && (
+              {appUpdate.status === "downloading" && (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
                     <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
                     <span className="text-xs text-foreground">
-                      Downloading... {downloadProgress}%
+                      Downloading... {appUpdate.downloadProgress}%
                     </span>
                   </div>
                   <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
                     <div
                       className="h-full rounded-full bg-primary transition-all duration-300"
-                      style={{ width: `${downloadProgress}%` }}
+                      style={{ width: `${appUpdate.downloadProgress}%` }}
                     />
                   </div>
                 </div>
               )}
 
-              {updateStatus === "ready" && (
+              {appUpdate.status === "ready" && (
                 <div className="space-y-2">
                   <p className="flex items-center gap-1.5 text-xs text-green-500">
                     <CheckCircle className="h-3.5 w-3.5" />
                     Update installed! Restart to apply.
                   </p>
-                  <Button size="sm" className="w-full" onClick={handleRelaunch}>
+                  <Button size="sm" className="w-full" onClick={appUpdate.restart}>
                     <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
                     Restart Now
                   </Button>
                 </div>
               )}
 
-              {updateStatus === "error" && (
+              {appUpdate.status === "error" && (
                 <div className="space-y-2">
                   <p className="text-xs text-destructive">
-                    Update check failed: {updateError}
+                    Update check failed: {appUpdate.updateError}
                   </p>
                   <Button
                     variant="outline"
                     size="sm"
                     className="w-full"
-                    onClick={handleCheckUpdate}
+                    onClick={appUpdate.checkNow}
                   >
                     <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
                     Try Again
@@ -901,13 +846,27 @@ export function SettingsDialog({
           {/* Manage Environments */}
           <Button
             variant="outline"
-            className="w-full"
+            className="group h-auto w-full justify-between border-primary/30 bg-primary/5 p-4 text-left hover:border-primary/60 hover:bg-primary/10"
             onClick={() => {
               onClose();
               onOpenEnvManager();
             }}
+            aria-label="Open environment manager"
           >
-            Manage Environments / 管理环境
+            <span className="flex min-w-0 items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-primary/30 bg-primary/10 text-primary">
+                <Settings2 className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-foreground">
+                  Manage Environments / 管理环境
+                </span>
+                <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                  Edit URLs, tokens, and shared variables
+                </span>
+              </span>
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
           </Button>
 
           {/* Clear Cache */}

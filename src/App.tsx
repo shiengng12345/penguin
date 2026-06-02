@@ -1,10 +1,12 @@
 import { useEffect, useCallback, useState, lazy, Suspense } from "react";
 import { protocolFromSnsoftPackageSpec } from "@penguin/core";
-import { useAppStore, useActiveTab, getDefaultHeadersForProtocol, type ProtocolTab } from "@/lib/store";
+import { useAppStore, useActiveTab, getDefaultHeadersForProtocol, visibleProtocolForTab, type ProtocolTab } from "@/lib/store";
 import { usePackages } from "@/hooks/usePackages";
 import { useEnvironments } from "@/hooks/useEnvironments";
+import { useAppUpdateScheduler } from "@/hooks/useAppUpdateScheduler";
 import { interpolate } from "@/lib/environment-store";
 import { Header } from "@/components/layout/Header";
+import { UpdateNotification } from "@/components/layout/UpdateNotification";
 import { TabBar } from "@/components/layout/TabBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { UrlBar } from "@/components/layout/UrlBar";
@@ -32,6 +34,8 @@ export default function App() {
   const {
     activeTabId,
     removeTab,
+    resetPackageTabs,
+    sanitizeHiddenRestTabs,
     updateActiveTab,
     isInstallerOpen,
     setInstallerOpen,
@@ -55,6 +59,16 @@ export default function App() {
   const [networkOpen, setNetworkOpen] = useState(false);
   const [curlImportOpen, setCurlImportOpen] = useState(false);
   const [protoViewerOpen, setProtoViewerOpen] = useState(false);
+  const openSettings = useCallback(() => setSettingsOpen(true), []);
+  const appUpdate = useAppUpdateScheduler(openSettings);
+  const handlePackagesCleared = useCallback(async () => {
+    resetPackageTabs();
+    await refresh();
+  }, [refresh, resetPackageTabs]);
+
+  useEffect(() => {
+    sanitizeHiddenRestTabs();
+  }, [sanitizeHiddenRestTabs]);
 
   const resolvedUrl = activeEnv
     ? interpolate(activeTab?.targetUrl ?? "", activeEnv)
@@ -63,8 +77,8 @@ export default function App() {
   const handleCycleProtocol = useCallback(() => {
     if (!activeTabId || !activeTab) return;
 
-    const order = ["grpc-web", "grpc", "sdk", "rest"] as const;
-    const idx = order.indexOf(activeTab.protocolTab);
+    const order = ["grpc-web", "grpc", "sdk"] as const;
+    const idx = order.indexOf(visibleProtocolForTab(activeTab.protocolTab));
     const nextProtocol = order[(idx +1) % order.length];
 
     const allPkgs =
@@ -72,9 +86,7 @@ export default function App() {
         ? useAppStore.getState().grpcWebPackages
         : nextProtocol === "grpc"
           ? useAppStore.getState().grpcPackages
-          : nextProtocol === "sdk"
-            ? useAppStore.getState().sdkPackages
-            : [];
+          : useAppStore.getState().sdkPackages;
 
     const methodName = activeTab.selectedMethod?.name;
     let matchedMethod: typeof activeTab.selectedMethod = null;
@@ -99,20 +111,6 @@ export default function App() {
     }
 
     const newMetadata = getDefaultHeadersForProtocol(nextProtocol);
-    if (nextProtocol === "rest") {
-      updateActiveTab({
-        protocolTab: nextProtocol,
-        selectedPackage: null,
-        selectedService: null,
-        selectedMethod: null,
-        pathOverride: null,
-        restMethod: "POST",
-        restBodyMode: "json",
-        metadata: newMetadata,
-      });
-      return;
-    }
-
     if (matchedMethod) {
       updateActiveTab({
         protocolTab: nextProtocol,
@@ -285,7 +283,15 @@ export default function App() {
     <div className="penguin-app-shell relative h-screen w-screen overflow-hidden bg-background text-foreground">
       <SnowLayer active={theme === "antarctic-snow"} />
       <div className="relative z-10 flex h-full flex-col">
-        <Header onOpenSettings={() => setSettingsOpen(true)} />
+        <Header onOpenSettings={openSettings} appUpdate={appUpdate} />
+        <UpdateNotification
+          open={appUpdate.shouldShowToast}
+          updateVersion={appUpdate.updateVersion}
+          isWorking={appUpdate.status === "downloading"}
+          downloadProgress={appUpdate.downloadProgress}
+          onLater={appUpdate.dismiss}
+          onUpdate={appUpdate.downloadInstallAndRestart}
+        />
         <TabBar
           onCycleProtocol={handleCycleProtocol}
           onNewRequest={() => setNewRequestOpen(true)}
@@ -327,6 +333,8 @@ export default function App() {
             <SettingsDialog
               onClose={() => setSettingsOpen(false)}
               onOpenEnvManager={() => setEnvManagerOpen(true)}
+              appUpdate={appUpdate}
+              onPackagesCleared={handlePackagesCleared}
             />
           )}
           {envManagerOpen && (

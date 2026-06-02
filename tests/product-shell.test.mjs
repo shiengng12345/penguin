@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { test } from "node:test";
 
 test("app starts directly in request workspace without a Packages home page", async () => {
@@ -82,6 +83,7 @@ test("desktop persistence has SQLite commands for app state and saved requests",
 
 test("app state no longer writes browser storage from product surfaces", async () => {
   const productFiles = [
+    "../index.html",
     "../src/main.tsx",
     "../src/lib/store.ts",
     "../src/hooks/useEnvironments.ts",
@@ -102,4 +104,83 @@ test("version cache uses SQLite app values", async () => {
   assert.match(mainSource, /getAppValueFromDatabase/);
   assert.match(mainSource, /setAppValueInDatabase/);
   assert.doesNotMatch(mainSource, /localStorage/);
+});
+
+test("desktop app uses SQLite-backed persistence before rendering", async () => {
+  const mainSource = await readFile(new URL("../src/main.tsx", import.meta.url), "utf8");
+  const hydrateIndex = mainSource.indexOf("await hydratePersistedValues()");
+  const importIndex = mainSource.indexOf('await import("./App")');
+  const renderIndex = mainSource.indexOf("ReactDOM.createRoot");
+
+  assert.ok(hydrateIndex > -1, "main should hydrate persisted SQLite values");
+  assert.ok(importIndex > hydrateIndex, "App should load after SQLite hydration");
+  assert.ok(renderIndex > importIndex, "render should happen after App loads");
+  assert.doesNotMatch(mainSource, /import App from "\.\/App"/);
+});
+
+test("desktop product code only touches localStorage inside the legacy migration bridge", async () => {
+  const root = new URL("..", import.meta.url);
+  const allowed = new Set(["src/lib/app-persistence.ts"]);
+  const targets = ["index.html", "src"];
+  const offenders = [];
+
+  async function visit(relativePath) {
+    const url = new URL(relativePath, root);
+    if (relativePath.endsWith(".html") || relativePath.endsWith(".ts") || relativePath.endsWith(".tsx")) {
+      const source = await readFile(url, "utf8");
+      if (!allowed.has(relativePath) && /localStorage/.test(source)) {
+        offenders.push(relativePath);
+      }
+      return;
+    }
+
+    const entries = await readdir(url, { withFileTypes: true });
+    for (const entry of entries) {
+      const child = join(relativePath, entry.name);
+      if (entry.isDirectory()) {
+        await visit(child);
+      } else if (/\.(html|ts|tsx)$/.test(entry.name)) {
+        await visit(child);
+      }
+    }
+  }
+
+  for (const target of targets) {
+    await visit(target);
+  }
+
+  assert.deepEqual(offenders, []);
+});
+
+test("restored request tabs filter out hidden REST tabs", async () => {
+  const storeSource = await readFile(new URL("../src/lib/store.ts", import.meta.url), "utf8");
+  const start = storeSource.indexOf("function loadTabs");
+  const end = storeSource.indexOf("let _saveTabsTimer", start);
+  const loadTabsSource = storeSource.slice(start, end);
+
+  assert.match(loadTabsSource, /filter\(\(tab(?:: RequestTab)?\) => tab\.protocolTab !== "rest"\)/);
+});
+
+test("running app sanitizes already-open hidden REST tabs", async () => {
+  const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const storeSource = await readFile(new URL("../src/lib/store.ts", import.meta.url), "utf8");
+
+  assert.match(storeSource, /sanitizeHiddenRestTabs: \(\) => void/);
+  assert.match(storeSource, /sanitizeHiddenRestTabs: \(\) => \{/);
+  assert.match(appSource, /sanitizeHiddenRestTabs/);
+  assert.match(appSource, /sanitizeHiddenRestTabs\(\);/);
+});
+
+test("first-run and shortcut copy do not advertise hidden REST mode", async () => {
+  const visibleCopyFiles = [
+    "../src/components/onboarding/Welcome.tsx",
+    "../src/components/onboarding/Tutorial.tsx",
+    "../src/components/onboarding/InteractiveTutorial.tsx",
+    "../src/components/shortcuts/ShortcutCheatSheet.tsx",
+  ];
+
+  for (const file of visibleCopyFiles) {
+    const source = await readFile(new URL(file, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /REST/, file);
+  }
 });

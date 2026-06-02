@@ -43,7 +43,7 @@ export function Sidebar({ packages, onInstallClick, onUninstall, onUpdate }: Sid
   const [newVersion, setNewVersion] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const [sidebarView, setSidebarView] = useState<"packages" | "collections">("packages");
-  const collectionEntries = savedRequests;
+  const collectionEntries = savedRequests.filter((entry) => entry.protocol !== "rest");
 
   useEffect(() => {
     setExpandedPkgs(new Set());
@@ -223,7 +223,7 @@ export function Sidebar({ packages, onInstallClick, onUninstall, onUpdate }: Sid
               : "bg-muted/60 text-muted-foreground",
           )}
         >
-          {savedRequests.length}
+          {collectionEntries.length}
         </span>
       </button>
     </div>

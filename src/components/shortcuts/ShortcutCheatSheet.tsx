@@ -15,7 +15,7 @@ const SHORTCUTS = [
       { keys: "⌘ + Shift + S", description: "Save current request" },
       { keys: "⌘ + D", description: "Request as documentation" },
       { keys: "⌘ + P", description: "View proto definitions (request & response)" },
-      { keys: "⌘ + E", description: "Cycle protocol (gRPC-Web → gRPC → JS-SDK → REST)" },
+      { keys: "⌘ + E", description: "Cycle protocol (gRPC-Web → gRPC → JS-SDK)" },
     ],
   },
   {

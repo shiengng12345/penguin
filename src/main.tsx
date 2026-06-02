@@ -1,6 +1,5 @@
 import ReactDOM from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
-import App from "./App";
 import "./index.css";
 import pkg from "../package.json";
 import { getPersistedValue, hydratePersistedValues } from "./lib/app-persistence";
@@ -11,7 +10,6 @@ const APP_VERSION = pkg.version;
 const CACHE_VERSION_KEY = APP_VALUE_KEYS.cacheVersion;
 
 async function syncPackageCacheVersion(): Promise<void> {
-  await hydratePersistedValues();
   const lastVersion =
     getPersistedValue(CACHE_VERSION_KEY) ??
     await getAppValueFromDatabase(CACHE_VERSION_KEY);
@@ -22,6 +20,12 @@ async function syncPackageCacheVersion(): Promise<void> {
   }
 }
 
-void syncPackageCacheVersion();
+async function bootstrap(): Promise<void> {
+  await hydratePersistedValues();
+  await syncPackageCacheVersion();
+  const { default: App } = await import("./App");
 
-ReactDOM.createRoot(document.getElementById("root")!).render(<App />);
+  ReactDOM.createRoot(document.getElementById("root")!).render(<App />);
+}
+
+void bootstrap();

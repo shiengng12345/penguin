@@ -109,6 +109,72 @@ test("fetchRemoteConfig parses config JSON from a caller-provided fetch", async 
   assert.deepEqual(config["grpc-web"].environments, [remoteUat]);
 });
 
+test("remote config parser rejects non-object top-level JSON", async () => {
+  const { parseConfig } = await loadConfigSyncModule();
+
+  assert.deepEqual(parseConfig(JSON.stringify([{ "grpc-web": { environments: [remoteUat] } }])), {});
+  assert.deepEqual(parseConfig(JSON.stringify(null)), {});
+});
+
+test("remote config environments filter malformed entries before merge", async () => {
+  const { configEnvsForProtocol, mergeConfigEnvironments } = await loadConfigSyncModule();
+  const config = {
+    "grpc-web": {
+      environments: [
+        remoteUat,
+        { color: "red", variables: { URL: "https://missing-name.example.test" } },
+        { name: "   ", variables: { URL: "https://blank-name.example.test" } },
+        { name: "Bad Variables", variables: "URL=https://bad-vars.example.test" },
+      ],
+    },
+  };
+
+  const envs = configEnvsForProtocol(config, "grpc-web");
+  const result = mergeConfigEnvironments([], envs, "grpc-web");
+
+  assert.deepEqual(envs, [remoteUat]);
+  assert.deepEqual(result.added, ["UAT"]);
+  assert.equal(result.environments.length, 1);
+});
+
+test("remote config cache snapshot preserves pulled JSON with source metadata", async () => {
+  const {
+    createRemoteConfigCacheSnapshot,
+    parseRemoteConfigCacheSnapshot,
+  } = await loadConfigSyncModule();
+  const config = { "grpc-web": { environments: [remoteUat] } };
+  const pulledAt = "2026-05-30T10:49:00.000Z";
+  const source = "https://example.test/penguin.remote-config.json";
+
+  const snapshot = createRemoteConfigCacheSnapshot(config, { pulledAt, source });
+  const parsed = parseRemoteConfigCacheSnapshot(JSON.stringify(snapshot));
+
+  assert.deepEqual(snapshot, {
+    version: 1,
+    source,
+    pulledAt,
+    config,
+  });
+  assert.deepEqual(parsed, snapshot);
+});
+
+test("remote config cache persists through SQLite-backed app values", async () => {
+  const keysSource = await readFile(new URL("../src/lib/persistence-keys.ts", import.meta.url), "utf8");
+  const persistenceSource = await readFile(new URL("../src/lib/remote-config-persistence.ts", import.meta.url), "utf8");
+  const syncSource = await readFile(new URL("../src/lib/environment-sync.ts", import.meta.url), "utf8");
+
+  assert.match(keysSource, /remoteConfigCache:\s*"penguin-remote-config-cache"/);
+  assert.match(keysSource, /remoteConfigLastPulledAt:\s*"penguin-remote-config-last-pulled-at"/);
+  assert.match(keysSource, /remoteConfigSource:\s*"penguin-remote-config-source"/);
+  assert.match(persistenceSource, /setPersistedValue\(APP_VALUE_KEYS\.remoteConfigCache/);
+  assert.match(persistenceSource, /setPersistedValue\(APP_VALUE_KEYS\.remoteConfigLastPulledAt/);
+  assert.match(persistenceSource, /setPersistedValue\(APP_VALUE_KEYS\.remoteConfigSource/);
+  assert.match(persistenceSource, /parseRemoteConfigCacheSnapshot/);
+  assert.match(syncSource, /persistRemoteConfigSnapshot/);
+  assert.match(syncSource, /mergeConfigEnvironments/);
+  assert.match(syncSource, /persistEnvironmentSnapshot/);
+});
+
 test("remote config file exists and does not contain old QAT/UAT numbered presets", async () => {
   const raw = await readFile(new URL("../config/penguin.remote-config.json", import.meta.url), "utf8");
   const parsed = JSON.parse(raw);
@@ -129,7 +195,40 @@ test("environment manager exposes Pull Latest Config safe merge action", async (
   const source = await readFile(new URL("../src/components/environment/EnvManager.tsx", import.meta.url), "utf8");
 
   assert.match(source, /Pull Latest Config/);
-  assert.match(source, /fetchRemoteConfig/);
-  assert.match(source, /mergeConfigEnvironments/);
+  assert.match(source, /syncRemoteConfigForProtocol/);
   assert.match(source, /conflicts/);
+});
+
+test("environment manager visible protocol tabs hide REST while the feature is disabled", async () => {
+  const source = await readFile(new URL("../src/components/environment/EnvManager.tsx", import.meta.url), "utf8");
+  const start = source.indexOf("const PROTOCOL_TABS");
+  const end = source.indexOf("function envsForProtocolState", start);
+  const visibleTabs = source.slice(start, end);
+
+  assert.match(visibleTabs, /id: "grpc-web"/);
+  assert.match(visibleTabs, /id: "grpc"/);
+  assert.match(visibleTabs, /id: "sdk"/);
+  assert.doesNotMatch(visibleTabs, /id: "rest"/);
+  assert.doesNotMatch(visibleTabs, /label: "REST"/);
+});
+
+test("header exposes one-click current protocol config sync", async () => {
+  const source = await readFile(new URL("../src/components/layout/Header.tsx", import.meta.url), "utf8");
+  const buttonIndex = source.indexOf('aria-label="Sync Environment Config"');
+  const protocolBadgeIndex = source.indexOf('{protocolName}');
+  const envSelectIndex = source.indexOf('placeholder="Environment / 环境"');
+  const themeButtonIndex = source.indexOf('title="Theme / 主题"');
+
+  assert.match(source, /RefreshCw/);
+  assert.match(source, /syncRemoteConfigForProtocol/);
+  assert.match(source, /setEnvsForProtocolState/);
+  assert.match(source, /Sync Environment Config/);
+  assert.ok(buttonIndex > -1, "header should expose a sync config button");
+  assert.ok(protocolBadgeIndex > -1, "header should render the protocol badge");
+  assert.ok(envSelectIndex > -1, "header should render the environment selector");
+  assert.ok(themeButtonIndex > -1, "header should render the theme button");
+  assert.ok(buttonIndex > protocolBadgeIndex, "sync config button should appear after the protocol badge");
+  assert.ok(buttonIndex > envSelectIndex, "sync config button should appear after the environment selector");
+  assert.ok(buttonIndex < themeButtonIndex, "sync config button should appear before the theme button");
+  assert.match(source, /className="h-8 w-8 shrink-0"/);
 });

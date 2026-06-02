@@ -1,6 +1,13 @@
 import { useState, useEffect } from "react";
 import { generateEnvId } from "@/lib/environment-store";
-import { getDefaultHeadersForProtocol, useAppStore, useActiveTab, type RequestTab } from "@/lib/store";
+import {
+  getDefaultHeadersForProtocol,
+  useAppStore,
+  useActiveTab,
+  visibleProtocolForTab,
+  type RequestTab,
+  type VisibleProtocolTab,
+} from "@/lib/store";
 import type { Environment } from "@/lib/store";
 import { persistEnvironmentSnapshot } from "@/lib/environment-persistence";
 import { inferRestBodyMode, toRestMethod } from "@/lib/rest";
@@ -174,12 +181,26 @@ function envBaseUrl(url: string): string {
   }
 }
 
-function saveRestEnvironment(env: Environment): void {
+function saveEnvironmentForProtocol(protocol: VisibleProtocolTab, env: Environment): void {
   const state = useAppStore.getState();
-  const next = [...state.restEnvironments, env];
-  state.setRestEnvironments(next);
-  state.setRestActiveEnvId(env.id);
-  persistEnvironmentSnapshot("rest", next, env.id);
+  if (protocol === "grpc-web") {
+    const next = [...state.grpcWebEnvironments, env];
+    state.setGrpcWebEnvironments(next);
+    state.setGrpcWebActiveEnvId(env.id);
+    persistEnvironmentSnapshot(protocol, next, env.id);
+    return;
+  }
+  if (protocol === "grpc") {
+    const next = [...state.grpcEnvironments, env];
+    state.setGrpcEnvironments(next);
+    state.setGrpcActiveEnvId(env.id);
+    persistEnvironmentSnapshot(protocol, next, env.id);
+    return;
+  }
+  const next = [...state.sdkEnvironments, env];
+  state.setSdkEnvironments(next);
+  state.setSdkActiveEnvId(env.id);
+  persistEnvironmentSnapshot(protocol, next, env.id);
 }
 
 export function CurlImport({ open, onClose }: CurlImportProps) {
@@ -256,12 +277,13 @@ export function CurlImport({ open, onClose }: CurlImportProps) {
           : []),
       ],
     };
-    saveRestEnvironment(env);
+    saveEnvironmentForProtocol(visibleProtocolForTab(tab?.protocolTab), env);
     setCreated(true);
   };
 
-  const buildPatch = (): Partial<RequestTab> => {
+  const buildPatch = (protocol?: VisibleProtocolTab): Partial<RequestTab> => {
     if (!parsed) return {};
+    const targetProtocol = protocol ?? visibleProtocolForTab(tab?.protocolTab);
     const hdrs = Object.entries(parsed.headers).map(([key, value]) => ({
       key,
       value,
@@ -269,13 +291,13 @@ export function CurlImport({ open, onClose }: CurlImportProps) {
     }));
 
     return {
-      protocolTab: "rest",
+      protocolTab: targetProtocol,
       targetUrl: parsed.url,
       pathOverride: null,
       restMethod: toRestMethod(parsed.method, "GET"),
       restBodyMode: inferRestBodyMode(parsed.body, getHeader(parsed.headers, "Content-Type")),
       requestBody: parsed.body,
-      metadata: hdrs.length > 0 ? hdrs : getDefaultHeadersForProtocol("rest"),
+      metadata: hdrs.length > 0 ? hdrs : getDefaultHeadersForProtocol(targetProtocol),
       selectedPackage: null,
       selectedService: null,
       selectedMethod: null,
@@ -291,9 +313,10 @@ export function CurlImport({ open, onClose }: CurlImportProps) {
 
   const handleFillNewTab = () => {
     if (!parsed) return;
+    const targetProtocol = visibleProtocolForTab(tab?.protocolTab);
     const { addTab } = useAppStore.getState();
-    addTab();
-    const patch = buildPatch();
+    addTab(targetProtocol);
+    const patch = buildPatch(targetProtocol);
     setTimeout(() => {
       useAppStore.getState().updateActiveTab(patch);
     }, 0);
@@ -439,7 +462,7 @@ export function CurlImport({ open, onClose }: CurlImportProps) {
                   </Button>
                 </div>
                 <p className="text-[10px] text-muted-foreground/70">
-                  Fill will create a REST tab with method, URL, headers, and body from the cURL command.
+                  Fill applies the parsed method, URL, headers, and body to the current protocol tab.
                 </p>
               </div>
             </>

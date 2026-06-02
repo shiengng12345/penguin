@@ -1,15 +1,24 @@
-import { useState, useMemo, memo } from "react";
-import { useAppStore, THEMES, ENV_COLORS } from "@/lib/store";
+import { useState, useMemo, useCallback, memo } from "react";
+import {
+  useAppStore,
+  THEMES,
+  ENV_COLORS,
+  type Environment,
+  type ProtocolTab,
+} from "@/lib/store";
 import { useEnvironments } from "@/hooks/useEnvironments";
 import { useGreeting } from "@/hooks/useGreeting";
 import { useClock } from "@/hooks/useClock";
+import type { AppUpdateController } from "@/hooks/useAppUpdateScheduler";
+import { syncRemoteConfigForProtocol } from "@/lib/environment-sync";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Palette, Settings, Clock } from "lucide-react";
+import { Palette, Settings, Clock, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface HeaderProps {
   onOpenSettings: () => void;
+  appUpdate: AppUpdateController;
 }
 
 const PROTOCOL_LABELS: Record<string, string> = {
@@ -18,6 +27,28 @@ const PROTOCOL_LABELS: Record<string, string> = {
   sdk: "JS-SDK",
   rest: "REST",
 };
+
+function setEnvsForProtocolState(
+  state: ReturnType<typeof useAppStore.getState>,
+  protocol: ProtocolTab,
+  environments: Environment[],
+): void {
+  if (protocol === "grpc-web") state.setGrpcWebEnvironments(environments);
+  else if (protocol === "grpc") state.setGrpcEnvironments(environments);
+  else if (protocol === "sdk") state.setSdkEnvironments(environments);
+  else state.setRestEnvironments(environments);
+}
+
+function setActiveEnvForProtocolState(
+  state: ReturnType<typeof useAppStore.getState>,
+  protocol: ProtocolTab,
+  activeEnvId: string | null,
+): void {
+  if (protocol === "grpc-web") state.setGrpcWebActiveEnvId(activeEnvId);
+  else if (protocol === "grpc") state.setGrpcActiveEnvId(activeEnvId);
+  else if (protocol === "sdk") state.setSdkActiveEnvId(activeEnvId);
+  else state.setRestActiveEnvId(activeEnvId);
+}
 
 const PenguinBrand = memo(function PenguinBrand() {
   const greeting = useGreeting();
@@ -50,7 +81,7 @@ const PenguinBrand = memo(function PenguinBrand() {
   );
 });
 
-export function Header({ onOpenSettings }: HeaderProps) {
+export function Header({ onOpenSettings, appUpdate }: HeaderProps) {
   const { theme, setTheme } = useAppStore();
   const {
     environments,
@@ -60,6 +91,8 @@ export function Header({ onOpenSettings }: HeaderProps) {
   } = useEnvironments();
 
   const [themePopoverOpen, setThemePopoverOpen] = useState(false);
+  const [isSyncingEnvConfig, setIsSyncingEnvConfig] = useState(false);
+  const [envSyncTitle, setEnvSyncTitle] = useState("Sync Environment Config");
 
   const protocolName = PROTOCOL_LABELS[protocol] ?? protocol;
   const envOptions = useMemo(
@@ -71,6 +104,31 @@ export function Header({ onOpenSettings }: HeaderProps) {
       })),
     [environments]
   );
+  const syncEnvironmentConfig = useCallback(async () => {
+    setIsSyncingEnvConfig(true);
+    try {
+      const result = await syncRemoteConfigForProtocol({
+        protocol,
+        environments,
+        activeEnvId,
+      });
+
+      if (result.changed) {
+        const state = useAppStore.getState();
+        setEnvsForProtocolState(state, protocol, result.environments);
+        setActiveEnvForProtocolState(state, protocol, result.activeEnvId);
+      }
+
+      setEnvSyncTitle(
+        `Sync Environment Config: added ${result.added.length}, unchanged ${result.skipped.length}, local kept ${result.conflicts.length}`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to sync config";
+      setEnvSyncTitle(`Sync Environment Config failed: ${message}`);
+    } finally {
+      setIsSyncingEnvConfig(false);
+    }
+  }, [activeEnvId, environments, protocol]);
 
   return (
     <header className="relative z-40 flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-4">
@@ -88,6 +146,18 @@ export function Header({ onOpenSettings }: HeaderProps) {
           placeholder="Environment / 环境"
           className="w-36"
         />
+
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          onClick={syncEnvironmentConfig}
+          disabled={isSyncingEnvConfig}
+          title={envSyncTitle}
+          aria-label="Sync Environment Config"
+        >
+          <RefreshCw className={cn("h-4 w-4", isSyncingEnvConfig && "animate-spin")} />
+        </Button>
 
         <div className="relative">
           <Button
@@ -134,15 +204,24 @@ export function Header({ onOpenSettings }: HeaderProps) {
           )}
         </div>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={onOpenSettings}
-          title="Settings / 设置"
-        >
-          <Settings className="h-4 w-4" />
-        </Button>
+        <div className="relative">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={onOpenSettings}
+            title={
+              appUpdate.hasVisibleUpdate && appUpdate.updateVersion
+                ? `Update available v${appUpdate.updateVersion}`
+                : "Settings / 设置"
+            }
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
+          {appUpdate.hasVisibleUpdate && (
+            <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary shadow-[0_0_0_2px_hsl(var(--card))]" />
+          )}
+        </div>
       </div>
     </header>
   );

@@ -1,5 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { useAppStore, type ProtocolTab, type HistoryEntry, type RequestTab, getDefaultHeadersForProtocol } from "@/lib/store";
+import {
+  useAppStore,
+  visibleProtocolForTab,
+  type ProtocolTab,
+  type HistoryEntry,
+  type RequestTab,
+  getDefaultHeadersForProtocol,
+} from "@/lib/store";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { History, Trash2, Globe, Server, Box } from "lucide-react";
@@ -94,8 +101,10 @@ export function HistoryPanel({ open, onClose }: HistoryPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
+  const visibleHistory = history.filter((h) => h.protocol !== "rest");
+
   const filtered = query.trim()
-    ? history.filter((h) => {
+    ? visibleHistory.filter((h) => {
         const q = query.toLowerCase();
         return (
           h.methodFullName.toLowerCase().includes(q) ||
@@ -104,17 +113,18 @@ export function HistoryPanel({ open, onClose }: HistoryPanelProps) {
           h.url.toLowerCase().includes(q)
         );
       })
-    : history;
+    : visibleHistory;
 
   const selectEntry = (entry: HistoryEntry) => {
-    addTab();
+    const targetProtocol = visibleProtocolForTab(entry.protocol);
+    addTab(targetProtocol);
     const isRest = entry.protocol === "rest";
     const patch: Partial<RequestTab> = {
-      protocolTab: entry.protocol,
+      protocolTab: targetProtocol,
       targetUrl: entry.url,
       metadata: entry.metadata.length > 0
         ? entry.metadata
-        : getDefaultHeadersForProtocol(entry.protocol),
+        : getDefaultHeadersForProtocol(targetProtocol),
       requestBody: entry.requestBody,
       selectedPackage: isRest ? null : entry.packageName || null,
       selectedService: isRest ? null : entry.serviceName || null,

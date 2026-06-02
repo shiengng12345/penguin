@@ -82,7 +82,7 @@ A modern desktop API client for **gRPC-Web**, **gRPC**, and **SDK** testing — 
 | TypeScript 5 | Type safety |
 | Vite 6 | Build tool and dev server |
 | Tailwind CSS 4 | Styling |
-| Zustand 5 | State management (persisted to localStorage) |
+| Zustand 5 | State management (persisted to SQLite via Tauri) |
 | CodeMirror 6 | JSON editor with autocomplete and linting |
 | Lucide React | Icons |
 | ConnectRPC | gRPC-Web and SDK protocol support |
@@ -225,7 +225,7 @@ User selects Package → Service → Method
 
 ### State Management
 
-Zustand store with localStorage persistence:
+Zustand store with SQLite-backed persistence:
 
 - **Tabs** — Multiple request tabs with independent protocol, URL, body, metadata, and response
 - **Packages** — Per-protocol installed package lists with service/method trees

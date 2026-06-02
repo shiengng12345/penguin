@@ -97,6 +97,15 @@ export interface SavedRequest {
 }
 
 export type ProtocolTab = "grpc-web" | "grpc" | "sdk" | "rest";
+export type VisibleProtocolTab = Exclude<ProtocolTab, "rest">;
+
+export function visibleProtocolForTab(
+  protocol: ProtocolTab | null | undefined,
+): VisibleProtocolTab {
+  return protocol === "grpc-web" || protocol === "grpc" || protocol === "sdk"
+    ? protocol
+    : "sdk";
+}
 
 export { THEMES, type AppTheme };
 
@@ -142,15 +151,16 @@ const PLATFORM_ID_DEFAULT: MetadataEntry = {
 const _defaultHeaders = loadDefaultHeaders();
 
 function createTab(origin: TabOrigin = null, protocol: ProtocolTab = "grpc-web"): RequestTab {
+  const visibleProtocol = visibleProtocolForTab(protocol);
   let headers: MetadataEntry[];
   try {
-    headers = useAppStore.getState().defaultHeaders[protocol];
+    headers = useAppStore.getState().defaultHeaders[visibleProtocol];
   } catch {
-    headers = _defaultHeaders[protocol];
+    headers = _defaultHeaders[visibleProtocol];
   }
   return {
     id: `tab_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    protocolTab: protocol,
+    protocolTab: visibleProtocol,
     targetUrl: "{{URL}}",
     pathOverride: null,
     restMethod: "POST",
@@ -204,6 +214,8 @@ export interface AppState {
   addTab: (protocol?: ProtocolTab) => RequestTab;
   removeTab: (id: string) => void;
   resetActiveTab: () => void;
+  resetPackageTabs: () => void;
+  sanitizeHiddenRestTabs: () => void;
   setActiveTab: (id: string | null) => void;
   updateActiveTab: (patch: Partial<RequestTab>) => void;
 
@@ -375,12 +387,14 @@ function loadTabs(): { tabs: RequestTab[]; activeTabId: string | null } {
   try {
     const raw = getPersistedValue(TABS_KEY);
     if (raw) {
-      const tabs: RequestTab[] = JSON.parse(raw).map((t: RequestTab) => ({
-        ...t,
-        restMethod: t.restMethod ?? "POST",
-        restBodyMode: t.restBodyMode ?? "json",
-        origin: t.origin ?? null,
-      }));
+      const tabs: RequestTab[] = (JSON.parse(raw) as RequestTab[])
+        .map((t: RequestTab) => ({
+          ...t,
+          restMethod: t.restMethod ?? "POST",
+          restBodyMode: t.restBodyMode ?? "json",
+          origin: t.origin ?? null,
+        }))
+        .filter((tab: RequestTab) => tab.protocolTab !== "rest");
       if (Array.isArray(tabs) && tabs.length > 0) {
         const activeTabId =
           getPersistedValue(ACTIVE_TAB_KEY) ?? tabs[0].id;
@@ -493,6 +507,24 @@ export const useAppStore = create<AppState>((set, get) => {
       const activeTabId = tabs[0]?.id ?? null;
       set({ activeTabId });
       saveTabs(tabs, activeTabId);
+    },
+    resetPackageTabs: () => {
+      const fresh = createTab();
+      set({ tabs: [fresh], activeTabId: fresh.id });
+      saveTabs([fresh], fresh.id);
+    },
+    sanitizeHiddenRestTabs: () => {
+      set((s) => {
+        const nextTabs = s.tabs.filter((tab) => tab.protocolTab !== "rest");
+        if (nextTabs.length === s.tabs.length) return {};
+        const tabs = nextTabs.length > 0 ? nextTabs : [createTab()];
+        const activeTabId =
+          s.activeTabId && tabs.some((tab) => tab.id === s.activeTabId)
+            ? s.activeTabId
+            : tabs[0].id;
+        saveTabs(tabs, activeTabId);
+        return { tabs, activeTabId };
+      });
     },
     setActiveTab: (id) => {
       set({ activeTabId: id });
