@@ -103,6 +103,8 @@ export function SettingsDialog({
     server_name: string;
     bundled_server_path: string | null;
     node_path: string | null;
+    server_healthy: boolean;
+    server_health_error: string | null;
     claude_desktop_config_path: string | null;
     claude_desktop_configured: boolean;
     codex_config_path: string | null;
@@ -160,11 +162,16 @@ export function SettingsDialog({
   const mcpCodexCliCommand = `codex mcp add penguin -- ${mcpNodePath} ${mcpServerPath}`;
   const mcpClaudeConfigured = Boolean(mcpStatus?.claude_desktop_configured);
   const mcpCodexConfigured = Boolean(mcpStatus?.codex_configured);
+  const mcpServerHealthy = Boolean(mcpStatus?.server_healthy);
   const mcpBothConfigured = mcpClaudeConfigured && mcpCodexConfigured;
+  const mcpReady = mcpBothConfigured && mcpServerHealthy;
+  const mcpServerCheckFailed = mcpStatus !== null && !mcpServerHealthy;
   const mcpPartiallyConfigured = !mcpBothConfigured && (mcpClaudeConfigured || mcpCodexConfigured);
-  const mcpStatusLabel = mcpBothConfigured
-    ? "Both Configured"
-    : mcpPartiallyConfigured
+  const mcpStatusLabel = mcpReady
+    ? "MCP Ready"
+    : mcpServerCheckFailed
+      ? "Server Check Failed"
+      : mcpPartiallyConfigured
       ? "Partial Setup"
       : "Manual Setup";
 
@@ -515,8 +522,10 @@ export function SettingsDialog({
               <span
                 className={cn(
                   "shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
-                  mcpBothConfigured
+                  mcpReady
                     ? "bg-emerald-500/15 text-emerald-500"
+                    : mcpServerCheckFailed
+                      ? "bg-red-500/15 text-red-500"
                     : mcpPartiallyConfigured
                       ? "bg-amber-500/15 text-amber-500"
                     : "bg-muted text-muted-foreground",
@@ -525,8 +534,10 @@ export function SettingsDialog({
                 <span
                   className={cn(
                     "h-1.5 w-1.5 rounded-full",
-                    mcpBothConfigured
+                    mcpReady
                       ? "bg-emerald-500"
+                      : mcpServerCheckFailed
+                        ? "bg-red-500"
                       : mcpPartiallyConfigured
                         ? "bg-amber-500"
                         : "bg-muted-foreground/40",
@@ -537,11 +548,14 @@ export function SettingsDialog({
             </div>
 
             {((!mcpStatus?.bundled_server_path && mcpStatus !== null) ||
-              (!mcpStatus?.node_path && mcpStatus !== null)) && (
+              (!mcpStatus?.node_path && mcpStatus !== null) ||
+              (mcpServerCheckFailed && mcpStatus?.server_health_error)) && (
               <p className="mt-2 text-[11px] text-amber-500">
                 {!mcpStatus?.node_path
                   ? "Node.js not detected — install from nodejs.org first."
-                  : "Bundled MCP server missing — rebuild the app."}
+                  : !mcpStatus?.bundled_server_path
+                    ? "Bundled MCP server missing — rebuild the app."
+                    : `MCP server check failed — ${mcpStatus.server_health_error}`}
               </p>
             )}
 
@@ -567,8 +581,13 @@ export function SettingsDialog({
             </Button>
 
             {mcpInstallState === "success" && (
-              <p className="mt-2 text-[11px] text-emerald-500">
-                ✓ Configured Claude Desktop and Codex CLI. Restart the clients to load it.
+              <p className={cn(
+                "mt-2 text-[11px]",
+                mcpServerHealthy ? "text-emerald-500" : "text-amber-500",
+              )}>
+                {mcpServerHealthy
+                  ? "✓ Configured Claude Desktop and Codex CLI. Penguin MCP server checked. Restart the clients to load it."
+                  : `Configured clients, but MCP server check failed: ${mcpStatus?.server_health_error ?? "unknown error"}`}
               </p>
             )}
             {mcpInstallState === "error" && mcpInstallMsg && (

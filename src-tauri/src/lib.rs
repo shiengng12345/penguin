@@ -4,7 +4,9 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager};
@@ -960,6 +962,148 @@ fn codex_mcp_configured_at(cfg_path: &Path) -> bool {
         .is_some()
 }
 
+#[derive(Debug)]
+struct McpRuntimeHealth {
+    healthy: bool,
+    error: Option<String>,
+}
+
+fn parse_mcp_initialize_response(stdout: &str) -> Result<(), String> {
+    for line in stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let server_name = value
+            .get("result")
+            .and_then(|result| result.get("serverInfo"))
+            .and_then(|info| info.get("name"))
+            .and_then(|name| name.as_str());
+        if server_name == Some("penguin-mcp") {
+            return Ok(());
+        }
+    }
+    Err("MCP server did not return a valid initialize response".to_string())
+}
+
+fn check_mcp_server_runtime(node: &Path, server: &Path) -> McpRuntimeHealth {
+    if !node.exists() {
+        return McpRuntimeHealth {
+            healthy: false,
+            error: Some(format!("Node.js binary not found: {}", node.display())),
+        };
+    }
+    if !server.exists() {
+        return McpRuntimeHealth {
+            healthy: false,
+            error: Some(format!(
+                "Bundled MCP server not found: {}",
+                server.display()
+            )),
+        };
+    }
+
+    let mut child = match Command::new(node)
+        .arg(server)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(e) => {
+            return McpRuntimeHealth {
+                healthy: false,
+                error: Some(format!("Failed to start MCP server: {e}")),
+            }
+        }
+    };
+
+    const MCP_INITIALIZE_REQUEST: &str = r#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"penguin-settings-check","version":"0.0.0"}}}"#;
+    if let Some(mut stdin) = child.stdin.take() {
+        if let Err(e) = stdin.write_all(format!("{MCP_INITIALIZE_REQUEST}\n").as_bytes()) {
+            let _ = child.kill();
+            return McpRuntimeHealth {
+                healthy: false,
+                error: Some(format!("Failed to send MCP initialize request: {e}")),
+            };
+        }
+    }
+
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_status)) => break,
+            Ok(None) if started.elapsed() < Duration::from_millis(1500) => {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let output = child.wait_with_output().ok();
+                let stderr = output
+                    .as_ref()
+                    .map(|o| String::from_utf8_lossy(&o.stderr).trim().to_string())
+                    .filter(|s| !s.is_empty());
+                return McpRuntimeHealth {
+                    healthy: false,
+                    error: Some(stderr.unwrap_or_else(|| {
+                        "MCP server did not answer initialize within 1500ms".to_string()
+                    })),
+                };
+            }
+            Err(e) => {
+                let _ = child.kill();
+                return McpRuntimeHealth {
+                    healthy: false,
+                    error: Some(format!("Failed while waiting for MCP server: {e}")),
+                };
+            }
+        }
+    }
+
+    let output = match child.wait_with_output() {
+        Ok(output) => output,
+        Err(e) => {
+            return McpRuntimeHealth {
+                healthy: false,
+                error: Some(format!("Failed to read MCP server output: {e}")),
+            }
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+    if !output.status.success() {
+        return McpRuntimeHealth {
+            healthy: false,
+            error: Some(if stderr.is_empty() {
+                format!("MCP server exited with status {}", output.status)
+            } else {
+                stderr
+            }),
+        };
+    }
+
+    match parse_mcp_initialize_response(&stdout) {
+        Ok(()) => McpRuntimeHealth {
+            healthy: true,
+            error: None,
+        },
+        Err(e) => McpRuntimeHealth {
+            healthy: false,
+            error: Some(if stderr.is_empty() {
+                e
+            } else {
+                format!("{e}. stderr: {stderr}")
+            }),
+        },
+    }
+}
+
 fn write_codex_mcp_config_at(cfg_path: &Path, node: &Path, server: &Path) -> Result<(), String> {
     if let Some(parent) = cfg_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -1006,6 +1150,8 @@ struct McpStatus {
     server_name: String,
     bundled_server_path: Option<String>,
     node_path: Option<String>,
+    server_healthy: bool,
+    server_health_error: Option<String>,
     claude_desktop_config_path: Option<String>,
     claude_desktop_configured: bool,
     codex_config_path: Option<String>,
@@ -1018,6 +1164,17 @@ fn mcp_status<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> McpStatus {
     let node = detect_node_path();
     let cfg_path = claude_desktop_config_path();
     let codex_cfg_path = codex_config_path();
+    let server_health = match (&node, &bundled) {
+        (Some(node), Some(server)) => check_mcp_server_runtime(node, server),
+        (None, _) => McpRuntimeHealth {
+            healthy: false,
+            error: Some("Node.js not detected".to_string()),
+        },
+        (_, None) => McpRuntimeHealth {
+            healthy: false,
+            error: Some("Bundled MCP server missing".to_string()),
+        },
+    };
 
     let claude_configured = cfg_path
         .as_ref()
@@ -1032,6 +1189,8 @@ fn mcp_status<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> McpStatus {
         server_name: "penguin".to_string(),
         bundled_server_path: bundled.map(|p| p.to_string_lossy().to_string()),
         node_path: node.map(|p| p.to_string_lossy().to_string()),
+        server_healthy: server_health.healthy,
+        server_health_error: server_health.error,
         claude_desktop_config_path: cfg_path.map(|p| p.to_string_lossy().to_string()),
         claude_desktop_configured: claude_configured,
         codex_config_path: codex_cfg_path.map(|p| p.to_string_lossy().to_string()),

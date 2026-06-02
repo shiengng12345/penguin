@@ -22,7 +22,8 @@ test("MCP primary action uses client-neutral wording", async () => {
 
   assert.match(source, /Configure Claude \+ Codex/);
   assert.match(source, /Reconfigure Claude \+ Codex/);
-  assert.match(source, /Both Configured/);
+  assert.match(source, /MCP Ready/);
+  assert.match(source, /Server Check Failed/);
   assert.match(source, /Partial Setup/);
   assert.match(source, /invoke<string>\("mcp_install_to_local_clients"\)/);
   assert.doesNotMatch(source, /Add to Claude Desktop/);
@@ -41,6 +42,29 @@ test("MCP install refreshes status after partial failure", async () => {
   const handler = source.slice(start, end);
 
   assert.match(handler, /catch \(err\) \{\n\s+await refreshMcpStatus\(\);\n\s+setMcpInstallMsg/);
+});
+
+test("MCP status checks server runtime health, not only client config presence", async () => {
+  const settingsSource = await readFile(
+    new URL("../src/components/settings/SettingsDialog.tsx", import.meta.url),
+    "utf8",
+  );
+  const backendSource = await readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+  const statusStart = settingsSource.indexOf("  const mcpClaudeConfigured");
+  const statusEnd = settingsSource.indexOf("  const copyMcpSetup", statusStart);
+  const statusBlock = settingsSource.slice(statusStart, statusEnd);
+
+  assert.match(backendSource, /server_healthy:\s*bool/);
+  assert.match(backendSource, /server_health_error:\s*Option<String>/);
+  assert.match(backendSource, /fn check_mcp_server_runtime/);
+  assert.match(backendSource, /"method":"initialize"/);
+  assert.match(settingsSource, /server_healthy: boolean/);
+  assert.match(settingsSource, /server_health_error: string \| null/);
+  assert.match(statusBlock, /mcpServerHealthy/);
+  assert.match(statusBlock, /mcpReady/);
+  assert.match(statusBlock, /MCP Ready/);
+  assert.match(statusBlock, /Server Check Failed/);
+  assert.doesNotMatch(statusBlock, /mcpBothConfigured\s*\?\s*"Both Configured"/);
 });
 
 test("MCP backend exposes only the dual-client install command", async () => {
