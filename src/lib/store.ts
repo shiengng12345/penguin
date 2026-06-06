@@ -13,6 +13,7 @@ import {
   setPersistedValue,
 } from "./app-persistence";
 import { APP_VALUE_KEYS } from "./persistence-keys";
+import type { VaultProject } from "@/components/vault/types";
 import type {
   ProtoService as CoreProtoService,
   ProtoMethod as CoreProtoMethod,
@@ -281,6 +282,27 @@ export interface AppState {
   userName: string;
   setUserName: (name: string) => void;
 
+  // Developer Mode — see useDeveloperMode() contract
+  devModeEnabled: boolean;
+  setDevModeEnabled: (value: boolean) => void;
+  hasValidToken: boolean;
+  setHasValidToken: (value: boolean) => void;
+  // Sprint 3 — superadmin tier. NOT persisted; always recomputed at boot via
+  // initializeDevModeOnAppStart after the in-memory token is loaded.
+  isSuperAdmin: boolean;
+  setIsSuperAdmin: (value: boolean) => void;
+
+  // Vault — projects state owned here, loaded/persisted via vault-storage.ts
+  vaultProjects: VaultProject[];
+  setVaultProjects: (projects: VaultProject[]) => void;
+  vaultLarkUrl: string | null;
+  setVaultLarkUrl: (url: string | null) => void;
+  vaultLastSyncedAt: number | null;
+  setVaultLastSyncedAt: (timestamp: number | null) => void;
+  // Sprint 3 — dirty flag for local CRUD edits. NOT persisted: every cold
+  // boot starts clean because either Sync or Push must reconcile against Lark.
+  vaultIsDirty: boolean;
+  setVaultIsDirty: (value: boolean) => void;
   history: HistoryEntry[];
   addHistory: (entry: HistoryEntry) => void;
   clearHistory: () => void;
@@ -682,6 +704,23 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ userName: name });
     },
 
+    devModeEnabled: getPersistedValue(APP_VALUE_KEYS.devModeEnabled) === "true",
+    setDevModeEnabled: (value) => {
+      setPersistedValue(APP_VALUE_KEYS.devModeEnabled, value ? "true" : "false");
+      set({ devModeEnabled: value });
+    },
+    hasValidToken: false,
+    setHasValidToken: (value) => set({ hasValidToken: value }),
+    isSuperAdmin: false,
+    setIsSuperAdmin: (value) => set({ isSuperAdmin: value }),
+    vaultProjects: [],
+    setVaultProjects: (projects) => set({ vaultProjects: projects }),
+    vaultLarkUrl: null,
+    setVaultLarkUrl: (url) => set({ vaultLarkUrl: url }),
+    vaultLastSyncedAt: null,
+    setVaultLastSyncedAt: (timestamp) => set({ vaultLastSyncedAt: timestamp }),
+    vaultIsDirty: false,
+    setVaultIsDirty: (value) => set({ vaultIsDirty: value }),
     history: [],
     addHistory: (entry) => {
       set((s) => {

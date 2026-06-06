@@ -13,11 +13,15 @@ import type { AppUpdateController } from "@/hooks/useAppUpdateScheduler";
 import { syncRemoteConfigForProtocol } from "@/lib/environment-sync";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Palette, Settings, Clock, RefreshCw } from "lucide-react";
+import { Palette, Settings, Clock, RefreshCw, Lock } from "lucide-react";
+import { useDeveloperMode } from "@/hooks/useDeveloperMode";
 import { cn } from "@/lib/utils";
 
 interface HeaderProps {
   onOpenSettings: () => void;
+  onToggleVault: () => void;
+  isVaultOpen: boolean;
+  onOpenHome: () => void;
   appUpdate: AppUpdateController;
 }
 
@@ -50,18 +54,42 @@ function setActiveEnvForProtocolState(
   else state.setRestActiveEnvId(activeEnvId);
 }
 
-const PenguinBrand = memo(function PenguinBrand() {
+interface PenguinBrandProps {
+  onClickHome: () => void;
+  // Home hub is a Dev-Mode-only surface (DEC #99). Normal users only see the
+  // API client, so the logo is non-interactive for them.
+  canEnterHome: boolean;
+}
+
+const PenguinBrand = memo(function PenguinBrand({ onClickHome, canEnterHome }: PenguinBrandProps) {
   const greeting = useGreeting();
   const { time, isLunch, lunchMsg } = useClock();
 
   return (
     <div className="flex items-center gap-2 min-w-0">
-      <img
-        src="/penguin.png"
-        alt="Penguin"
-        className={cn("h-6 shrink-0 object-contain", isLunch && "animate-bounce")}
-        draggable={false}
-      />
+      {canEnterHome ? (
+        <button
+          type="button"
+          onClick={onClickHome}
+          title="Home / 主页"
+          aria-label="Open home"
+          className="flex shrink-0 items-center rounded-md transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-primary/40"
+        >
+          <img
+            src="/penguin.png"
+            alt="Penguin"
+            className={cn("h-6 object-contain", isLunch && "animate-bounce")}
+            draggable={false}
+          />
+        </button>
+      ) : (
+        <img
+          src="/penguin.png"
+          alt="Penguin"
+          className={cn("h-6 shrink-0 object-contain", isLunch && "animate-bounce")}
+          draggable={false}
+        />
+      )}
       <span
         className={cn(
           "text-sm font-medium truncate max-w-[280px]",
@@ -81,8 +109,11 @@ const PenguinBrand = memo(function PenguinBrand() {
   );
 });
 
-export function Header({ onOpenSettings, appUpdate }: HeaderProps) {
+export function Header({ onOpenSettings, onToggleVault, isVaultOpen, onOpenHome, appUpdate }: HeaderProps) {
   const { theme, setTheme } = useAppStore();
+  // Gate on hasValidToken (DEC #56) — enabling Dev Mode alone is not enough;
+  // the user must also validate the token before Vault + Home hub light up.
+  const { hasValidToken } = useDeveloperMode();
   const {
     environments,
     activeEnvId,
@@ -132,9 +163,26 @@ export function Header({ onOpenSettings, appUpdate }: HeaderProps) {
 
   return (
     <header className="relative z-40 flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-4">
-      <PenguinBrand />
+      <PenguinBrand onClickHome={onOpenHome} canEnterHome={hasValidToken} />
 
       <div className="flex items-center gap-2">
+        {hasValidToken && (
+          <button
+            type="button"
+            onClick={onToggleVault}
+            title={isVaultOpen ? "Close Vault / 关闭保险柜" : "Open Vault / 打开保险柜"}
+            aria-pressed={isVaultOpen}
+            className={cn(
+              "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors",
+              isVaultOpen
+                ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
+                : "border-border bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground",
+            )}
+          >
+            <Lock className="h-3 w-3" />
+            <span>Vault</span>
+          </button>
+        )}
         <span className="rounded-md border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
           {protocolName}
         </span>

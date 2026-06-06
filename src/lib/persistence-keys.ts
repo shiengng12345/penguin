@@ -16,6 +16,14 @@ export const APP_VALUE_KEYS = {
   remoteConfigSource: "penguin-remote-config-source",
   updateLastCheckedAt: "penguin-update-last-checked-at",
   updateDismissedVersion: "penguin-update-dismissed-version",
+  devModeEnabled: "penguin-dev-mode-enabled",
+  devModeToken: "penguin-dev-mode-token",
+  vaultData: "penguin-vault-data",
+  vaultLarkUrl: "penguin-vault-lark-url",
+  vaultLastSyncedAt: "penguin-vault-last-synced-at",
+  vaultLarkUrlLocked: "penguin-vault-lark-url-locked",
+  vaultLastSyncedHash: "penguin-vault-last-synced-hash",
+  vaultSchemaVersion: "penguin-vault-schema-version",
 } as const;
 
 export const ENVIRONMENT_VALUE_KEYS: Record<PersistedProtocol, string> = {

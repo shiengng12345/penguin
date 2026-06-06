@@ -10,6 +10,10 @@ import { UpdateNotification } from "@/components/layout/UpdateNotification";
 import { TabBar } from "@/components/layout/TabBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { UrlBar } from "@/components/layout/UrlBar";
+import { VaultPage } from "@/components/vault/VaultPage";
+import { HomePage } from "@/components/home/HomePage";
+import { PENGUIN_OPEN_SETTINGS_EVENT, PENGUIN_GO_HOME_EVENT } from "@/components/vault/VaultEmptyGate";
+import { initializeDevModeOnAppStart } from "@/lib/dev-mode-store";
 import { RequestPanel } from "@/components/request/RequestPanel";
 import { ResponsePanel } from "@/components/request/ResponsePanel";
 import { SnowLayer } from "@/components/theme/SnowLayer";
@@ -59,7 +63,23 @@ export default function App() {
   const [networkOpen, setNetworkOpen] = useState(false);
   const [curlImportOpen, setCurlImportOpen] = useState(false);
   const [protoViewerOpen, setProtoViewerOpen] = useState(false);
+  const [vaultOpen, setVaultOpen] = useState(false);
+  const [homeOpen, setHomeOpen] = useState(false);
   const openSettings = useCallback(() => setSettingsOpen(true), []);
+  const closeVault = useCallback(() => setVaultOpen(false), []);
+  const toggleVault = useCallback(() => setVaultOpen((v) => !v), []);
+  const openHome = useCallback(() => {
+    setVaultOpen(false);
+    setHomeOpen(true);
+  }, []);
+  const selectApiClient = useCallback(() => {
+    setVaultOpen(false);
+    setHomeOpen(false);
+  }, []);
+  const selectVaultFromHome = useCallback(() => {
+    setHomeOpen(false);
+    setVaultOpen(true);
+  }, []);
   const appUpdate = useAppUpdateScheduler(openSettings);
   const handlePackagesCleared = useCallback(async () => {
     resetPackageTabs();
@@ -69,6 +89,13 @@ export default function App() {
   useEffect(() => {
     sanitizeHiddenRestTabs();
   }, [sanitizeHiddenRestTabs]);
+
+  // Restore Dev Mode token at boot so once-on stays on across sessions —
+  // Dev Mode boolean is hydrated synchronously by the store; the token has
+  // to be pulled off disk asynchronously here.
+  useEffect(() => {
+    void initializeDevModeOnAppStart();
+  }, []);
 
   const resolvedUrl = activeEnv
     ? interpolate(activeTab?.targetUrl ?? "", activeEnv)
@@ -272,6 +299,25 @@ export default function App() {
     return () => document.removeEventListener("penguin:close-all-dialogs", closeAll);
   }, [setInstallerOpen]);
 
+  // Listens for VaultEmptyGate's request to open Settings — see DEC #57 / #59.
+  useEffect(() => {
+    const handleOpenSettings = () => setSettingsOpen(true);
+    document.addEventListener(PENGUIN_OPEN_SETTINGS_EVENT, handleOpenSettings);
+    return () => document.removeEventListener(PENGUIN_OPEN_SETTINGS_EVENT, handleOpenSettings);
+  }, []);
+
+  // Listens for a "go home" request from inside any module (e.g. the Lark
+  // setup card's close button) — pops back to the Home hub instead of the
+  // API client default.
+  useEffect(() => {
+    const handleGoHome = (): void => {
+      setVaultOpen(false);
+      setHomeOpen(true);
+    };
+    document.addEventListener(PENGUIN_GO_HOME_EVENT, handleGoHome);
+    return () => document.removeEventListener(PENGUIN_GO_HOME_EVENT, handleGoHome);
+  }, []);
+
   useEffect(() => {
     document.documentElement.setAttribute(
       "data-theme",
@@ -283,7 +329,13 @@ export default function App() {
     <div className="penguin-app-shell relative h-screen w-screen overflow-hidden bg-background text-foreground">
       <SnowLayer active={theme === "antarctic-snow"} />
       <div className="relative z-10 flex h-full flex-col">
-        <Header onOpenSettings={openSettings} appUpdate={appUpdate} />
+        <Header
+          onOpenSettings={openSettings}
+          onToggleVault={toggleVault}
+          isVaultOpen={vaultOpen}
+          onOpenHome={openHome}
+          appUpdate={appUpdate}
+        />
         <UpdateNotification
           open={appUpdate.shouldShowToast}
           updateVersion={appUpdate.updateVersion}
@@ -292,35 +344,42 @@ export default function App() {
           onLater={appUpdate.dismiss}
           onUpdate={appUpdate.downloadInstallAndRestart}
         />
-        <TabBar
-          onCycleProtocol={handleCycleProtocol}
-          onNewRequest={() => setNewRequestOpen(true)}
-        />
-
-        <div className="flex flex-1 min-h-0">
-          <Sidebar
-            packages={packages}
-            onInstallClick={() => setInstallerOpen(true)}
-            onUninstall={(name) => {
-              uninstall(name);
-            }}
-            onUpdate={async (spec) => {
-              const ok = await handleInstall(spec);
-              return ok;
-            }}
-          />
-
-          <div className="flex flex-1 flex-col min-w-0">
-            <UrlBar resolvedUrl={resolvedUrl} />
-            <ResizablePanels
-              left={<RequestPanel />}
-              right={<ResponsePanel />}
-              defaultRatio={0.45}
-              minRatio={0.25}
-              maxRatio={0.75}
+        {homeOpen ? (
+          <HomePage onSelectApiClient={selectApiClient} onSelectVault={selectVaultFromHome} />
+        ) : vaultOpen ? (
+          <VaultPage onClose={closeVault} />
+        ) : (
+          <>
+            <TabBar
+              onCycleProtocol={handleCycleProtocol}
+              onNewRequest={() => setNewRequestOpen(true)}
             />
+            <div className="flex flex-1 min-h-0">
+            <Sidebar
+              packages={packages}
+              onInstallClick={() => setInstallerOpen(true)}
+              onUninstall={(name) => {
+                uninstall(name);
+              }}
+              onUpdate={async (spec) => {
+                const ok = await handleInstall(spec);
+                return ok;
+              }}
+            />
+
+            <div className="flex flex-1 flex-col min-w-0">
+              <UrlBar resolvedUrl={resolvedUrl} />
+              <ResizablePanels
+                left={<RequestPanel />}
+                right={<ResponsePanel />}
+                defaultRatio={0.45}
+                minRatio={0.25}
+                maxRatio={0.75}
+              />
+            </div>
           </div>
-        </div>
+          </>
+        )}
 
         <Suspense fallback={null}>
           {isInstallerOpen && (
