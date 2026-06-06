@@ -7,11 +7,19 @@ import { APP_VALUE_KEYS } from "@/lib/persistence-keys";
 import { useAppStore } from "@/lib/store";
 
 const LOG_SCOPE = "dev-mode-store";
-const SUPERADMIN_MIN_LENGTH = 32;
 
-// Module-scoped raw token. Per DEC #33 this MUST NOT enter Zustand or React
-// state — only the boolean derived signal `hasValidToken` is shared.
+// SHA-256 hashes of the expected tokens — the raw values never live in source
+// so git history / extracted bundles only ever see opaque hex. Validate flow:
+// user input → SHA-256 (Web Crypto) → hex compare against these constants.
+// To rotate: compute the new hash with `printf "<token>" | shasum -a 256`.
+const NORMAL_TOKEN_HASH = "7eb26c3596d5691379d0107ec58f21db2cb0a4aad9af9894337ce2902e169bff";
+const SUPERADMIN_TOKEN_HASH = "b30412f69b46ee4d67eb1960247086a17ac4aaf05cc5347e7bec40a39ddda5fd";
+
+// Cached hash of the in-memory token so requireSuperAdmin() stays synchronous
+// (called from CRUD entry points that cannot await). Computed once at validate
+// time. The raw token itself is also kept for Sprint 2 Vault remote calls.
 let inMemoryToken: string | null = null;
+let inMemoryTokenHash: string | null = null;
 
 export interface ValidateTokenPayload {
   input: string;
@@ -28,20 +36,24 @@ export interface ValidateTokenResult {
   isSuperAdmin: boolean;
 }
 
-// Compare the supplied raw token against the configured normal + super envs.
-// Super match wins over normal match (DEC #75). Returns booleans only — never
-// leaks the token value.
+// SHA-256 hex digest of a UTF-8 string. Uses Web Crypto, available in Tauri
+// webview + Node 20+. Never throws on valid input.
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const buffer = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(buffer))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 interface TokenTierMatch {
   matchedNormal: boolean;
   matchedSuper: boolean;
 }
-function classifyTokenInput(input: string): TokenTierMatch {
-  const normalExpected = import.meta.env.VITE_DEV_MODE_TOKEN;
-  const superExpected = import.meta.env.VITE_DEV_MODE_SUPERADMIN_TOKEN;
-  const hasNormalExpected = typeof normalExpected === "string" && normalExpected.length > 0;
-  const hasSuperExpected = typeof superExpected === "string" && superExpected.length > 0;
-  const matchedNormal = hasNormalExpected && input === normalExpected;
-  const matchedSuper = hasSuperExpected && input === superExpected;
+async function classifyTokenInput(input: string): Promise<TokenTierMatch> {
+  const inputHash = await sha256Hex(input);
+  const matchedNormal = inputHash === NORMAL_TOKEN_HASH;
+  const matchedSuper = inputHash === SUPERADMIN_TOKEN_HASH;
   return { matchedNormal, matchedSuper };
 }
 
@@ -58,8 +70,15 @@ export async function loadToken(): Promise<LoadTokenResult> {
       logger.info(LOG_SCOPE, "loadToken — no token on disk");
       return { success: true, loaded: false };
     }
+    const tier = await classifyTokenInput(stored);
+    const isAnyMatch = tier.matchedNormal || tier.matchedSuper;
+    // Disk token doesn't match current build — could be after token rotation.
+    if (!isAnyMatch) {
+      logger.warn(LOG_SCOPE, "loadToken — disk token no longer valid");
+      return { success: true, loaded: false };
+    }
     inMemoryToken = stored;
-    const tier = classifyTokenInput(stored);
+    inMemoryTokenHash = await sha256Hex(stored);
     const isSuperAdmin = tier.matchedSuper;
     useAppStore.getState().setHasValidToken(true);
     useAppStore.getState().setIsSuperAdmin(isSuperAdmin);
@@ -71,23 +90,22 @@ export async function loadToken(): Promise<LoadTokenResult> {
   }
 }
 
-// Compare user input against the build-time configured tokens (normal + super).
-// On match, persist and flip the store booleans. On mismatch, leave state alone.
-// CONTRACT NOTE: 如果未来改远端校验，必须改成 constant-time
+// Hash user input + compare against stored hashes. On match, persist the raw
+// token (so reloads work) and flip the store booleans. Raw token + its hash
+// stay in memory for the session.
 export async function validateAndSetToken(
   payload: ValidateTokenPayload,
 ): Promise<ValidateTokenResult> {
   logger.info(LOG_SCOPE, "validateAndSetToken — entry");
-  const tier = classifyTokenInput(payload.input);
+  const tier = await classifyTokenInput(payload.input);
   const isAnyMatch = tier.matchedNormal || tier.matchedSuper;
-  const isMismatch = !isAnyMatch;
-  // Token mismatch — failed validation; do not persist, do not mutate flags.
-  if (isMismatch) {
+  if (!isAnyMatch) {
     logger.warn(LOG_SCOPE, "validateAndSetToken — token mismatch");
     return { success: true, matched: false, isSuperAdmin: false };
   }
   try {
     inMemoryToken = payload.input;
+    inMemoryTokenHash = await sha256Hex(payload.input);
     setPersistedValue(APP_VALUE_KEYS.devModeToken, payload.input);
     const isSuperAdmin = tier.matchedSuper;
     useAppStore.getState().setHasValidToken(true);
@@ -96,6 +114,7 @@ export async function validateAndSetToken(
     return { success: true, matched: true, isSuperAdmin };
   } catch (error) {
     inMemoryToken = null;
+    inMemoryTokenHash = null;
     logger.error(LOG_SCOPE, "validateAndSetToken — persist failed", error);
     return { success: false, matched: false, isSuperAdmin: false };
   }
@@ -106,34 +125,26 @@ export async function validateAndSetToken(
 export function clearTokenInMemory(): void {
   logger.info(LOG_SCOPE, "clearTokenInMemory — entry");
   inMemoryToken = null;
+  inMemoryTokenHash = null;
   useAppStore.getState().setHasValidToken(false);
   useAppStore.getState().setIsSuperAdmin(false);
   logger.info(LOG_SCOPE, "clearTokenInMemory — cleared");
 }
 
-// Sprint 2 Vault entry point. Returns the in-memory token so the Vault can
-// authenticate its remote calls. Kept here so the raw value never travels
-// through Zustand / React props. NEVER log the return value.
+// Sprint 2 Vault entry point. Returns the in-memory raw token so callers that
+// need to authenticate remote calls can reach it. Kept here so the value never
+// travels through Zustand / React props. NEVER log the return value.
 export function getInMemoryDevToken(): string | null {
   return inMemoryToken;
 }
 
-// SPRINT 4 RED LINE (DEC #76):
-// Client-side token model expires at distribution >1 user. Sprint 4 must
-// migrate to server-side validation. Every CRUD handler MUST call this at
-// entry — UI conditional rendering uses the Zustand boolean instead.
-// Returns true only when the in-memory token strictly equals the super env.
+// Synchronous superadmin gate — compares the CACHED hash of the in-memory
+// token against the hardcoded super hash. Stays sync so CRUD handlers can call
+// it at entry without await.
 export function requireSuperAdmin(): boolean {
-  const superExpected = import.meta.env.VITE_DEV_MODE_SUPERADMIN_TOKEN;
-  const hasExpected = typeof superExpected === "string" && superExpected.length > 0;
-  const hasToken = inMemoryToken !== null;
-  const isUnconfigured = !hasExpected;
-  // Build was not configured with a super token — fail closed.
-  if (isUnconfigured) return false;
-  const isMissingToken = !hasToken;
-  // No token in memory at all (Dev Mode never validated this session).
-  if (isMissingToken) return false;
-  return inMemoryToken === superExpected;
+  const hasHash = inMemoryTokenHash !== null;
+  if (!hasHash) return false;
+  return inMemoryTokenHash === SUPERADMIN_TOKEN_HASH;
 }
 
 // App-start hook. If the user enabled Dev Mode in a previous session, the
@@ -142,45 +153,12 @@ export function requireSuperAdmin(): boolean {
 // Safe to call when Dev Mode is off — it no-ops.
 export async function initializeDevModeOnAppStart(): Promise<void> {
   logger.info(LOG_SCOPE, "initializeDevModeOnAppStart — entry");
-  warnIfSuperAdminMisconfigured();
   const isEnabled = useAppStore.getState().devModeEnabled;
   const isDisabled = !isEnabled;
-  // Dev Mode never enabled previously — nothing to restore.
   if (isDisabled) {
     logger.info(LOG_SCOPE, "initializeDevModeOnAppStart — dev mode off, skipping");
     return;
   }
   await loadToken();
   logger.info(LOG_SCOPE, "initializeDevModeOnAppStart — exit");
-}
-
-// Boot-time sanity check for the super env. Per DEC #75 we do NOT fail boot;
-// we just log a warning so a misconfigured build is observable.
-function warnIfSuperAdminMisconfigured(): void {
-  const normalExpected = import.meta.env.VITE_DEV_MODE_TOKEN;
-  const superExpected = import.meta.env.VITE_DEV_MODE_SUPERADMIN_TOKEN;
-  const hasSuper = typeof superExpected === "string" && superExpected.length > 0;
-  const isSuperUnset = !hasSuper;
-  // Super token not configured — nothing to validate; CRUD will fail closed.
-  if (isSuperUnset) {
-    logger.info(LOG_SCOPE, "warnIfSuperAdminMisconfigured — super token not configured");
-    return;
-  }
-  const isTooShort = superExpected.length < SUPERADMIN_MIN_LENGTH;
-  // Super tokens shorter than the minimum entropy bar are flagged at boot.
-  if (isTooShort) {
-    logger.warn(
-      LOG_SCOPE,
-      `warnIfSuperAdminMisconfigured — super token shorter than ${SUPERADMIN_MIN_LENGTH} chars`,
-    );
-  }
-  const isSameAsNormal =
-    typeof normalExpected === "string" && normalExpected === superExpected;
-  // Super token collides with normal token — tier separation lost.
-  if (isSameAsNormal) {
-    logger.warn(
-      LOG_SCOPE,
-      "warnIfSuperAdminMisconfigured — super token equals normal token",
-    );
-  }
 }
