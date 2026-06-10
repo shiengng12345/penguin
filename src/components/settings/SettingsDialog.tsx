@@ -11,6 +11,7 @@ import { persistSavedRequests } from "@/lib/penguin-db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DeveloperModeSection } from "@/components/settings/DeveloperModeSection";
+import { RegistryAuthSection } from "@/components/settings/RegistryAuthSection";
 import {
   X,
   Trash2,
@@ -509,6 +510,7 @@ export function SettingsDialog({
           </div>
 
           <DeveloperModeSection />
+          <RegistryAuthSection />
 
           {/* MCP Integration */}
           <div className="rounded-lg border border-border bg-muted/20 p-4 md:col-span-2">

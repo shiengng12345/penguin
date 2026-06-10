@@ -17,6 +17,8 @@ const LOG_SCOPE = "vault-lark";
 const NODE_PATH_SETUP = [
   'export NVM_DIR="$HOME/.nvm"',
   '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"',
+  // 业务原因：source nvm.sh 只加载函数；不激活版本时 ~/.nvm/versions/node/<v>/bin 不在 PATH，nvm 安装的工具（如 lark-cli / npm）找不到。
+  'command -v nvm >/dev/null 2>&1 && (nvm use default >/dev/null 2>&1 || nvm use node >/dev/null 2>&1) || true',
   'export VOLTA_HOME="$HOME/.volta"',
   'export PATH="$VOLTA_HOME/bin:$HOME/.fnm:/opt/homebrew/bin:/usr/local/bin:$PATH"',
   'command -v fnm >/dev/null 2>&1 && eval "$(fnm env 2>/dev/null)"',
