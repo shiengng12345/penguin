@@ -12,6 +12,7 @@ import {
 
 const LOG_SCOPE = "vault-lark";
 
+// DUPLICATED: keep in sync with src/lib/package-manager.ts:54 — Sprint 4 DEC #115 / Sprint 5 DEC #126
 // Mirrors the PATH setup used by package-manager.ts so lark-cli (installed
 // under nvm) resolves the same way npm/node do.
 const NODE_PATH_SETUP = [

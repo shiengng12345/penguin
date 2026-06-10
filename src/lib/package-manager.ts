@@ -51,6 +51,7 @@ export async function listInstalledPackages(
 
 const INSTALL_TIMEOUT_MS = 300_000;
 
+// DUPLICATED: keep in sync with src/components/vault/vault-lark.ts:17 — Sprint 4 DEC #115 / Sprint 5 DEC #126
 const NODE_PATH_SETUP = [
   'export NVM_DIR="$HOME/.nvm"',
   '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"',
@@ -143,6 +144,12 @@ function npmInstallScript(packageSpec: string, preferOffline: boolean): string {
     "--save",
     "--no-audit",
     "--no-fund",
+    // npm defaults to 5-min fetch-timeout + 2 retries = up to 15 min silent
+    // hang when the registry is unreachable. Cap aggressively so users see
+    // the real DNS/auth/network error within ~1 minute instead of a perpetual
+    // spinner.
+    "--fetch-timeout=30000",
+    "--fetch-retries=1",
   ];
 
   if (preferOffline) {
@@ -191,6 +198,11 @@ export async function installPackage(
   }
 
   onLog(`Installation failed (exit code ${result.exitCode ?? "unknown"})`);
+  onLog("");
+  onLog("Common causes:");
+  onLog("  • Network / VPN — check connectivity to your registry");
+  onLog("  • Auth expired — update token in Settings → Package Registry");
+  onLog("  • Registry URL wrong — verify scope (@snsoft) points to correct URL");
   return false;
 }
 

@@ -1403,6 +1403,27 @@ fn detect_node_path() -> Option<PathBuf> {
     None
 }
 
+// Tauri-spawned processes inherit launchd's bare PATH, missing tools like
+// lark-cli / pnpm global / nvm-installed npm. Login shells (`zsh -l`) source
+// .zprofile but not .zshrc, where most users put PATH/nvm/fnm init — so we
+// run an interactive+login shell once at startup and pin the result.
+fn capture_user_path() -> Option<String> {
+    let output = std::process::Command::new("zsh")
+        .args(["-ilc", "printf %s \"$PATH\""])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let path = String::from_utf8(output.stdout).ok()?;
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 fn claude_desktop_configured_at(cfg_path: &Path) -> bool {
     std::fs::read_to_string(cfg_path)
         .ok()
@@ -1835,6 +1856,13 @@ fn start_package_watcher<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
 
 pub fn run() {
     migrate_legacy_pengvi_dir();
+    match capture_user_path() {
+        Some(user_path) => std::env::set_var("PATH", user_path),
+        None => eprintln!(
+            "[pengvi] warning: could not capture user PATH from zsh -ilc; \
+             subprocess will use bundled NODE_PATH_SETUP fallback only"
+        ),
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::default().build())
