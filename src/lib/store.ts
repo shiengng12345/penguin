@@ -17,145 +17,45 @@ import {
   setPersistedValue,
 } from "./app-persistence";
 import { APP_VALUE_KEYS } from "./persistence-keys";
-import type { VaultProject } from "@/components/vault/types";
-import type {
-  ProtoService as CoreProtoService,
-  ProtoMethod as CoreProtoMethod,
-  FieldInfo as CoreFieldInfo,
-  MetadataEntry as CoreMetadataEntry,
-  ResponseState as CoreResponseState,
-} from "@penguin/core";
-import { isAppTheme, THEMES, type AppTheme } from "./theme";
-import type { RestBodyMode, RestMethod } from "./rest";
+import { THEMES, type AppTheme } from "./theme";
+import {
+  visibleProtocolForTab,
+  type AppState,
+  type MetadataEntry,
+  type ProtocolTab,
+  type RequestTab,
+  type TabOrigin,
+} from "./store-types";
+import {
+  DEFAULT_HEADERS_KEY,
+  HISTORY_KEY,
+  MAX_HISTORY_KEY,
+  SAVED_REQUESTS_KEY,
+  THEME_KEY,
+  TUTORIAL_KEY,
+  USERNAME_KEY,
+  loadDefaultHeaders,
+  loadLegacyHistoryBlob,
+  loadMaxHistorySize,
+  loadSavedRequests,
+  loadShowTutorial,
+  loadTabs,
+  loadTheme,
+  loadUserName,
+  saveTabs,
+} from "./store-persistence-helpers";
 
-// --- Types ---
-
-// Re-export protocol-agnostic types from @penguin/core. Kept as named exports
-// here so existing call sites (`import { ResponseState } from "./store"`) keep
-// working unchanged after the core extraction.
-export type ProtoService = CoreProtoService;
-export type ProtoMethod = CoreProtoMethod;
-export type FieldInfo = CoreFieldInfo;
-export type MetadataEntry = CoreMetadataEntry;
-export type ResponseState = CoreResponseState;
-
-export interface EnvVariable {
-  key: string;
-  value: string;
-}
-
-export interface Environment {
-  id: string;
-  name: string;
-  color: string;
-  variables: EnvVariable[];
-}
-
-export const ENV_COLORS = [
-  { id: "green", label: "Green", hex: "#22c55e" },
-  { id: "blue", label: "Blue", hex: "#3b82f6" },
-  { id: "amber", label: "Amber", hex: "#f59e0b" },
-  { id: "red", label: "Red", hex: "#ef4444" },
-  { id: "purple", label: "Purple", hex: "#a855f7" },
-  { id: "cyan", label: "Cyan", hex: "#06b6d4" },
-  { id: "pink", label: "Pink", hex: "#ec4899" },
-  { id: "orange", label: "Orange", hex: "#f97316" },
-] as const;
-
-export interface InstalledPackage {
-  name: string;
-  version: string;
-  protoFiles: string[];
-  services: ProtoService[];
-}
-
-export interface HistoryEntry {
-  id: string;
-  timestamp: number;
-  protocol: ProtocolTab;
-  methodFullName: string;
-  serviceName: string;
-  packageName: string;
-  url: string;
-  metadata: MetadataEntry[];
-  requestBody: string;
-  restMethod?: RestMethod;
-  restBodyMode?: RestBodyMode;
-  selectedMethod?: ProtoMethod | null;
-  // Full response archived after the request completes (v1.9+); older
-  // migrated entries have no response.
-  response?: ResponseState | null;
-}
-
-export interface SavedRequest {
-  id: string;
-  name: string;
-  savedAt: number;
-  protocol: ProtocolTab;
-  methodFullName: string;
-  serviceName: string;
-  packageName: string;
-  url: string;
-  metadata: MetadataEntry[];
-  requestBody: string;
-  restMethod?: RestMethod;
-  restBodyMode?: RestBodyMode;
-  response: ResponseState | null;
-  selectedMethod: ProtoMethod | null;
-}
-
-export type ProtocolTab = "grpc-web" | "grpc" | "sdk" | "rest";
-export type VisibleProtocolTab = Exclude<ProtocolTab, "rest">;
-
-export function visibleProtocolForTab(
-  protocol: ProtocolTab | null | undefined,
-): VisibleProtocolTab {
-  return protocol === "grpc-web" || protocol === "grpc" || protocol === "sdk"
-    ? protocol
-    : "sdk";
-}
-
+// Types and the AppState interface live in ./store-types; persistence load/save
+// helpers live in ./store-persistence-helpers. Both are re-exported here so
+// existing call sites (`import { ResponseState } from "./store"`) keep working
+// unchanged.
+export * from "./store-types";
 export { THEMES, type AppTheme };
-
-export type TabOrigin = "history" | "saved" | null;
-
-export interface RequestTab {
-  id: string;
-  protocolTab: ProtocolTab;
-  targetUrl: string;
-  pathOverride: string | null;
-  restMethod: RestMethod;
-  restBodyMode: RestBodyMode;
-  requestBody: string;
-  metadata: MetadataEntry[];
-  selectedPackage: string | null;
-  selectedService: string | null;
-  selectedMethod: ProtoMethod | null;
-  response: ResponseState | null;
-  isLoading: boolean;
-  origin: TabOrigin;
-}
 
 // --- Helpers ---
 
-// Backend routes all UAT/QAT traffic through one shared URL per group;
-// x-env-tag is the routing signal. Value left empty so the user fills it in
-// (literal "QAT"/"UAT" or a `{{VAR}}` template) — no implicit template default.
-// Declared here (above _defaultHeaders) because loadDefaultHeaders runs at
-// module load time and reads this in its fallback object — a later const
-// declaration would put it in TDZ at first use.
-const X_ENV_TAG_DEFAULT: MetadataEntry = {
-  key: "x-env-tag",
-  value: "",
-  enabled: true,
-};
-
-const PLATFORM_ID_DEFAULT: MetadataEntry = {
-  key: "platform-id",
-  value: "",
-  enabled: true,
-};
-
+// loadDefaultHeaders runs at module load time, before the store exists, so
+// createTab can fall back to this snapshot when useAppStore isn't ready yet.
 const _defaultHeaders = loadDefaultHeaders();
 
 function createTab(origin: TabOrigin = null, protocol: ProtocolTab = "grpc-web"): RequestTab {
@@ -214,283 +114,7 @@ export function mergeWithDefaultHeaders(
 
 export { createTab };
 
-// --- App State ---
-
-export interface AppState {
-  tabs: RequestTab[];
-  activeTabId: string | null;
-  addTab: (protocol?: ProtocolTab) => RequestTab;
-  removeTab: (id: string) => void;
-  resetActiveTab: () => void;
-  resetPackageTabs: () => void;
-  sanitizeHiddenRestTabs: () => void;
-  setActiveTab: (id: string | null) => void;
-  updateActiveTab: (patch: Partial<RequestTab>) => void;
-
-  grpcWebPackages: InstalledPackage[];
-  grpcPackages: InstalledPackage[];
-  sdkPackages: InstalledPackage[];
-  setGrpcWebPackages: (pkgs: InstalledPackage[]) => void;
-  setGrpcPackages: (pkgs: InstalledPackage[]) => void;
-  setSdkPackages: (pkgs: InstalledPackage[]) => void;
-  addGrpcWebPackage: (pkg: InstalledPackage) => void;
-  addGrpcPackage: (pkg: InstalledPackage) => void;
-  addSdkPackage: (pkg: InstalledPackage) => void;
-  removeGrpcWebPackage: (name: string) => void;
-  removeGrpcPackage: (name: string) => void;
-  removeSdkPackage: (name: string) => void;
-
-  grpcWebEnvironments: Environment[];
-  grpcEnvironments: Environment[];
-  sdkEnvironments: Environment[];
-  restEnvironments: Environment[];
-  grpcWebActiveEnvId: string | null;
-  grpcActiveEnvId: string | null;
-  sdkActiveEnvId: string | null;
-  restActiveEnvId: string | null;
-  setGrpcWebEnvironments: (envs: Environment[]) => void;
-  setGrpcEnvironments: (envs: Environment[]) => void;
-  setSdkEnvironments: (envs: Environment[]) => void;
-  setRestEnvironments: (envs: Environment[]) => void;
-  setGrpcWebActiveEnvId: (id: string | null) => void;
-  setGrpcActiveEnvId: (id: string | null) => void;
-  setSdkActiveEnvId: (id: string | null) => void;
-  setRestActiveEnvId: (id: string | null) => void;
-  addGrpcWebEnvironment: (env: Environment) => void;
-  addGrpcEnvironment: (env: Environment) => void;
-  addSdkEnvironment: (env: Environment) => void;
-  addRestEnvironment: (env: Environment) => void;
-  updateGrpcWebEnvironment: (id: string, patch: Partial<Environment>) => void;
-  updateGrpcEnvironment: (id: string, patch: Partial<Environment>) => void;
-  updateSdkEnvironment: (id: string, patch: Partial<Environment>) => void;
-  updateRestEnvironment: (id: string, patch: Partial<Environment>) => void;
-  deleteGrpcWebEnvironment: (id: string) => void;
-  deleteGrpcEnvironment: (id: string) => void;
-  deleteSdkEnvironment: (id: string) => void;
-  deleteRestEnvironment: (id: string) => void;
-
-  theme: AppTheme;
-  setTheme: (theme: AppTheme) => void;
-
-  isInstallerOpen: boolean;
-  setInstallerOpen: (open: boolean) => void;
-  installerPrefill: string;
-  setInstallerPrefill: (value: string) => void;
-  installLog: string[];
-  addInstallLog: (line: string) => void;
-  clearInstallLog: () => void;
-
-  searchPrefill: string;
-  setSearchPrefill: (value: string) => void;
-
-  showTutorial: boolean;
-  setShowTutorial: (show: boolean) => void;
-
-  userName: string;
-  setUserName: (name: string) => void;
-
-  // Developer Mode — see useDeveloperMode() contract
-  devModeEnabled: boolean;
-  setDevModeEnabled: (value: boolean) => void;
-  hasValidToken: boolean;
-  setHasValidToken: (value: boolean) => void;
-  // Sprint 3 — superadmin tier. NOT persisted; always recomputed at boot via
-  // initializeDevModeOnAppStart after the in-memory token is loaded.
-  isSuperAdmin: boolean;
-  setIsSuperAdmin: (value: boolean) => void;
-
-  // Vault — projects state owned here, loaded/persisted via vault-storage.ts
-  vaultProjects: VaultProject[];
-  setVaultProjects: (projects: VaultProject[]) => void;
-  vaultLarkUrl: string | null;
-  setVaultLarkUrl: (url: string | null) => void;
-  vaultLastSyncedAt: number | null;
-  setVaultLastSyncedAt: (timestamp: number | null) => void;
-  // Sprint 3 — dirty flag for local CRUD edits. NOT persisted: every cold
-  // boot starts clean because either Sync or Push must reconcile against Lark.
-  vaultIsDirty: boolean;
-  setVaultIsDirty: (value: boolean) => void;
-  // Paginated window over the request_history table — NOT the full archive.
-  history: HistoryEntry[];
-  historyTotal: number;
-  addHistory: (entry: HistoryEntry) => void;
-  attachHistoryResponse: (id: string, response: ResponseState) => void;
-  loadMoreHistory: () => Promise<void>;
-  clearHistory: () => void;
-
-  savedRequests: SavedRequest[];
-  saveRequest: (entry: SavedRequest) => void;
-  deleteSavedRequest: (id: string) => void;
-  renameSavedRequest: (id: string, name: string) => void;
-
-  maxHistorySize: number;
-  setMaxHistorySize: (size: number) => void;
-
-  defaultHeaders: Record<ProtocolTab, MetadataEntry[]>;
-  setDefaultHeaders: (protocol: ProtocolTab, headers: MetadataEntry[]) => void;
-}
-
-const THEME_KEY = APP_VALUE_KEYS.theme;
-const TUTORIAL_KEY = APP_VALUE_KEYS.tutorialSeen;
-const USERNAME_KEY = APP_VALUE_KEYS.userName;
-const TABS_KEY = APP_VALUE_KEYS.tabs;
-const ACTIVE_TAB_KEY = APP_VALUE_KEYS.activeTab;
-const HISTORY_KEY = APP_VALUE_KEYS.history;
-const MAX_HISTORY_KEY = APP_VALUE_KEYS.maxHistory;
-const DEFAULT_MAX_HISTORY = 500;
-const SAVED_REQUESTS_KEY = APP_VALUE_KEYS.savedRequests;
-const DEFAULT_HEADERS_KEY = APP_VALUE_KEYS.defaultHeaders;
-
-function loadMaxHistorySize(): number {
-  const raw = getPersistedValue(MAX_HISTORY_KEY);
-  if (raw) {
-    const n = parseInt(raw, 10);
-    if (!isNaN(n) && n > 0) return n;
-  }
-  return DEFAULT_MAX_HISTORY;
-}
-
-function loadDefaultHeaders(): Record<ProtocolTab, MetadataEntry[]> {
-  const fallback: Record<ProtocolTab, MetadataEntry[]> = {
-    "grpc-web": [
-      { key: "Authorization", value: "Bearer ", enabled: true },
-      { key: "eId", value: "", enabled: true },
-      { ...X_ENV_TAG_DEFAULT },
-      { ...PLATFORM_ID_DEFAULT },
-    ],
-    grpc: [
-      { key: "Authorization", value: "Bearer ", enabled: true },
-      { key: "eId", value: "", enabled: true },
-      { ...X_ENV_TAG_DEFAULT },
-      { ...PLATFORM_ID_DEFAULT },
-    ],
-    sdk: [
-      { key: "Authorization", value: "Bearer ", enabled: true },
-      { key: "eId", value: "", enabled: true },
-      { ...X_ENV_TAG_DEFAULT },
-      { ...PLATFORM_ID_DEFAULT },
-    ],
-    rest: [
-      { key: "Authorization", value: "Bearer ", enabled: true },
-      { key: "Content-Type", value: "application/json", enabled: true },
-      { ...X_ENV_TAG_DEFAULT },
-      { ...PLATFORM_ID_DEFAULT },
-    ],
-  };
-  try {
-    const raw = getPersistedValue(DEFAULT_HEADERS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Record<ProtocolTab, MetadataEntry[]>;
-      const merged = { ...fallback, ...parsed };
-      // One-time migration: existing users predate x-env-tag; if their stored
-      // default headers don't include it, append it without disturbing other entries.
-      const protocols: ProtocolTab[] = ["grpc-web", "grpc", "sdk", "rest"];
-      let migrated = false;
-      for (const protocol of protocols) {
-        const current = merged[protocol] ?? [];
-        const hasXEnvTag = current.some(
-          (entry) => entry.key.trim().toLowerCase() === "x-env-tag",
-        );
-        if (!hasXEnvTag) {
-          merged[protocol] = [...current, { ...X_ENV_TAG_DEFAULT }];
-          migrated = true;
-        }
-        const hasPlatformId = merged[protocol].some(
-          (entry) => entry.key.trim().toLowerCase() === "platform-id",
-        );
-        if (!hasPlatformId) {
-          merged[protocol] = [...merged[protocol], { ...PLATFORM_ID_DEFAULT }];
-          migrated = true;
-        }
-      }
-      if (migrated) {
-        setPersistedValue(DEFAULT_HEADERS_KEY, JSON.stringify(merged));
-      }
-      return merged;
-    }
-  } catch { /* corrupted */ }
-  return fallback;
-}
-
-function loadUserName(): string {
-  return getPersistedValue(USERNAME_KEY) ?? "";
-}
-
-function loadTabs(): { tabs: RequestTab[]; activeTabId: string | null } {
-  try {
-    const raw = getPersistedValue(TABS_KEY);
-    if (raw) {
-      const tabs: RequestTab[] = (JSON.parse(raw) as RequestTab[])
-        .map((t: RequestTab) => ({
-          ...t,
-          restMethod: t.restMethod ?? "POST",
-          restBodyMode: t.restBodyMode ?? "json",
-          origin: t.origin ?? null,
-        }))
-        .filter((tab: RequestTab) => tab.protocolTab !== "rest");
-      if (Array.isArray(tabs) && tabs.length > 0) {
-        const activeTabId =
-          getPersistedValue(ACTIVE_TAB_KEY) ?? tabs[0].id;
-        return { tabs, activeTabId };
-      }
-    }
-  } catch { /* corrupted data, start fresh */ }
-  return { tabs: [], activeTabId: null };
-}
-
-let _saveTabsTimer: ReturnType<typeof setTimeout> | null = null;
-function saveTabs(tabs: RequestTab[], activeTabId: string | null) {
-  if (_saveTabsTimer) clearTimeout(_saveTabsTimer);
-  _saveTabsTimer = setTimeout(() => {
-    setPersistedValue(TABS_KEY, JSON.stringify(tabs));
-    if (activeTabId) {
-      setPersistedValue(ACTIVE_TAB_KEY, activeTabId);
-    } else {
-      deletePersistedValue(ACTIVE_TAB_KEY);
-    }
-    _saveTabsTimer = null;
-  }, 300);
-}
-
-function loadHistory(): HistoryEntry[] {
-  try {
-    const raw = getPersistedValue(HISTORY_KEY);
-    if (raw) {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) return arr;
-    }
-  } catch { /* corrupted */ }
-  return [];
-}
-
 export const HISTORY_PAGE_SIZE = 50;
-
-// Pre-v1.9 versions kept the whole history as one JSON blob under HISTORY_KEY.
-// Read it only for the one-shot migration into the request_history table.
-function loadLegacyHistoryBlob(): HistoryEntry[] {
-  return loadHistory();
-}
-
-function loadSavedRequests(): SavedRequest[] {
-  try {
-    const raw = getPersistedValue(SAVED_REQUESTS_KEY);
-    if (raw) {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) return arr;
-    }
-  } catch { /* corrupted */ }
-  return [];
-}
-
-function loadTheme(): AppTheme {
-  const stored = getPersistedValue(THEME_KEY);
-  if (stored && isAppTheme(stored)) return stored;
-  return "dark";
-}
-
-function loadShowTutorial(): boolean {
-  return getPersistedValue(TUTORIAL_KEY) !== "true";
-}
 
 export const useAppStore = create<AppState>((set, get) => {
   const initialTheme = loadTheme();
