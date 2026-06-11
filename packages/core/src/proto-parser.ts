@@ -86,7 +86,16 @@ function parseRawProtos(
   return services;
 }
 
-function extractProtoFields(type: protobuf.Type): FieldInfo[] {
+function extractProtoFields(
+  type: protobuf.Type,
+  seen: Set<string> = new Set()
+): FieldInfo[] {
+  // Cycle guard: self/mutually-referencing messages (e.g. tree nodes) would
+  // otherwise recurse forever.
+  if (seen.has(type.fullName)) return [];
+  const nextSeen = new Set(seen);
+  nextSeen.add(type.fullName);
+
   return type.fieldsArray.map((field) => {
     const info: FieldInfo = {
       name: field.name,
@@ -98,7 +107,7 @@ function extractProtoFields(type: protobuf.Type): FieldInfo[] {
     try {
       const resolved = field.resolve();
       if (resolved.resolvedType instanceof protobuf.Type) {
-        info.fields = extractProtoFields(resolved.resolvedType);
+        info.fields = extractProtoFields(resolved.resolvedType, nextSeen);
       } else if (resolved.resolvedType instanceof protobuf.Enum) {
         info.enumValues = Object.keys(resolved.resolvedType.values);
       }
@@ -183,10 +192,14 @@ function parseConnectDts(
 
 function resolveFields(
   className: string,
-  messageMap: Map<string, ParsedMessage>
+  messageMap: Map<string, ParsedMessage>,
+  seen: Set<string> = new Set()
 ): FieldInfo[] {
   const msg = messageMap.get(className);
-  if (!msg) return [];
+  // Cycle guard: self/mutually-referencing messages would recurse forever.
+  if (!msg || seen.has(className)) return [];
+  const nextSeen = new Set(seen);
+  nextSeen.add(className);
 
   return msg.fields.map((f) => {
     const info: FieldInfo = {
@@ -196,18 +209,31 @@ function resolveFields(
       optional: f.optional,
     };
 
-    const nestedMsg = messageMap.get(simplifyClassName(f.protoType));
-    if (nestedMsg) {
-      info.fields = resolveFields(simplifyClassName(f.protoType), messageMap);
+    const nestedClassName = findMessageClassName(f.protoType, messageMap);
+    if (nestedClassName) {
+      info.fields = resolveFields(nestedClassName, messageMap, nextSeen);
     }
 
     return info;
   });
 }
 
-function simplifyClassName(protoType: string): string {
+// Map a proto type reference to the protoc-gen-es class name. Top-level
+// messages keep their name ("common.BaseResponse" → "BaseResponse"), but
+// NESTED messages join the nesting path with underscores:
+// "player.GetPlayerProfileByJwtRes.Player" → "GetPlayerProfileByJwtRes_Player".
+// The package prefix length is unknown, so probe suffixes from shortest to
+// longest until one matches a generated class.
+function findMessageClassName(
+  protoType: string,
+  messageMap: Map<string, ParsedMessage>
+): string | null {
   const parts = protoType.split(".");
-  return parts[parts.length - 1].replace(/\./g, "_");
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const candidate = parts.slice(i).join("_");
+    if (messageMap.has(candidate)) return candidate;
+  }
+  return null;
 }
 
 const GENERATED_FIELD_RE =
