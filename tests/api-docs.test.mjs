@@ -55,6 +55,22 @@ test("docs annotations CRUD persists and round-trips", async () => {
   state = docs.upsertMethodAnnotation("pkg.New.Endpoint", { custom: true, description: "未发包的新接口" });
   assert.equal(state.methods["pkg.New.Endpoint"].custom, true);
 
+  // Docs span all API kinds — REST entries carry a protocol tag that
+  // round-trips through persistence and the Lark JSON block.
+  state = docs.upsertMethodAnnotation("GET /v1/users", {
+    custom: true,
+    protocol: "rest",
+    description: "List users",
+  });
+  assert.equal(state.methods["GET /v1/users"].protocol, "rest");
+  assert.equal(
+    docs.parseDocsAnnotations(JSON.parse(JSON.stringify(state))).methods["GET /v1/users"].protocol,
+    "rest",
+  );
+  // Unknown protocol values are dropped, not persisted blindly.
+  const parsed = docs.parseDocsAnnotations({ methods: { x: { description: "d", protocol: "soap" } } });
+  assert.equal(parsed.methods.x.protocol, undefined);
+
   // Reload from persistence — survives restarts.
   assert.deepEqual(docs.loadDocsAnnotations(), state);
 
@@ -99,10 +115,12 @@ test("sync pulls the json block from Lark; push exports markdown with it", async
     return { success: true };
   };
   docs.upsertMethodAnnotation("pkg.New.Endpoint", { custom: true, notes: "coming soon" });
+  docs.upsertMethodAnnotation("GET /v1/users", { custom: true, protocol: "rest", description: "List users" });
   const pushed = await docs.pushDocsToLark();
   assert.equal(pushed.success, true);
   assert.match(pushedMarkdown, /## pkg\.Auth\.Login/);
   assert.match(pushedMarkdown, /## pkg\.New\.Endpoint \(custom\)/);
+  assert.match(pushedMarkdown, /## \[rest\] GET \/v1\/users \(custom\)/);
   const block = pushedMarkdown.match(/```json\s*([\s\S]*?)```/);
   assert.ok(block, "push output keeps the sync-readable json block");
   const roundTrip = docs.parseDocsAnnotations(JSON.parse(block[1]));

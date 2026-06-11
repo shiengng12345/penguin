@@ -19,12 +19,19 @@ const LOG_SCOPE = "docs-lark";
 //   }
 // }
 // ```
+// Docs cover every protocol Penguin speaks. REST has no proto package, so
+// REST docs always come from custom entries tagged with their protocol.
+export const DOCS_PROTOCOLS = ["grpc-web", "grpc", "sdk", "rest"] as const;
+export type DocsProtocol = (typeof DOCS_PROTOCOLS)[number];
+
 export interface MethodAnnotation {
   description?: string;
   notes?: string;
   // Entries created in-app for interfaces that have no installed package yet
   // (documented ahead of the proto shipping). They render without schema.
   custom?: boolean;
+  // Which API kind this documents (grpc-web / grpc / sdk / rest).
+  protocol?: DocsProtocol;
 }
 
 export interface DocsAnnotations {
@@ -85,7 +92,7 @@ export function parseDocsAnnotations(parsed: unknown): DocsAnnotations | null {
   const out: Record<string, MethodAnnotation> = {};
   for (const [fullName, value] of Object.entries(methods as Record<string, unknown>)) {
     if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-    const entry = value as { description?: unknown; notes?: unknown; custom?: unknown };
+    const entry = value as { description?: unknown; notes?: unknown; custom?: unknown; protocol?: unknown };
     const annotation: MethodAnnotation = {};
     if (typeof entry.description === "string" && entry.description.trim()) {
       annotation.description = entry.description.trim();
@@ -94,6 +101,12 @@ export function parseDocsAnnotations(parsed: unknown): DocsAnnotations | null {
       annotation.notes = entry.notes.trim();
     }
     if (entry.custom === true) annotation.custom = true;
+    if (
+      typeof entry.protocol === "string" &&
+      (DOCS_PROTOCOLS as readonly string[]).includes(entry.protocol)
+    ) {
+      annotation.protocol = entry.protocol as DocsProtocol;
+    }
     if (annotation.description || annotation.notes || annotation.custom) out[fullName] = annotation;
   }
   return { methods: out };
@@ -114,6 +127,7 @@ export function upsertMethodAnnotation(
   if (annotation.description?.trim()) cleaned.description = annotation.description.trim();
   if (annotation.notes?.trim()) cleaned.notes = annotation.notes.trim();
   if (annotation.custom) cleaned.custom = true;
+  if (annotation.protocol) cleaned.protocol = annotation.protocol;
 
   const next: DocsAnnotations = {
     methods: { ...current.methods, [fullName.trim()]: cleaned },
@@ -148,7 +162,8 @@ export function buildDocsMarkdown(annotations: DocsAnnotations): string {
   ];
   const entries = Object.entries(annotations.methods).sort(([a], [b]) => a.localeCompare(b));
   for (const [fullName, annotation] of entries) {
-    lines.push(`## ${fullName}${annotation.custom ? " (custom)" : ""}`);
+    const protocolTag = annotation.protocol ? `[${annotation.protocol}] ` : "";
+    lines.push(`## ${protocolTag}${fullName}${annotation.custom ? " (custom)" : ""}`);
     if (annotation.description) lines.push("", annotation.description);
     if (annotation.notes) lines.push("", `> ${annotation.notes}`);
     lines.push("");

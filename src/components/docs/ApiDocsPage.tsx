@@ -8,9 +8,12 @@ import {
   saveDocsLarkUrl,
   syncDocsFromLark,
   upsertMethodAnnotation,
+  DOCS_PROTOCOLS,
   type DocsAnnotations,
+  type DocsProtocol,
   type MethodAnnotation,
 } from "./docs-lark";
+import { Select } from "@/components/ui/select";
 import {
   useAppStore,
   type InstalledPackage,
@@ -25,11 +28,17 @@ import { Button } from "@/components/ui/button";
 import { BookOpen, Globe, Server, Box, Play, ArrowLeft, Package, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const PROTOCOL_META: Record<VisibleProtocolTab, { label: string; icon: typeof Globe; className: string }> = {
+const PROTOCOL_META: Record<DocsProtocol, { label: string; icon: typeof Globe; className: string }> = {
   "grpc-web": { label: "gRPC-Web", icon: Globe, className: "bg-green-500/15 text-green-600 dark:text-green-400" },
   grpc: { label: "gRPC", icon: Server, className: "bg-blue-500/15 text-blue-600 dark:text-blue-400" },
   sdk: { label: "JS-SDK", icon: Box, className: "bg-purple-500/15 text-purple-600 dark:text-purple-400" },
+  rest: { label: "REST", icon: Globe, className: "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400" },
 };
+
+const CUSTOM_PROTOCOL_OPTIONS = DOCS_PROTOCOLS.map((p) => ({
+  value: p,
+  label: PROTOCOL_META[p].label,
+}));
 
 interface DocMethodRef {
   protocol: VisibleProtocolTab;
@@ -130,6 +139,8 @@ function AnnotationEditor({
         description: draftDescription,
         notes: draftNotes,
         custom: isCustom || annotation?.custom,
+        // Preserve the protocol tag across edits.
+        protocol: annotation?.protocol,
       }),
     );
     setEditing(false);
@@ -241,6 +252,9 @@ export function ApiDocsPage({ onClose, onOpenApiClient }: ApiDocsPageProps) {
   // A custom (in-app authored) doc entry; mutually exclusive with `selected`.
   const [selectedCustom, setSelectedCustom] = useState<string | null>(null);
   const [newCustomName, setNewCustomName] = useState("");
+  // REST is the default: it's the one protocol with no package schema, so
+  // custom entries are its primary documentation path.
+  const [newCustomProtocol, setNewCustomProtocol] = useState<DocsProtocol>("rest");
 
   // Team annotations synced from a Lark doc (same lark-cli pipeline as Vault).
   const [annotations, setAnnotations] = useState<DocsAnnotations>(() => loadDocsAnnotations());
@@ -294,7 +308,7 @@ export function ApiDocsPage({ onClose, onOpenApiClient }: ApiDocsPageProps) {
   const createCustomDoc = () => {
     const name = newCustomName.trim();
     if (!name) return;
-    setAnnotations(upsertMethodAnnotation(name, { custom: true }));
+    setAnnotations(upsertMethodAnnotation(name, { custom: true, protocol: newCustomProtocol }));
     setNewCustomName("");
     setSelected(null);
     setSelectedCustom(name);
@@ -541,8 +555,9 @@ export function ApiDocsPage({ onClose, onOpenApiClient }: ApiDocsPageProps) {
               <p className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Custom Docs / 自定义文档
               </p>
-              {customEntries.map(([fullName]) => {
+              {customEntries.map(([fullName, annotation]) => {
                 const isActive = selectedCustom === fullName;
+                const meta = annotation.protocol ? PROTOCOL_META[annotation.protocol] : null;
                 return (
                   <button
                     key={fullName}
@@ -552,36 +567,49 @@ export function ApiDocsPage({ onClose, onOpenApiClient }: ApiDocsPageProps) {
                       setSelectedCustom(fullName);
                     }}
                     className={cn(
-                      "block w-full truncate rounded px-2 py-1 text-left font-mono text-[11px] transition-colors",
+                      "flex w-full items-center gap-1.5 truncate rounded px-2 py-1 text-left font-mono text-[11px] transition-colors",
                       isActive
                         ? "bg-primary/10 text-primary"
                         : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                     )}
                     title={fullName}
                   >
-                    {fullName}
+                    {meta && (
+                      <span className={cn("shrink-0 rounded px-1 py-px text-[9px] font-medium", meta.className)}>
+                        {meta.label}
+                      </span>
+                    )}
+                    <span className="truncate">{fullName}</span>
                   </button>
                 );
               })}
-              <div className="mt-1 flex items-center gap-1 px-1">
-                <Input
-                  value={newCustomName}
-                  onChange={(e) => setNewCustomName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") createCustomDoc();
-                  }}
-                  placeholder="pkg.Service.NewMethod"
-                  className="h-6 flex-1 font-mono text-[10px]"
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 px-2 text-[10px]"
-                  onClick={createCustomDoc}
-                  disabled={!newCustomName.trim()}
-                >
-                  + New
-                </Button>
+              <div className="mt-1 space-y-1 px-1">
+                <div className="flex items-center gap-1">
+                  <Select
+                    value={newCustomProtocol}
+                    onChange={(e) => setNewCustomProtocol(e.target.value as DocsProtocol)}
+                    options={CUSTOM_PROTOCOL_OPTIONS}
+                    className="h-6 w-24 shrink-0 text-[10px]"
+                  />
+                  <Input
+                    value={newCustomName}
+                    onChange={(e) => setNewCustomName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") createCustomDoc();
+                    }}
+                    placeholder={newCustomProtocol === "rest" ? "GET /v1/users" : "pkg.Service.NewMethod"}
+                    className="h-6 flex-1 font-mono text-[10px]"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2 text-[10px]"
+                    onClick={createCustomDoc}
+                    disabled={!newCustomName.trim()}
+                  >
+                    + New
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
@@ -592,7 +620,19 @@ export function ApiDocsPage({ onClose, onOpenApiClient }: ApiDocsPageProps) {
           {selectedCustom ? (
             <div className="mx-auto max-w-3xl space-y-4">
               <div className="min-w-0">
-                <h2 className="truncate font-mono text-base font-semibold text-foreground">{selectedCustom}</h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="truncate font-mono text-base font-semibold text-foreground">{selectedCustom}</h2>
+                  {annotations.methods[selectedCustom]?.protocol && (
+                    <span
+                      className={cn(
+                        "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                        PROTOCOL_META[annotations.methods[selectedCustom]!.protocol!].className,
+                      )}
+                    >
+                      {PROTOCOL_META[annotations.methods[selectedCustom]!.protocol!].label}
+                    </span>
+                  )}
+                </div>
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   Custom doc — no installed package schema / 自定义文档(无包 schema)
                 </p>
