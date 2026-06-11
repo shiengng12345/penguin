@@ -11,6 +11,7 @@ import { TabBar } from "@/components/layout/TabBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { UrlBar } from "@/components/layout/UrlBar";
 import { VaultPage } from "@/components/vault/VaultPage";
+import { ApiDocsPage } from "@/components/docs/ApiDocsPage";
 import { HomePage } from "@/components/home/HomePage";
 import { PENGUIN_OPEN_SETTINGS_EVENT, PENGUIN_GO_HOME_EVENT } from "@/components/vault/VaultEmptyGate";
 import { initializeDevModeOnAppStart } from "@/lib/dev-mode-store";
@@ -64,21 +65,33 @@ export default function App() {
   const [curlImportOpen, setCurlImportOpen] = useState(false);
   const [protoViewerOpen, setProtoViewerOpen] = useState(false);
   const [vaultOpen, setVaultOpen] = useState(false);
+  const [docsOpen, setDocsOpen] = useState(false);
   const [homeOpen, setHomeOpen] = useState(false);
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const closeVault = useCallback(() => setVaultOpen(false), []);
-  const toggleVault = useCallback(() => setVaultOpen((v) => !v), []);
+  const toggleVault = useCallback(() => {
+    setDocsOpen(false);
+    setVaultOpen((v) => !v);
+  }, []);
   const openHome = useCallback(() => {
     setVaultOpen(false);
+    setDocsOpen(false);
     setHomeOpen(true);
   }, []);
   const selectApiClient = useCallback(() => {
     setVaultOpen(false);
+    setDocsOpen(false);
     setHomeOpen(false);
   }, []);
   const selectVaultFromHome = useCallback(() => {
     setHomeOpen(false);
+    setDocsOpen(false);
     setVaultOpen(true);
+  }, []);
+  const selectDocsFromHome = useCallback(() => {
+    setHomeOpen(false);
+    setVaultOpen(false);
+    setDocsOpen(true);
   }, []);
   const appUpdate = useAppUpdateScheduler(openSettings);
   const handlePackagesCleared = useCallback(async () => {
@@ -312,6 +325,7 @@ export default function App() {
   useEffect(() => {
     const handleGoHome = (): void => {
       setVaultOpen(false);
+      setDocsOpen(false);
       setHomeOpen(true);
     };
     document.addEventListener(PENGUIN_GO_HOME_EVENT, handleGoHome);
@@ -345,9 +359,15 @@ export default function App() {
           onUpdate={appUpdate.downloadInstallAndRestart}
         />
         {homeOpen ? (
-          <HomePage onSelectApiClient={selectApiClient} onSelectVault={selectVaultFromHome} />
+          <HomePage
+            onSelectApiClient={selectApiClient}
+            onSelectVault={selectVaultFromHome}
+            onSelectDocs={selectDocsFromHome}
+          />
         ) : vaultOpen ? (
           <VaultPage onClose={closeVault} />
+        ) : docsOpen ? (
+          <ApiDocsPage onClose={openHome} onOpenApiClient={selectApiClient} />
         ) : (
           <>
             <TabBar

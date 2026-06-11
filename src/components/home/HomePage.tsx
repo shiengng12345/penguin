@@ -1,4 +1,4 @@
-import { Globe, Lock, Sparkles } from "lucide-react";
+import { BookOpen, Globe, Lock, Sparkles } from "lucide-react";
 import { useDeveloperMode } from "@/hooks/useDeveloperMode";
 import { logger } from "@/lib/logger";
 import { cn } from "@/lib/utils";
@@ -8,6 +8,7 @@ const LOG_SCOPE = "HomePage";
 interface HomePageProps {
   onSelectApiClient: () => void;
   onSelectVault: () => void;
+  onSelectDocs: () => void;
 }
 
 interface ModuleCardProps {
@@ -58,13 +59,19 @@ export function HomePage(props: HomePageProps) {
         </p>
       </div>
 
-      <div className="grid w-full max-w-4xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2">
         <ModuleCard
           title="API Client"
           description="gRPC-Web · gRPC · SDK · REST — 发送请求 / 调试 / 保存"
           icon={<Globe className="h-6 w-6" />}
           badge="Default"
           onClick={handleSelectApiClient}
+        />
+        <ModuleCard
+          title="API Docs"
+          description="Swagger 式文档：服务 / 方法 / 字段结构 · 示例请求体 · 一键试调"
+          icon={<BookOpen className="h-6 w-6" />}
+          onClick={props.onSelectDocs}
         />
         <ModuleCard
           title="Vault"
@@ -76,7 +83,7 @@ export function HomePage(props: HomePageProps) {
         />
         <ModuleCard
           title="More Coming"
-          description="Sprint 4+ 计划：直连 Lark API · 服务端 token 校验 · 更多 module"
+          description="计划：响应提取变量 · 直连 Lark API · 更多 module"
           icon={<Sparkles className="h-6 w-6" />}
           locked
           lockedHint="Coming soon"
