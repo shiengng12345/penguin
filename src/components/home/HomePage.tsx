@@ -68,8 +68,8 @@ export function HomePage(props: HomePageProps) {
           onClick={handleSelectApiClient}
         />
         <ModuleCard
-          title="API Docs"
-          description="Swagger 式文档：服务 / 方法 / 字段结构 · 示例请求体 · 一键试调"
+          title="Knowledge Base"
+          description="API 文档知识库：集合 / 端点 / 参数表 / 示例 · 复制 · Lark 同步"
           icon={<BookOpen className="h-6 w-6" />}
           onClick={props.onSelectDocs}
         />

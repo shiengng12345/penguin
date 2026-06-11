@@ -25,7 +25,7 @@ export const APP_VALUE_KEYS = {
   vaultLastSyncedHash: "penguin-vault-last-synced-hash",
   vaultSchemaVersion: "penguin-vault-schema-version",
   docsLarkUrl: "penguin-docs-lark-url",
-  docsAnnotations: "penguin-docs-annotations",
+  docsKnowledgeBase: "penguin-docs-knowledge-base",
   docsLastSyncedAt: "penguin-docs-last-synced-at",
 } as const;
 

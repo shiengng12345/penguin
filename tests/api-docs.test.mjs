@@ -20,7 +20,7 @@ async function loadDocsLarkModule() {
     "@/lib/persistence-keys": `
       export const APP_VALUE_KEYS = {
         docsLarkUrl: "penguin-docs-lark-url",
-        docsAnnotations: "penguin-docs-annotations",
+        docsKnowledgeBase: "penguin-docs-knowledge-base",
         docsLastSyncedAt: "penguin-docs-last-synced-at",
       };
     `,
@@ -43,146 +43,169 @@ async function loadDocsLarkModule() {
   return import(`data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}#${Math.random()}`);
 }
 
-test("docs annotations CRUD persists and round-trips", async () => {
+function sampleEndpoint(docs, overrides = {}) {
+  return {
+    ...docs.emptyEndpoint(),
+    method: "GET",
+    path: "/cpf/check",
+    summary: "Check if CPF is impeded in SIGAP",
+    section: "CPF & Document Check",
+    overview: "Checks whether a CPF is restricted (IMPEDIDO) or not in SIGAP.",
+    requestFields: [
+      { name: "cpf", type: "string", required: true, description: "CPF number (only numbers)", example: "53477771842" },
+    ],
+    responseFields: [
+      { name: "resultado", type: "string", description: "Result of the check", example: "NAO_IMPEDIDO" },
+    ],
+    requestExample: '{ "cpf": "53477771842" }',
+    responseExample: '{ "resultado": "NAO_IMPEDIDO" }',
+    notes: "Requires a valid Bearer Token.\nCPF must contain only 11 digits.",
+    service: "SIGAP impedimentos",
+    baseUrl: "https://hom-api.example.gov.br",
+    rateLimit: "100 req/min",
+    category: "KYC & Compliance",
+    authentication: "Bearer Token",
+    owner: "Platform Team",
+    tags: ["cpf", "sigap"],
+    ...overrides,
+  };
+}
+
+test("knowledge base CRUD: collections and endpoints persist", async () => {
   const docs = await loadDocsLarkModule();
 
-  let state = docs.upsertMethodAnnotation("pkg.Auth.Login", {
-    description: "登录接口",
-    notes: "QAT needs X-Env-Tag",
-  });
-  assert.equal(state.methods["pkg.Auth.Login"].description, "登录接口");
+  let kb = docs.createCollection("KYC Service");
+  assert.equal(kb.collections.length, 1);
+  const collectionId = kb.collections[0].id;
 
-  state = docs.upsertMethodAnnotation("pkg.New.Endpoint", { custom: true, description: "未发包的新接口" });
-  assert.equal(state.methods["pkg.New.Endpoint"].custom, true);
+  const ep = sampleEndpoint(docs);
+  kb = docs.upsertEndpoint(collectionId, ep);
+  assert.equal(kb.collections[0].endpoints.length, 1);
+  assert.equal(kb.collections[0].endpoints[0].path, "/cpf/check");
+  assert.equal(kb.collections[0].endpoints[0].requestFields[0].required, true);
 
-  // Docs span all API kinds — REST entries carry a protocol tag that
-  // round-trips through persistence and the Lark JSON block.
-  state = docs.upsertMethodAnnotation("GET /v1/users", {
-    custom: true,
-    protocol: "rest",
-    description: "List users",
-    requestExample: '{ "page": 1 }',
-    responseExample: '{ "users": [] }',
-  });
-  assert.equal(state.methods["GET /v1/users"].protocol, "rest");
-  assert.equal(state.methods["GET /v1/users"].requestExample, '{ "page": 1 }');
-  assert.equal(state.methods["GET /v1/users"].responseExample, '{ "users": [] }');
-  assert.equal(
-    docs.parseDocsAnnotations(JSON.parse(JSON.stringify(state))).methods["GET /v1/users"].protocol,
-    "rest",
-  );
-  // Unknown protocol values are dropped, not persisted blindly.
-  const parsed = docs.parseDocsAnnotations({ methods: { x: { description: "d", protocol: "soap" } } });
-  assert.equal(parsed.methods.x.protocol, undefined);
+  // Upsert by id updates in place.
+  kb = docs.upsertEndpoint(collectionId, { ...ep, summary: "updated" });
+  assert.equal(kb.collections[0].endpoints.length, 1);
+  assert.equal(kb.collections[0].endpoints[0].summary, "updated");
 
-  // Reload from persistence — survives restarts.
-  assert.deepEqual(docs.loadDocsAnnotations(), state);
+  // Survives reload from persistence.
+  assert.equal(docs.loadKnowledgeBase().collections[0].endpoints[0].summary, "updated");
 
-  state = docs.deleteMethodAnnotation("pkg.Auth.Login");
-  assert.equal(state.methods["pkg.Auth.Login"], undefined);
-  assert.ok(state.methods["pkg.New.Endpoint"], "other entries untouched");
+  kb = docs.renameCollection(collectionId, "KYC Service v2");
+  assert.equal(kb.collections[0].name, "KYC Service v2");
 
-  // Emptying a non-custom annotation deletes it instead of keeping a husk.
-  docs.upsertMethodAnnotation("pkg.A.B", { description: "x" });
-  const emptied = docs.upsertMethodAnnotation("pkg.A.B", { description: "  " });
-  assert.equal(emptied.methods["pkg.A.B"], undefined);
+  kb = docs.deleteEndpoint(collectionId, ep.id);
+  assert.equal(kb.collections[0].endpoints.length, 0);
+
+  kb = docs.deleteCollection(collectionId);
+  assert.equal(kb.collections.length, 0);
 });
 
-test("sync pulls the json block from Lark; push exports markdown with it", async () => {
+test("push exports readable markdown + machine block; pull round-trips", async () => {
   const docs = await loadDocsLarkModule();
-  docs.saveDocsLarkUrl("https://team.larksuite.com/docx/abc");
+  docs.saveDocsLarkUrl("https://casinoplus.sg.larksuite.com/docx/R8EwdtG1Io9S5MxTIuVlSIuZgVg");
 
-  globalThis.__docsLarkFetch = async () => ({
-    success: true,
-    markdown: [
-      "# Team API Docs",
-      "```json",
-      JSON.stringify({ methods: { "pkg.Auth.Login": { description: "from lark" } } }),
-      "```",
-    ].join("\n"),
-  });
-  const synced = await docs.syncDocsFromLark();
-  assert.equal(synced.success, true);
-  assert.equal(synced.methodCount, 1);
-  assert.equal(docs.loadDocsAnnotations().methods["pkg.Auth.Login"].description, "from lark");
+  const kb = docs.createCollection("KYC Service");
+  docs.upsertEndpoint(kb.collections[0].id, sampleEndpoint(docs));
 
-  // Wrong-shaped JSON must fail loudly, not wipe local data.
-  globalThis.__docsLarkFetch = async () => ({ success: true, markdown: "```json\n[1,2]\n```" });
-  const badShape = await docs.syncDocsFromLark();
-  assert.equal(badShape.success, false);
-  assert.equal(docs.loadDocsAnnotations().methods["pkg.Auth.Login"].description, "from lark");
-
-  // Push regenerates the doc with a human list AND the machine json block.
   let pushedMarkdown = "";
   globalThis.__docsLarkUpdate = async ({ markdown }) => {
     pushedMarkdown = markdown;
     return { success: true };
   };
-  docs.upsertMethodAnnotation("pkg.New.Endpoint", { custom: true, notes: "coming soon" });
-  docs.upsertMethodAnnotation("GET /v1/users", {
-    custom: true,
-    protocol: "rest",
-    description: "List users",
-    requestExample: '{ "page": 1 }',
-    responseExample: '{ "users": [] }',
-  });
   const pushed = await docs.pushDocsToLark();
   assert.equal(pushed.success, true);
-  assert.match(pushedMarkdown, /## pkg\.Auth\.Login/);
-  assert.match(pushedMarkdown, /## pkg\.New\.Endpoint \(custom\)/);
-  assert.match(pushedMarkdown, /## \[rest\] GET \/v1\/users \(custom\)/);
-  assert.match(pushedMarkdown, /### Request/);
-  assert.match(pushedMarkdown, /### Response/);
-  const block = pushedMarkdown.match(/```json\s*([\s\S]*?)```/);
-  assert.ok(block, "push output keeps the sync-readable json block");
-  const roundTrip = docs.parseDocsAnnotations(JSON.parse(block[1]));
-  assert.equal(roundTrip.methods["pkg.New.Endpoint"].custom, true);
-  assert.equal(roundTrip.methods["GET /v1/users"].requestExample, '{ "page": 1 }');
+  assert.equal(pushed.endpointCount, 1);
+  assert.match(pushedMarkdown, /## KYC Service/);
+  assert.match(pushedMarkdown, /### \[GET\] \/cpf\/check/);
+  assert.match(pushedMarkdown, /\| cpf \| string \| yes \|/);
+  assert.match(pushedMarkdown, /#### Request example/);
+  assert.match(pushedMarkdown, /- Requires a valid Bearer Token\./);
 
-  // CRITICAL: req/res example fences must not shadow the machine block — the
-  // sync regex grabs the FIRST ```json block, so examples use plain ``` fences.
+  // CRITICAL: example fences must not shadow the machine ```json block —
+  // a pushed doc must pull back losslessly.
   globalThis.__docsLarkFetch = async () => ({ success: true, markdown: pushedMarkdown });
-  const resynced = await docs.syncDocsFromLark();
-  assert.equal(resynced.success, true, "pushed doc must sync back cleanly");
-  assert.equal(
-    docs.loadDocsAnnotations().methods["GET /v1/users"].responseExample,
-    '{ "users": [] }',
-    "push → pull round-trip preserves examples",
-  );
+  globalThis.__docsKv = {
+    "penguin-docs-lark-url": "https://casinoplus.sg.larksuite.com/docx/R8EwdtG1Io9S5MxTIuVlSIuZgVg",
+  };
+  const pulled = await docs.syncDocsFromLark();
+  assert.equal(pulled.success, true, pulled.reason);
+  const restored = docs.loadKnowledgeBase();
+  assert.equal(restored.collections[0].name, "KYC Service");
+  const restoredEp = restored.collections[0].endpoints[0];
+  assert.equal(restoredEp.path, "/cpf/check");
+  assert.equal(restoredEp.responseExample, '{ "resultado": "NAO_IMPEDIDO" }');
+  assert.deepEqual(restoredEp.tags, ["cpf", "sigap"]);
+
+  // Wrong-shaped JSON must fail loudly, not wipe local data.
+  globalThis.__docsLarkFetch = async () => ({ success: true, markdown: "```json\n[1,2]\n```" });
+  const badShape = await docs.syncDocsFromLark();
+  assert.equal(badShape.success, false);
+  assert.equal(docs.loadKnowledgeBase().collections.length, 1);
 });
 
-test("API Docs module is wired into Home and App", async () => {
+test("parseKnowledgeBase normalizes leniently but rejects wrong top-level shape", async () => {
+  const docs = await loadDocsLarkModule();
+
+  assert.equal(docs.parseKnowledgeBase({ foo: 1 }), null);
+  assert.equal(docs.parseKnowledgeBase([1]), null);
+
+  const kb = docs.parseKnowledgeBase({
+    collections: [
+      {
+        name: "X",
+        endpoints: [
+          { path: "/a", method: "post" }, // lowercase method normalized
+          { path: "" }, // dropped — no path
+          { path: "/b", method: "SOAP" }, // unknown method → GET
+        ],
+      },
+      { endpoints: [] }, // dropped — no name
+    ],
+  });
+  assert.equal(kb.collections.length, 1);
+  assert.equal(kb.collections[0].endpoints.length, 2);
+  assert.equal(kb.collections[0].endpoints[0].method, "POST");
+  assert.equal(kb.collections[0].endpoints[1].method, "GET");
+});
+
+test("Knowledge Base module is wired into Home and App", async () => {
   const home = await readFile(new URL("../src/components/home/HomePage.tsx", import.meta.url), "utf8");
-  assert.match(home, /API Docs/);
+  assert.match(home, /Knowledge Base/);
   assert.match(home, /onSelectDocs/);
 
   const app = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   assert.match(app, /ApiDocsPage/);
   assert.match(app, /docsOpen \?/);
-  // Every module switch closes the docs view too.
   assert.match(app, /selectDocsFromHome/);
 });
 
-test("ApiDocsPage is a read/copy/CRUD doc store — no request sending", async () => {
+test("page matches the Knowledge Base design: collections rail, sectioned list, detail, details rail — no request sending", async () => {
   const page = await readFile(
     new URL("../src/components/docs/ApiDocsPage.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(page, /generateDefaultJson/);
-  assert.match(page, /AnnotationEditor/);
-  assert.match(page, /upsertMethodAnnotation/);
-  assert.match(page, /deleteMethodAnnotation/);
-  assert.match(page, /Custom Docs/);
-  assert.match(page, /pushDocsToLark/);
-  assert.match(page, /syncDocsFromLark/);
-  // Copy is the primary action: every block exposes it.
+  // Layout pieces from the approved mock.
+  assert.match(page, /New Collection/);
+  assert.match(page, /New Endpoint/);
+  assert.match(page, /Search endpoints/);
+  assert.match(page, /Related Endpoints/);
+  assert.match(page, /Rate Limit/);
+  assert.match(page, /Authentication/);
+  assert.match(page, /Last Updated/);
+  assert.match(page, /MethodBadge/);
+  assert.match(page, /FieldTableView/);
+  assert.match(page, /FieldTableEditor/);
+  // Copy-first store.
   assert.match(page, /CopyButton/);
   assert.match(page, /navigator\.clipboard\.writeText/);
-  // It's documentation only — it must NOT hand off to the API Client or
-  // dispatch requests (user decision: 只是记录,不需要 call request).
-  assert.doesNotMatch(page, /Try it/);
-  assert.doesNotMatch(page, /penguin:focus-method/);
-  assert.doesNotMatch(page, /callGrpcWeb|callGrpcNative|callSdk|callRest/);
+  // Documentation only — never sends requests.
+  assert.doesNotMatch(page, /callGrpcWeb|callGrpcNative|callSdk|callRest|proxyFetch/);
+  // Lark sync present with the team doc pre-filled as default.
+  assert.match(page, /pushDocsToLark/);
+  assert.match(page, /syncDocsFromLark/);
+  assert.match(page, /casinoplus\.sg\.larksuite\.com\/docx\/R8EwdtG1Io9S5MxTIuVlSIuZgVg/);
 });
 
 test("docs-lark reuses the vault lark-cli pipeline instead of duplicating it", async () => {
@@ -195,5 +218,5 @@ test("docs-lark reuses the vault lark-cli pipeline instead of duplicating it", a
 
   const keys = await readFile(new URL("../src/lib/persistence-keys.ts", import.meta.url), "utf8");
   assert.match(keys, /penguin-docs-lark-url/);
-  assert.match(keys, /penguin-docs-annotations/);
+  assert.match(keys, /penguin-docs-knowledge-base/);
 });

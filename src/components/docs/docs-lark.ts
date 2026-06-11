@@ -5,48 +5,257 @@ import { runLarkFetch, runLarkUpdate } from "@/components/vault/vault-lark";
 
 const LOG_SCOPE = "docs-lark";
 
-// Same shape the Vault sync expects: human-maintained content lives in a Lark
-// document inside a ```json fenced block. For docs the block maps a method's
-// fullName to its team-written annotation:
-//
-// ```json
-// {
-//   "methods": {
-//     "pengvi.auth.Auth.Login": {
-//       "description": "登录接口，返回 JWT token",
-//       "notes": "QAT 环境需要带 X-Env-Tag 请求头"
-//     }
-//   }
-// }
-// ```
-// Docs cover every protocol Penguin speaks. REST has no proto package, so
-// REST docs always come from custom entries tagged with their protocol.
-export const DOCS_PROTOCOLS = ["grpc-web", "grpc", "sdk", "rest"] as const;
-export type DocsProtocol = (typeof DOCS_PROTOCOLS)[number];
+// ---------------------------------------------------------------------------
+// Knowledge Base model — collections of manually-authored endpoint records
+// (the docs module is a store for saving/copying, it never sends requests).
+// ---------------------------------------------------------------------------
 
-export interface MethodAnnotation {
+export const DOC_METHODS = [
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "GRPC",
+  "GRPC-WEB",
+  "SDK",
+] as const;
+export type DocMethod = (typeof DOC_METHODS)[number];
+
+export interface EndpointField {
+  name: string;
+  type: string;
+  required?: boolean;
   description?: string;
-  notes?: string;
-  // Entries created in-app for interfaces that have no installed package yet
-  // (documented ahead of the proto shipping). They render without schema.
-  custom?: boolean;
-  // Which API kind this documents (grpc-web / grpc / sdk / rest).
-  protocol?: DocsProtocol;
-  // Stored request/response examples — the copyable core of a doc record,
-  // and the only req/res source for custom (e.g. REST) entries.
-  requestExample?: string;
-  responseExample?: string;
+  example?: string;
 }
 
-export interface DocsAnnotations {
-  methods: Record<string, MethodAnnotation>;
+export interface DocEndpoint {
+  id: string;
+  method: DocMethod;
+  path: string; // "/cpf/check" or "pkg.Service.Method"
+  summary?: string; // one-liner under the path in lists
+  section?: string; // group header inside the collection (e.g. "CPF & Document Check")
+  overview?: string;
+  requestFields: EndpointField[];
+  responseFields: EndpointField[];
+  requestExample?: string;
+  responseExample?: string;
+  notes?: string; // one bullet per line
+  service?: string;
+  baseUrl?: string;
+  rateLimit?: string;
+  category?: string;
+  authentication?: string;
+  environment?: string;
+  owner?: string;
+  tags: string[];
+  updatedAt: number;
+}
+
+export interface DocCollection {
+  id: string;
+  name: string;
+  endpoints: DocEndpoint[];
+}
+
+export interface KnowledgeBase {
+  collections: DocCollection[];
 }
 
 export interface DocsSyncResult {
   success: boolean;
-  methodCount?: number;
+  endpointCount?: number;
   reason?: string;
 }
+
+const EMPTY_KB: KnowledgeBase = { collections: [] };
+
+function newId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function emptyEndpoint(): DocEndpoint {
+  return {
+    id: newId("ep"),
+    method: "GET",
+    path: "/new-endpoint",
+    requestFields: [],
+    responseFields: [],
+    tags: [],
+    updatedAt: Date.now(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Persistence (SQLite app values, vault pattern)
+// ---------------------------------------------------------------------------
+
+export function loadKnowledgeBase(): KnowledgeBase {
+  const raw = getPersistedValue(APP_VALUE_KEYS.docsKnowledgeBase);
+  if (!raw) return EMPTY_KB;
+  try {
+    return parseKnowledgeBase(JSON.parse(raw)) ?? EMPTY_KB;
+  } catch {
+    return EMPTY_KB;
+  }
+}
+
+function persist(kb: KnowledgeBase): KnowledgeBase {
+  setPersistedValue(APP_VALUE_KEYS.docsKnowledgeBase, JSON.stringify(kb));
+  return kb;
+}
+
+// ---------------------------------------------------------------------------
+// CRUD — every mutation persists and returns the next KB snapshot
+// ---------------------------------------------------------------------------
+
+export function createCollection(name: string): KnowledgeBase {
+  const kb = loadKnowledgeBase();
+  const collection: DocCollection = { id: newId("col"), name: name.trim(), endpoints: [] };
+  logger.info(LOG_SCOPE, "createCollection", { name: collection.name });
+  return persist({ collections: [...kb.collections, collection] });
+}
+
+export function renameCollection(id: string, name: string): KnowledgeBase {
+  const kb = loadKnowledgeBase();
+  return persist({
+    collections: kb.collections.map((c) => (c.id === id ? { ...c, name: name.trim() } : c)),
+  });
+}
+
+export function deleteCollection(id: string): KnowledgeBase {
+  const kb = loadKnowledgeBase();
+  logger.info(LOG_SCOPE, "deleteCollection", { id });
+  return persist({ collections: kb.collections.filter((c) => c.id !== id) });
+}
+
+export function upsertEndpoint(collectionId: string, endpoint: DocEndpoint): KnowledgeBase {
+  const kb = loadKnowledgeBase();
+  const stamped = { ...endpoint, updatedAt: Date.now() };
+  return persist({
+    collections: kb.collections.map((c) => {
+      if (c.id !== collectionId) return c;
+      const exists = c.endpoints.some((e) => e.id === stamped.id);
+      return {
+        ...c,
+        endpoints: exists
+          ? c.endpoints.map((e) => (e.id === stamped.id ? stamped : e))
+          : [...c.endpoints, stamped],
+      };
+    }),
+  });
+}
+
+export function deleteEndpoint(collectionId: string, endpointId: string): KnowledgeBase {
+  const kb = loadKnowledgeBase();
+  return persist({
+    collections: kb.collections.map((c) =>
+      c.id === collectionId
+        ? { ...c, endpoints: c.endpoints.filter((e) => e.id !== endpointId) }
+        : c,
+    ),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Parsing — strict top-level shape so syncing a wrong Lark doc fails loudly
+// instead of wiping local data; per-field normalization is lenient.
+// ---------------------------------------------------------------------------
+
+function asTrimmedString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function parseField(value: unknown): EndpointField | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  const name = asTrimmedString(v.name);
+  if (!name) return null;
+  const field: EndpointField = { name, type: asTrimmedString(v.type) ?? "string" };
+  if (v.required === true) field.required = true;
+  const description = asTrimmedString(v.description);
+  if (description) field.description = description;
+  const example = asTrimmedString(v.example);
+  if (example) field.example = example;
+  return field;
+}
+
+function parseEndpoint(value: unknown): DocEndpoint | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  const path = asTrimmedString(v.path);
+  if (!path) return null;
+
+  const methodRaw = asTrimmedString(v.method)?.toUpperCase();
+  const method = (DOC_METHODS as readonly string[]).includes(methodRaw ?? "")
+    ? (methodRaw as DocMethod)
+    : "GET";
+
+  const fields = (key: "requestFields" | "responseFields"): EndpointField[] =>
+    Array.isArray(v[key])
+      ? (v[key] as unknown[]).map(parseField).filter((f): f is EndpointField => f !== null)
+      : [];
+
+  const endpoint: DocEndpoint = {
+    id: asTrimmedString(v.id) ?? newId("ep"),
+    method,
+    path,
+    requestFields: fields("requestFields"),
+    responseFields: fields("responseFields"),
+    tags: Array.isArray(v.tags)
+      ? (v.tags as unknown[]).map(asTrimmedString).filter((t): t is string => !!t)
+      : [],
+    updatedAt: typeof v.updatedAt === "number" ? v.updatedAt : Date.now(),
+  };
+
+  for (const key of [
+    "summary",
+    "section",
+    "overview",
+    "requestExample",
+    "responseExample",
+    "notes",
+    "service",
+    "baseUrl",
+    "rateLimit",
+    "category",
+    "authentication",
+    "environment",
+    "owner",
+  ] as const) {
+    const parsed = asTrimmedString(v[key]);
+    if (parsed) endpoint[key] = parsed;
+  }
+  return endpoint;
+}
+
+export function parseKnowledgeBase(parsed: unknown): KnowledgeBase | null {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const collections = (parsed as { collections?: unknown }).collections;
+  if (!Array.isArray(collections)) return null;
+
+  const out: DocCollection[] = [];
+  for (const value of collections) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const v = value as Record<string, unknown>;
+    const name = asTrimmedString(v.name);
+    if (!name) continue;
+    out.push({
+      id: asTrimmedString(v.id) ?? newId("col"),
+      name,
+      endpoints: Array.isArray(v.endpoints)
+        ? (v.endpoints as unknown[]).map(parseEndpoint).filter((e): e is DocEndpoint => e !== null)
+        : [],
+    });
+  }
+  return { collections: out };
+}
+
+// ---------------------------------------------------------------------------
+// Lark sync — same lark-cli pipeline as Vault; doc carries a human-readable
+// rendering plus the machine ```json block the pull reads back.
+// ---------------------------------------------------------------------------
 
 const LARK_HOST_REGEX = /^https:\/\/[a-z0-9.-]+\.(larksuite\.com|feishu\.cn)\//;
 const JSON_BLOCK_REGEX = /```json\s*([\s\S]*?)```/i;
@@ -69,167 +278,63 @@ export function saveDocsLarkUrl(url: string): { success: boolean; reason?: strin
   return { success: true };
 }
 
-export function loadDocsAnnotations(): DocsAnnotations {
-  const raw = getPersistedValue(APP_VALUE_KEYS.docsAnnotations);
-  if (!raw) return { methods: {} };
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return parseDocsAnnotations(parsed) ?? { methods: {} };
-  } catch {
-    return { methods: {} };
-  }
-}
-
 export function loadDocsLastSyncedAt(): number | null {
   const raw = getPersistedValue(APP_VALUE_KEYS.docsLastSyncedAt);
   const n = raw ? parseInt(raw, 10) : NaN;
   return Number.isFinite(n) ? n : null;
 }
 
-// Strict-shape parser: returns null when the JSON block isn't the annotations
-// format, so a wrong document fails loudly instead of wiping local data.
-export function parseDocsAnnotations(parsed: unknown): DocsAnnotations | null {
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-  const methods = (parsed as { methods?: unknown }).methods;
-  if (!methods || typeof methods !== "object" || Array.isArray(methods)) return null;
-
-  const out: Record<string, MethodAnnotation> = {};
-  for (const [fullName, value] of Object.entries(methods as Record<string, unknown>)) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-    const entry = value as {
-      description?: unknown;
-      notes?: unknown;
-      custom?: unknown;
-      protocol?: unknown;
-      requestExample?: unknown;
-      responseExample?: unknown;
-    };
-    const annotation: MethodAnnotation = {};
-    if (typeof entry.description === "string" && entry.description.trim()) {
-      annotation.description = entry.description.trim();
-    }
-    if (typeof entry.notes === "string" && entry.notes.trim()) {
-      annotation.notes = entry.notes.trim();
-    }
-    if (entry.custom === true) annotation.custom = true;
-    if (
-      typeof entry.protocol === "string" &&
-      (DOCS_PROTOCOLS as readonly string[]).includes(entry.protocol)
-    ) {
-      annotation.protocol = entry.protocol as DocsProtocol;
-    }
-    if (typeof entry.requestExample === "string" && entry.requestExample.trim()) {
-      annotation.requestExample = entry.requestExample.trim();
-    }
-    if (typeof entry.responseExample === "string" && entry.responseExample.trim()) {
-      annotation.responseExample = entry.responseExample.trim();
-    }
-    if (
-      annotation.description ||
-      annotation.notes ||
-      annotation.custom ||
-      annotation.requestExample ||
-      annotation.responseExample
-    ) {
-      out[fullName] = annotation;
-    }
-  }
-  return { methods: out };
+function endpointCount(kb: KnowledgeBase): number {
+  return kb.collections.reduce((sum, c) => sum + c.endpoints.length, 0);
 }
 
-// --- In-app CRUD (local persistence; push exports the result to Lark) ---
-
-function persistAnnotations(annotations: DocsAnnotations): void {
-  setPersistedValue(APP_VALUE_KEYS.docsAnnotations, JSON.stringify(annotations));
-}
-
-export function upsertMethodAnnotation(
-  fullName: string,
-  annotation: MethodAnnotation,
-): DocsAnnotations {
-  const current = loadDocsAnnotations();
-  const cleaned: MethodAnnotation = {};
-  if (annotation.description?.trim()) cleaned.description = annotation.description.trim();
-  if (annotation.notes?.trim()) cleaned.notes = annotation.notes.trim();
-  if (annotation.custom) cleaned.custom = true;
-  if (annotation.protocol) cleaned.protocol = annotation.protocol;
-  if (annotation.requestExample?.trim()) cleaned.requestExample = annotation.requestExample.trim();
-  if (annotation.responseExample?.trim()) cleaned.responseExample = annotation.responseExample.trim();
-
-  const next: DocsAnnotations = {
-    methods: { ...current.methods, [fullName.trim()]: cleaned },
-  };
-  // An emptied non-custom annotation is a delete, not an empty record.
-  if (
-    !cleaned.description &&
-    !cleaned.notes &&
-    !cleaned.custom &&
-    !cleaned.requestExample &&
-    !cleaned.responseExample
-  ) {
-    delete next.methods[fullName.trim()];
-  }
-  persistAnnotations(next);
-  logger.info(LOG_SCOPE, "upsertMethodAnnotation", { fullName });
-  return next;
-}
-
-export function deleteMethodAnnotation(fullName: string): DocsAnnotations {
-  const current = loadDocsAnnotations();
-  const next: DocsAnnotations = { methods: { ...current.methods } };
-  delete next.methods[fullName];
-  persistAnnotations(next);
-  logger.info(LOG_SCOPE, "deleteMethodAnnotation", { fullName });
-  return next;
-}
-
-// Export the local annotations back to the Lark document (Vault push
-// pattern). The whole doc body is regenerated: a readable per-method list for
-// humans plus the machine-readable ```json block the sync reads back.
-export function buildDocsMarkdown(annotations: DocsAnnotations): string {
-  const lines: string[] = [
-    "# Penguin API Docs",
+function fieldTableMarkdown(title: string, fields: EndpointField[]): string[] {
+  if (fields.length === 0) return [];
+  const lines = [
     "",
-    "Maintained from the Penguin app (API Docs module). Edit there and push, or edit the JSON block directly — the app syncs the block below.",
+    `### ${title}`,
     "",
+    "| Name | Type | Required | Description | Example |",
+    "| --- | --- | --- | --- | --- |",
   ];
-  const entries = Object.entries(annotations.methods).sort(([a], [b]) => a.localeCompare(b));
-  for (const [fullName, annotation] of entries) {
-    const protocolTag = annotation.protocol ? `[${annotation.protocol}] ` : "";
-    lines.push(`## ${protocolTag}${fullName}${annotation.custom ? " (custom)" : ""}`);
-    if (annotation.description) lines.push("", annotation.description);
-    if (annotation.notes) lines.push("", `> ${annotation.notes}`);
-    // Plain ``` fences on purpose: the sync regex looks for the ```json block
-    // below, and a json-tagged example here would shadow it.
-    if (annotation.requestExample) {
-      lines.push("", "### Request", "", "```", annotation.requestExample, "```");
-    }
-    if (annotation.responseExample) {
-      lines.push("", "### Response", "", "```", annotation.responseExample, "```");
-    }
-    lines.push("");
+  for (const f of fields) {
+    lines.push(
+      `| ${f.name} | ${f.type} | ${f.required ? "yes" : "no"} | ${f.description ?? ""} | ${f.example ?? ""} |`,
+    );
   }
-  lines.push("```json", JSON.stringify({ methods: annotations.methods }, null, 2), "```", "");
+  return lines;
+}
+
+export function buildDocsMarkdown(kb: KnowledgeBase): string {
+  const lines: string[] = [
+    "# Penguin Knowledge Base",
+    "",
+    "Maintained from the Penguin app (Knowledge Base module). Edit there and push, or edit the JSON block at the bottom — the app syncs that block.",
+  ];
+  for (const collection of kb.collections) {
+    lines.push("", `## ${collection.name}`);
+    for (const ep of collection.endpoints) {
+      lines.push("", `### [${ep.method}] ${ep.path}`);
+      if (ep.summary) lines.push("", ep.summary);
+      if (ep.overview) lines.push("", ep.overview);
+      lines.push(...fieldTableMarkdown("Request", ep.requestFields).map((l) => l.replace("### ", "#### ")));
+      lines.push(...fieldTableMarkdown("Response", ep.responseFields).map((l) => l.replace("### ", "#### ")));
+      // Plain ``` fences on purpose: the pull regex looks for the ```json
+      // block at the bottom, and json-tagged examples would shadow it.
+      if (ep.requestExample) lines.push("", "#### Request example", "", "```", ep.requestExample, "```");
+      if (ep.responseExample) lines.push("", "#### Response example", "", "```", ep.responseExample, "```");
+      if (ep.notes) {
+        lines.push("", "#### Notes", "");
+        for (const note of ep.notes.split("\n").filter((n) => n.trim())) {
+          lines.push(`- ${note.trim()}`);
+        }
+      }
+    }
+  }
+  lines.push("", "```json", JSON.stringify(kb, null, 2), "```", "");
   return lines.join("\n");
 }
 
-export async function pushDocsToLark(): Promise<DocsSyncResult> {
-  logger.info(LOG_SCOPE, "pushDocsToLark — entry");
-  const url = loadDocsLarkUrl();
-  if (!url) return { success: false, reason: "No Lark document URL configured" };
-
-  const annotations = loadDocsAnnotations();
-  const markdown = buildDocsMarkdown(annotations);
-  const result = await runLarkUpdate({ url, markdown });
-  if (!result.success) {
-    return { success: false, reason: result.reason ?? "Push failed" };
-  }
-  setPersistedValue(APP_VALUE_KEYS.docsLastSyncedAt, String(Date.now()));
-  return { success: true, methodCount: Object.keys(annotations.methods).length };
-}
-
-// Pull the Lark document via lark-cli (reuses the Vault fetch pipeline) and
-// persist the parsed annotations.
 export async function syncDocsFromLark(): Promise<DocsSyncResult> {
   logger.info(LOG_SCOPE, "syncDocsFromLark — entry");
   const url = loadDocsLarkUrl();
@@ -241,9 +346,7 @@ export async function syncDocsFromLark(): Promise<DocsSyncResult> {
   }
 
   const block = fetched.markdown.match(JSON_BLOCK_REGEX);
-  if (!block) {
-    return { success: false, reason: "Document has no ```json block" };
-  }
+  if (!block) return { success: false, reason: "Document has no ```json block" };
 
   let parsed: unknown;
   try {
@@ -253,13 +356,27 @@ export async function syncDocsFromLark(): Promise<DocsSyncResult> {
     return { success: false, reason: "JSON block is not valid JSON" };
   }
 
-  const annotations = parseDocsAnnotations(parsed);
-  if (!annotations) {
-    return { success: false, reason: 'JSON block must be { "methods": { "<fullName>": { "description", "notes" } } }' };
+  const kb = parseKnowledgeBase(parsed);
+  if (!kb) {
+    return { success: false, reason: 'JSON block must be { "collections": [ { "name", "endpoints": [...] } ] }' };
   }
 
-  setPersistedValue(APP_VALUE_KEYS.docsAnnotations, JSON.stringify(annotations));
+  persist(kb);
   setPersistedValue(APP_VALUE_KEYS.docsLastSyncedAt, String(Date.now()));
-  logger.info(LOG_SCOPE, "syncDocsFromLark — synced", { methodCount: Object.keys(annotations.methods).length });
-  return { success: true, methodCount: Object.keys(annotations.methods).length };
+  logger.info(LOG_SCOPE, "syncDocsFromLark — synced", { endpointCount: endpointCount(kb) });
+  return { success: true, endpointCount: endpointCount(kb) };
+}
+
+export async function pushDocsToLark(): Promise<DocsSyncResult> {
+  logger.info(LOG_SCOPE, "pushDocsToLark — entry");
+  const url = loadDocsLarkUrl();
+  if (!url) return { success: false, reason: "No Lark document URL configured" };
+
+  const kb = loadKnowledgeBase();
+  const markdown = buildDocsMarkdown(kb);
+  const result = await runLarkUpdate({ url, markdown });
+  if (!result.success) return { success: false, reason: result.reason ?? "Push failed" };
+
+  setPersistedValue(APP_VALUE_KEYS.docsLastSyncedAt, String(Date.now()));
+  return { success: true, endpointCount: endpointCount(kb) };
 }
