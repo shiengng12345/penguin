@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isAllowedSnsoftPackageSpec } from "@penguin/core";
+import { NODE_PATH_SETUP } from "./sidecar";
 import type { ProtocolTab, InstalledPackage } from "./store";
 
 interface RawProtoFile {
@@ -31,10 +32,7 @@ export async function listInstalledPackages(
     protocol,
   });
 
-  const [{ parseProtoContent }, { parseSdkDts }] = await Promise.all([
-    import("./proto-parser"),
-    import("./sdk-parser"),
-  ]);
+  const { parseProtoContent, parseSdkDts } = await import("@penguin/core");
 
   return raw.map((pkg) => {
     const files = pkg.protos.map((p) => ({ name: p.name, content: p.content }));
@@ -50,17 +48,6 @@ export async function listInstalledPackages(
 }
 
 const INSTALL_TIMEOUT_MS = 300_000;
-
-// DUPLICATED: keep in sync with src/components/vault/vault-lark.ts:17 — Sprint 4 DEC #115 / Sprint 5 DEC #126
-const NODE_PATH_SETUP = [
-  'export NVM_DIR="$HOME/.nvm"',
-  '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"',
-  // 业务原因：source nvm.sh 只加载函数；不激活版本时 ~/.nvm/versions/node/<v>/bin 不在 PATH，nvm 安装的工具（如 lark-cli / npm）找不到。
-  'command -v nvm >/dev/null 2>&1 && (nvm use default >/dev/null 2>&1 || nvm use node >/dev/null 2>&1) || true',
-  'export VOLTA_HOME="$HOME/.volta"',
-  'export PATH="$VOLTA_HOME/bin:$HOME/.fnm:/opt/homebrew/bin:/usr/local/bin:$PATH"',
-  'command -v fnm >/dev/null 2>&1 && eval "$(fnm env 2>/dev/null)"',
-].join("; ");
 
 async function shellCmd(script: string, cwd: string) {
   const { Command } = await import("@tauri-apps/plugin-shell");

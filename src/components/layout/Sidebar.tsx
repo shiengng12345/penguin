@@ -124,7 +124,7 @@ export function Sidebar({ packages, onInstallClick, onUninstall, onUpdate }: Sid
   const handleMethodClick = async (pkgName: string, svcFullName: string, method: ProtoMethod) => {
     let body = "{}";
     if (method.requestFields && method.requestFields.length > 0) {
-      const { generateDefaultJson } = await import("@/lib/proto-parser");
+      const { generateDefaultJson } = await import("@penguin/core");
       body = JSON.stringify(generateDefaultJson(method.requestFields), null, 2);
     }
     updateActiveTab({

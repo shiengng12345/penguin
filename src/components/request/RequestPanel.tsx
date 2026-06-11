@@ -170,7 +170,7 @@ export function RequestPanel() {
           body: tab.requestBody,
           metadata: mergedMetadata,
           packagesDir,
-        });
+        }, controller.signal);
       } else if (tab.selectedMethod) {
         const fullName = tab.selectedMethod.fullName;
         const parts = fullName.split(".");
@@ -187,26 +187,29 @@ export function RequestPanel() {
           body: tab.requestBody,
           metadata: mergedMetadata,
           packagesDir,
-        });
+        }, controller.signal);
       }
 
       if (controller.signal.aborted) return;
       abortRef.current = null;
       updateActiveTab({ response: result, isLoading: false });
+      // Archive the full response with the history row.
+      if (result) {
+        useAppStore.getState().attachHistoryResponse(entry.id, result);
+      }
     } catch (error) {
       if (controller.signal.aborted) return;
       abortRef.current = null;
-      updateActiveTab({
-        response: {
-          status: "ERROR",
-          statusCode: 0,
-          body: "",
-          headers: {},
-          duration: 0,
-          error: error instanceof Error ? error.message : String(error),
-        },
-        isLoading: false,
-      });
+      const errorResponse = {
+        status: "ERROR",
+        statusCode: 0,
+        body: "",
+        headers: {},
+        duration: 0,
+        error: error instanceof Error ? error.message : String(error),
+      };
+      updateActiveTab({ response: errorResponse, isLoading: false });
+      useAppStore.getState().attachHistoryResponse(entry.id, errorResponse);
     }
   };
 
@@ -236,7 +239,7 @@ export function RequestPanel() {
       return;
     }
     if (tab.selectedMethod?.requestFields) {
-      const { generateDefaultJson } = await import("@/lib/proto-parser");
+      const { generateDefaultJson } = await import("@penguin/core");
       const defaultJson = generateDefaultJson(tab.selectedMethod.requestFields);
       updateActiveTab({
         requestBody: JSON.stringify(defaultJson, null, 2),

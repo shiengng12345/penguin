@@ -1,20 +1,12 @@
-// sdk-client now lives in @penguin/core. This shim provides the Tauri-specific
-// sidecar runner (base64 + zsh-login + node -) and preserves the old single-arg
-// signature so existing call sites keep working.
-import { Command } from "@tauri-apps/plugin-shell";
+// sdk-client now lives in @penguin/core. This shim wires in the shared
+// sidecar runner (cached node path, one login shell per session) and
+// preserves the old single-arg signature so existing call sites keep working.
 import { callSdk as coreCallSdk } from "@penguin/core";
 import type { SdkCallParams, SidecarRunner, ResponseState } from "@penguin/core";
+import { runNodeScript } from "./sidecar";
 
-const tauriRunner: SidecarRunner = async (script: string) => {
-  const b64 = btoa(unescape(encodeURIComponent(script)));
-  const cmd = Command.create("zsh-login", [
-    "-l", "-c",
-    `echo "${b64}" | base64 -d | node -`,
-  ]);
-  const out = await cmd.execute();
-  return { stdout: out.stdout, stderr: out.stderr, code: out.code ?? 0 };
-};
-
-export function callSdk(params: SdkCallParams): Promise<ResponseState> {
-  return coreCallSdk(params, tauriRunner);
+export function callSdk(params: SdkCallParams, signal?: AbortSignal): Promise<ResponseState> {
+  // Bind the abort signal via closure: aborting kills the node process.
+  const runner: SidecarRunner = (script) => runNodeScript(script, signal);
+  return coreCallSdk(params, runner);
 }

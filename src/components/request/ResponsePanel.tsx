@@ -206,6 +206,51 @@ type ResponseView = "pretty" | "raw" | "headers";
 export function ResponsePanel() {
   const tab = useActiveTab();
   const [responseView, setResponseView] = useState<ResponseView>("pretty");
+
+  // Memoized on the response object: parse+unwrap+stringify of a large body
+  // must not re-run on unrelated tab re-renders (e.g. request-body keystrokes).
+  const response = tab?.response ?? null;
+  const isRest = tab?.protocolTab === "rest";
+
+  const bodyJson = useMemo(() => {
+    if (!response) return "(empty)";
+    const rawBody = response.body;
+    const hasBody = rawBody && rawBody !== "" && rawBody !== "{}" && rawBody !== "null";
+    if (hasBody) return formatBody(rawBody, !isRest);
+    if (response.error) {
+      try {
+        const parsed = JSON.parse(response.error);
+        const unwrapped = unwrapNestedJson(parsed);
+        const cleaned = stripUnderscoreKeys(unwrapped);
+        return JSON.stringify(cleaned, null, 2);
+      } catch {
+        return JSON.stringify({
+          error: response.error,
+          status: response.statusCode || response.status,
+        }, null, 2);
+      }
+    }
+    return "(empty)";
+  }, [response, isRest]);
+
+  const headerText = useMemo(() => {
+    if (!response) return "(none)";
+    return Object.keys(response.headers).length > 0
+      ? Object.entries(response.headers)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join("\n")
+      : "(none)";
+  }, [response]);
+
+  const rawText = response ? (response.body || response.error || "(empty)") : "(empty)";
+  const activeBody = isRest && responseView === "raw"
+    ? rawText
+    : isRest && responseView === "headers"
+      ? headerText
+      : bodyJson;
+  // Counting lines of a multi-MB body is also per-render work worth caching.
+  const bodyLines = useMemo(() => activeBody.split("\n").length, [activeBody]);
+
   if (!tab) return null;
 
   if (tab.isLoading) {
@@ -238,7 +283,6 @@ export function ResponsePanel() {
     );
   }
 
-  const isRest = tab.protocolTab === "rest";
   const grpcStatusSummary = !isRest ? summarizeGrpcStatusResponse(tab.response) : null;
   const isError = tab.response.status === "ERROR" ||
     (!!tab.response.error && tab.response.status !== "OK") ||
@@ -246,41 +290,6 @@ export function ResponsePanel() {
     (isRest && tab.response.statusCode >= 400);
   const statusLabel = formatGrpcStatusBadgeLabel(grpcStatusSummary) ??
     `${tab.response.status}${tab.response.statusCode > 0 ? ` ${tab.response.statusCode}` : ""}`;
-
-  const rawBody = tab.response.body;
-  const hasBody = rawBody && rawBody !== "" && rawBody !== "{}" && rawBody !== "null";
-
-  let bodyJson: string;
-  if (hasBody) {
-    bodyJson = formatBody(rawBody, !isRest);
-  } else if (tab.response.error) {
-    try {
-      const parsed = JSON.parse(tab.response.error);
-      const unwrapped = unwrapNestedJson(parsed);
-      const cleaned = stripUnderscoreKeys(unwrapped);
-      bodyJson = JSON.stringify(cleaned, null, 2);
-    } catch {
-      bodyJson = JSON.stringify({
-        error: tab.response.error,
-        status: tab.response.statusCode || tab.response.status,
-      }, null, 2);
-    }
-  } else {
-    bodyJson = "(empty)";
-  }
-
-  const rawText = rawBody || tab.response.error || "(empty)";
-  const headerText = Object.keys(tab.response.headers).length > 0
-    ? Object.entries(tab.response.headers)
-        .map(([key, value]) => `${key}: ${value}`)
-        .join("\n")
-    : "(none)";
-  const activeBody = isRest && responseView === "raw"
-    ? rawText
-    : isRest && responseView === "headers"
-      ? headerText
-      : bodyJson;
-  const bodyLines = activeBody.split("\n").length;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(activeBody);

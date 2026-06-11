@@ -1,12 +1,13 @@
 // grpc-native-client now lives in @penguin/core. This shim handles the
 // Tauri-specific concerns: ensuring @grpc/grpc-js is installed in the user's
-// grpc packages dir (via npm under zsh-login) and running the sidecar script
-// through @tauri-apps/plugin-shell.
+// grpc packages dir and running the sidecar script via the shared cached-path
+// runner in sidecar.ts (one login shell per session instead of per request).
 import { Command } from "@tauri-apps/plugin-shell";
 import { callGrpcNative as coreCallGrpcNative } from "@penguin/core";
 import type { GrpcNativeCallParams, SidecarRunner } from "@penguin/core";
 import type { ResponseState } from "@penguin/core";
 import { ensurePackagesDir } from "./package-manager";
+import { NODE_PATH_SETUP, runNodeScript } from "./sidecar";
 
 let depsInstalled = false;
 
@@ -14,10 +15,12 @@ async function ensureGrpcDeps(): Promise<void> {
   if (depsInstalled) return;
 
   const dir = await ensurePackagesDir("grpc");
+  // NODE_PATH_SETUP so npm resolves even when launched from the Dock with a
+  // .zshrc-only nvm setup (same fix as package-manager.ts, v1.8.0).
   const checkDeps = () =>
     Command.create("zsh-login", [
       "-l", "-c",
-      `cd ${JSON.stringify(dir)} && npm ls @grpc/grpc-js @grpc/proto-loader --json`,
+      `${NODE_PATH_SETUP}; cd ${JSON.stringify(dir)} && npm ls @grpc/grpc-js @grpc/proto-loader --json`,
     ]).execute();
 
   const out = await checkDeps();
@@ -29,7 +32,7 @@ async function ensureGrpcDeps(): Promise<void> {
   if (needsInstall) {
     const install = Command.create("zsh-login", [
       "-l", "-c",
-      `cd ${JSON.stringify(dir)} && npm install --save --prefer-offline --no-audit --no-fund @grpc/grpc-js @grpc/proto-loader`,
+      `${NODE_PATH_SETUP}; cd ${JSON.stringify(dir)} && npm install --save --prefer-offline --no-audit --no-fund @grpc/grpc-js @grpc/proto-loader`,
     ]);
     const installOut = await install.execute();
     if (installOut.code !== 0) {
@@ -48,21 +51,12 @@ async function ensureGrpcDeps(): Promise<void> {
   depsInstalled = true;
 }
 
-// Tauri runner: base64-encode the script and stream it into `node -` over a
-// zsh-login shell so the user's PATH (nvm, asdf, etc.) is intact.
-const tauriRunner: SidecarRunner = async (script: string) => {
-  const b64 = btoa(unescape(encodeURIComponent(script)));
-  const cmd = Command.create("zsh-login", [
-    "-l", "-c",
-    `echo "${b64}" | base64 -d | node -`,
-  ]);
-  const out = await cmd.execute();
-  return { stdout: out.stdout, stderr: out.stderr, code: out.code ?? 0 };
-};
-
 export async function callGrpcNative(
   params: GrpcNativeCallParams,
+  signal?: AbortSignal,
 ): Promise<ResponseState> {
   await ensureGrpcDeps();
-  return coreCallGrpcNative(params, tauriRunner);
+  // Bind the abort signal via closure: aborting kills the node process.
+  const runner: SidecarRunner = (script) => runNodeScript(script, signal);
+  return coreCallGrpcNative(params, runner);
 }

@@ -5,7 +5,7 @@ import {
   type ProtoMethod,
   type InstalledPackage,
 } from "@/lib/store";
-import { generateDefaultJson } from "@/lib/proto-parser";
+import { generateDefaultJson } from "@penguin/core";
 import { Input } from "@/components/ui/input";
 import { Globe, Server, Box, Search } from "lucide-react";
 import { cn } from "@/lib/utils";

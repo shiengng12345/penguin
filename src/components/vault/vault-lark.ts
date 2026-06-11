@@ -5,25 +5,15 @@ import {
 } from "@/lib/app-persistence";
 import { APP_VALUE_KEYS } from "@/lib/persistence-keys";
 import { useAppStore } from "@/lib/store";
+// Shared PATH setup so lark-cli (installed under nvm) resolves the same way
+// npm/node do — single source of truth in sidecar.ts.
+import { NODE_PATH_SETUP } from "@/lib/sidecar";
 import {
   parseVaultJson,
   persistVaultToDisk,
 } from "./vault-storage";
 
 const LOG_SCOPE = "vault-lark";
-
-// DUPLICATED: keep in sync with src/lib/package-manager.ts:54 — Sprint 4 DEC #115 / Sprint 5 DEC #126
-// Mirrors the PATH setup used by package-manager.ts so lark-cli (installed
-// under nvm) resolves the same way npm/node do.
-const NODE_PATH_SETUP = [
-  'export NVM_DIR="$HOME/.nvm"',
-  '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"',
-  // 业务原因：source nvm.sh 只加载函数；不激活版本时 ~/.nvm/versions/node/<v>/bin 不在 PATH，nvm 安装的工具（如 lark-cli / npm）找不到。
-  'command -v nvm >/dev/null 2>&1 && (nvm use default >/dev/null 2>&1 || nvm use node >/dev/null 2>&1) || true',
-  'export VOLTA_HOME="$HOME/.volta"',
-  'export PATH="$VOLTA_HOME/bin:$HOME/.fnm:/opt/homebrew/bin:/usr/local/bin:$PATH"',
-  'command -v fnm >/dev/null 2>&1 && eval "$(fnm env 2>/dev/null)"',
-].join("; ");
 
 const LARK_HOST_REGEX = /^https:\/\/[a-z0-9.-]+\.(larksuite\.com|feishu\.cn)\//;
 const JSON_BLOCK_REGEX = /```json\s*([\s\S]*?)```/i;
