@@ -14,10 +14,17 @@ interface GrpcWebCallParams {
   packageName?: string;
 }
 
-export function callGrpcWeb(params: GrpcWebCallParams): Promise<ResponseState> {
+export function callGrpcWeb(
+  params: GrpcWebCallParams,
+  signal?: AbortSignal,
+): Promise<ResponseState> {
+  // Inject the abort signal into every proxied fetch for this call so Esc
+  // cancels the request inside the Rust proxy, not just in the UI.
+  const fetchWithSignal: typeof proxyFetch = (input, init) =>
+    proxyFetch(input, signal ? { ...init, signal } : init);
   return coreCallGrpcWeb({
     ...params,
     loadModule: loadPackageModule,
-    fetch: proxyFetch,
+    fetch: fetchWithSignal,
   });
 }

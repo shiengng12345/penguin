@@ -52,7 +52,7 @@ test("MCP status checks server runtime health, not only client config presence",
     new URL("../src/components/settings/SettingsDialog.tsx", import.meta.url),
     "utf8",
   );
-  const backendSource = await readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+  const backendSource = await readFile(new URL("../src-tauri/src/mcp.rs", import.meta.url), "utf8");
   const statusStart = settingsSource.indexOf("  const mcpClaudeConfigured");
   const statusEnd = settingsSource.indexOf("  const copyMcpSetup", statusStart);
   const statusBlock = settingsSource.slice(statusStart, statusEnd);
@@ -71,17 +71,22 @@ test("MCP status checks server runtime health, not only client config presence",
 });
 
 test("MCP backend exposes only the dual-client install command", async () => {
-  const source = await readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+  const libSource = await readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+  const mcpSource = await readFile(new URL("../src-tauri/src/mcp.rs", import.meta.url), "utf8");
 
-  assert.match(source, /fn mcp_install_to_local_clients/);
-  assert.match(source, /mcp_install_to_local_clients,/);
-  assert.doesNotMatch(source, /fn mcp_install_to_claude_desktop/);
-  assert.doesNotMatch(source, /mcp_install_to_claude_desktop,/);
+  assert.match(mcpSource, /fn mcp_install_to_local_clients/);
+  assert.match(libSource, /mcp_install_to_local_clients,/);
+  assert.doesNotMatch(mcpSource, /fn mcp_install_to_claude_desktop/);
+  assert.doesNotMatch(libSource, /mcp_install_to_claude_desktop,/);
 });
 
 test("clear cache refreshes package state without reloading the app", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   const storeSource = await readFile(new URL("../src/lib/store.ts", import.meta.url), "utf8");
+  const storeTypesSource = await readFile(
+    new URL("../src/lib/store-types.ts", import.meta.url),
+    "utf8",
+  );
   const settingsSource = await readFile(
     new URL("../src/components/settings/SettingsDialog.tsx", import.meta.url),
     "utf8",
@@ -91,7 +96,9 @@ test("clear cache refreshes package state without reloading the app", async () =
   const clearHandler = settingsSource.slice(clearStart, clearEnd);
 
   assert.match(settingsSource, /onPackagesCleared: \(\) => Promise<void>/);
-  assert.match(storeSource, /resetPackageTabs: \(\) => void/);
+  // AppState interface (with the action signature) lives in store-types.ts;
+  // the action body stays in store.ts.
+  assert.match(storeTypesSource, /resetPackageTabs: \(\) => void/);
   assert.match(storeSource, /resetPackageTabs: \(\) => \{/);
   assert.match(storeSource, /const fresh = createTab\(\)/);
   assert.match(storeSource, /set\(\{ tabs: \[fresh\], activeTabId: fresh\.id \}\)/);

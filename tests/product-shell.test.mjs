@@ -58,22 +58,23 @@ test("request sidebar does not duplicate method search", async () => {
 });
 
 test("desktop persistence has SQLite commands for app state and saved requests", async () => {
-  const rustSource = await readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+  const libSource = await readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+  const dbSource = await readFile(new URL("../src-tauri/src/db.rs", import.meta.url), "utf8");
   const cargoSource = await readFile(new URL("../src-tauri/Cargo.toml", import.meta.url), "utf8");
   const dbBridgeSource = await readFile(new URL("../src/lib/penguin-db.ts", import.meta.url), "utf8");
 
   assert.match(cargoSource, /rusqlite/);
-  assert.match(rustSource, /CREATE TABLE IF NOT EXISTS app_kv/);
-  assert.match(rustSource, /fn db_set_app_value/);
-  assert.match(rustSource, /fn db_get_app_value/);
-  assert.match(rustSource, /fn db_list_app_values/);
-  assert.match(rustSource, /CREATE TABLE IF NOT EXISTS saved_requests/);
-  assert.match(rustSource, /fn db_upsert_saved_request/);
-  assert.match(rustSource, /fn db_list_saved_requests/);
-  assert.match(rustSource, /db_set_app_value,/);
-  assert.match(rustSource, /db_get_app_value,/);
-  assert.match(rustSource, /db_list_app_values,/);
-  assert.match(rustSource, /db_upsert_saved_request,/);
+  assert.match(dbSource, /CREATE TABLE IF NOT EXISTS app_kv/);
+  assert.match(dbSource, /fn db_set_app_value/);
+  assert.match(dbSource, /fn db_get_app_value/);
+  assert.match(dbSource, /fn db_list_app_values/);
+  assert.match(dbSource, /CREATE TABLE IF NOT EXISTS saved_requests/);
+  assert.match(dbSource, /fn db_upsert_saved_request/);
+  assert.match(dbSource, /fn db_list_saved_requests/);
+  assert.match(libSource, /db_set_app_value,/);
+  assert.match(libSource, /db_get_app_value,/);
+  assert.match(libSource, /db_list_app_values,/);
+  assert.match(libSource, /db_upsert_saved_request,/);
   assert.match(dbBridgeSource, /invoke\("db_set_app_value"/);
   assert.match(dbBridgeSource, /invoke<string \| null>\("db_get_app_value"/);
   assert.match(dbBridgeSource, /invoke<Record<string, string>>\("db_list_app_values"/);
@@ -86,6 +87,8 @@ test("app state no longer writes browser storage from product surfaces", async (
     "../index.html",
     "../src/main.tsx",
     "../src/lib/store.ts",
+    "../src/lib/store-types.ts",
+    "../src/lib/store-persistence-helpers.ts",
     "../src/hooks/useEnvironments.ts",
     "../src/components/environment/EnvManager.tsx",
     "../src/components/environment/CurlImport.tsx",
@@ -153,7 +156,11 @@ test("desktop product code only touches localStorage inside the legacy migration
 });
 
 test("restored request tabs filter out hidden REST tabs", async () => {
-  const storeSource = await readFile(new URL("../src/lib/store.ts", import.meta.url), "utf8");
+  // loadTabs lives in the persistence helpers extracted from store.ts.
+  const storeSource = await readFile(
+    new URL("../src/lib/store-persistence-helpers.ts", import.meta.url),
+    "utf8",
+  );
   const start = storeSource.indexOf("function loadTabs");
   const end = storeSource.indexOf("let _saveTabsTimer", start);
   const loadTabsSource = storeSource.slice(start, end);
@@ -164,8 +171,13 @@ test("restored request tabs filter out hidden REST tabs", async () => {
 test("running app sanitizes already-open hidden REST tabs", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   const storeSource = await readFile(new URL("../src/lib/store.ts", import.meta.url), "utf8");
+  const storeTypesSource = await readFile(
+    new URL("../src/lib/store-types.ts", import.meta.url),
+    "utf8",
+  );
 
-  assert.match(storeSource, /sanitizeHiddenRestTabs: \(\) => void/);
+  // The AppState action signature lives in store-types.ts; the body in store.ts.
+  assert.match(storeTypesSource, /sanitizeHiddenRestTabs: \(\) => void/);
   assert.match(storeSource, /sanitizeHiddenRestTabs: \(\) => \{/);
   assert.match(appSource, /sanitizeHiddenRestTabs/);
   assert.match(appSource, /sanitizeHiddenRestTabs\(\);/);

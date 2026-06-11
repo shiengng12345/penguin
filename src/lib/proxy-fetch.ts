@@ -62,15 +62,40 @@ export async function proxyFetch(
     }
   }
 
-  const resp = await invoke<HttpProxyResponse>("http_proxy", {
-    req: {
-      url,
-      method,
-      headers,
-      body: bodyText ?? null,
-      body_base64: bodyBase64 ?? null,
-    },
-  });
+  const signal = init?.signal ?? null;
+  if (signal?.aborted) {
+    throw new DOMException("Request cancelled", "AbortError");
+  }
+
+  // With a signal, register an id so abort can drop the request inside the
+  // Rust proxy mid-flight instead of letting it run to completion.
+  const requestId = signal
+    ? `proxy_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    : null;
+  const onAbort = requestId
+    ? () => void invoke("http_proxy_abort", { requestId })
+    : null;
+  if (signal && onAbort) signal.addEventListener("abort", onAbort);
+
+  let resp: HttpProxyResponse;
+  try {
+    resp = await invoke<HttpProxyResponse>("http_proxy", {
+      req: {
+        url,
+        method,
+        headers,
+        body: bodyText ?? null,
+        body_base64: bodyBase64 ?? null,
+        request_id: requestId,
+      },
+    });
+  } finally {
+    if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+  }
+
+  if (signal?.aborted || resp.error === "Request cancelled") {
+    throw new DOMException("Request cancelled", "AbortError");
+  }
 
   if (resp.error) {
     // proxyFetch implements the standard fetch() contract for ConnectRPC's

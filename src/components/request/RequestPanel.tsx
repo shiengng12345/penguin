@@ -151,7 +151,7 @@ export function RequestPanel() {
           body: tab.requestBody,
           metadata: mergedMetadata,
           packageName: tab.selectedPackage ?? undefined,
-        });
+        }, controller.signal);
       } else if (protocol === "grpc" && tab.selectedMethod) {
         const typeName = tab.selectedMethod.fullName.substring(
           0, tab.selectedMethod.fullName.lastIndexOf(".")
