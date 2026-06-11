@@ -367,7 +367,7 @@ export default function App() {
         ) : vaultOpen ? (
           <VaultPage onClose={closeVault} />
         ) : docsOpen ? (
-          <ApiDocsPage onClose={openHome} onOpenApiClient={selectApiClient} />
+          <ApiDocsPage onClose={openHome} />
         ) : (
           <>
             <TabBar

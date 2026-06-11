@@ -61,8 +61,12 @@ test("docs annotations CRUD persists and round-trips", async () => {
     custom: true,
     protocol: "rest",
     description: "List users",
+    requestExample: '{ "page": 1 }',
+    responseExample: '{ "users": [] }',
   });
   assert.equal(state.methods["GET /v1/users"].protocol, "rest");
+  assert.equal(state.methods["GET /v1/users"].requestExample, '{ "page": 1 }');
+  assert.equal(state.methods["GET /v1/users"].responseExample, '{ "users": [] }');
   assert.equal(
     docs.parseDocsAnnotations(JSON.parse(JSON.stringify(state))).methods["GET /v1/users"].protocol,
     "rest",
@@ -115,16 +119,36 @@ test("sync pulls the json block from Lark; push exports markdown with it", async
     return { success: true };
   };
   docs.upsertMethodAnnotation("pkg.New.Endpoint", { custom: true, notes: "coming soon" });
-  docs.upsertMethodAnnotation("GET /v1/users", { custom: true, protocol: "rest", description: "List users" });
+  docs.upsertMethodAnnotation("GET /v1/users", {
+    custom: true,
+    protocol: "rest",
+    description: "List users",
+    requestExample: '{ "page": 1 }',
+    responseExample: '{ "users": [] }',
+  });
   const pushed = await docs.pushDocsToLark();
   assert.equal(pushed.success, true);
   assert.match(pushedMarkdown, /## pkg\.Auth\.Login/);
   assert.match(pushedMarkdown, /## pkg\.New\.Endpoint \(custom\)/);
   assert.match(pushedMarkdown, /## \[rest\] GET \/v1\/users \(custom\)/);
+  assert.match(pushedMarkdown, /### Request/);
+  assert.match(pushedMarkdown, /### Response/);
   const block = pushedMarkdown.match(/```json\s*([\s\S]*?)```/);
   assert.ok(block, "push output keeps the sync-readable json block");
   const roundTrip = docs.parseDocsAnnotations(JSON.parse(block[1]));
   assert.equal(roundTrip.methods["pkg.New.Endpoint"].custom, true);
+  assert.equal(roundTrip.methods["GET /v1/users"].requestExample, '{ "page": 1 }');
+
+  // CRITICAL: req/res example fences must not shadow the machine block — the
+  // sync regex grabs the FIRST ```json block, so examples use plain ``` fences.
+  globalThis.__docsLarkFetch = async () => ({ success: true, markdown: pushedMarkdown });
+  const resynced = await docs.syncDocsFromLark();
+  assert.equal(resynced.success, true, "pushed doc must sync back cleanly");
+  assert.equal(
+    docs.loadDocsAnnotations().methods["GET /v1/users"].responseExample,
+    '{ "users": [] }',
+    "push → pull round-trip preserves examples",
+  );
 });
 
 test("API Docs module is wired into Home and App", async () => {
@@ -139,20 +163,26 @@ test("API Docs module is wired into Home and App", async () => {
   assert.match(app, /selectDocsFromHome/);
 });
 
-test("ApiDocsPage covers schema docs, try-it handoff, CRUD and Lark sync", async () => {
+test("ApiDocsPage is a read/copy/CRUD doc store — no request sending", async () => {
   const page = await readFile(
     new URL("../src/components/docs/ApiDocsPage.tsx", import.meta.url),
     "utf8",
   );
   assert.match(page, /generateDefaultJson/);
-  assert.match(page, /penguin:focus-method/);
-  assert.match(page, /Try it/);
   assert.match(page, /AnnotationEditor/);
   assert.match(page, /upsertMethodAnnotation/);
   assert.match(page, /deleteMethodAnnotation/);
   assert.match(page, /Custom Docs/);
   assert.match(page, /pushDocsToLark/);
   assert.match(page, /syncDocsFromLark/);
+  // Copy is the primary action: every block exposes it.
+  assert.match(page, /CopyButton/);
+  assert.match(page, /navigator\.clipboard\.writeText/);
+  // It's documentation only — it must NOT hand off to the API Client or
+  // dispatch requests (user decision: 只是记录,不需要 call request).
+  assert.doesNotMatch(page, /Try it/);
+  assert.doesNotMatch(page, /penguin:focus-method/);
+  assert.doesNotMatch(page, /callGrpcWeb|callGrpcNative|callSdk|callRest/);
 });
 
 test("docs-lark reuses the vault lark-cli pipeline instead of duplicating it", async () => {

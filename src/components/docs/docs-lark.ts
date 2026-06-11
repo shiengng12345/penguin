@@ -32,6 +32,10 @@ export interface MethodAnnotation {
   custom?: boolean;
   // Which API kind this documents (grpc-web / grpc / sdk / rest).
   protocol?: DocsProtocol;
+  // Stored request/response examples — the copyable core of a doc record,
+  // and the only req/res source for custom (e.g. REST) entries.
+  requestExample?: string;
+  responseExample?: string;
 }
 
 export interface DocsAnnotations {
@@ -92,7 +96,14 @@ export function parseDocsAnnotations(parsed: unknown): DocsAnnotations | null {
   const out: Record<string, MethodAnnotation> = {};
   for (const [fullName, value] of Object.entries(methods as Record<string, unknown>)) {
     if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-    const entry = value as { description?: unknown; notes?: unknown; custom?: unknown; protocol?: unknown };
+    const entry = value as {
+      description?: unknown;
+      notes?: unknown;
+      custom?: unknown;
+      protocol?: unknown;
+      requestExample?: unknown;
+      responseExample?: unknown;
+    };
     const annotation: MethodAnnotation = {};
     if (typeof entry.description === "string" && entry.description.trim()) {
       annotation.description = entry.description.trim();
@@ -107,7 +118,21 @@ export function parseDocsAnnotations(parsed: unknown): DocsAnnotations | null {
     ) {
       annotation.protocol = entry.protocol as DocsProtocol;
     }
-    if (annotation.description || annotation.notes || annotation.custom) out[fullName] = annotation;
+    if (typeof entry.requestExample === "string" && entry.requestExample.trim()) {
+      annotation.requestExample = entry.requestExample.trim();
+    }
+    if (typeof entry.responseExample === "string" && entry.responseExample.trim()) {
+      annotation.responseExample = entry.responseExample.trim();
+    }
+    if (
+      annotation.description ||
+      annotation.notes ||
+      annotation.custom ||
+      annotation.requestExample ||
+      annotation.responseExample
+    ) {
+      out[fullName] = annotation;
+    }
   }
   return { methods: out };
 }
@@ -128,12 +153,20 @@ export function upsertMethodAnnotation(
   if (annotation.notes?.trim()) cleaned.notes = annotation.notes.trim();
   if (annotation.custom) cleaned.custom = true;
   if (annotation.protocol) cleaned.protocol = annotation.protocol;
+  if (annotation.requestExample?.trim()) cleaned.requestExample = annotation.requestExample.trim();
+  if (annotation.responseExample?.trim()) cleaned.responseExample = annotation.responseExample.trim();
 
   const next: DocsAnnotations = {
     methods: { ...current.methods, [fullName.trim()]: cleaned },
   };
   // An emptied non-custom annotation is a delete, not an empty record.
-  if (!cleaned.description && !cleaned.notes && !cleaned.custom) {
+  if (
+    !cleaned.description &&
+    !cleaned.notes &&
+    !cleaned.custom &&
+    !cleaned.requestExample &&
+    !cleaned.responseExample
+  ) {
     delete next.methods[fullName.trim()];
   }
   persistAnnotations(next);
@@ -166,6 +199,14 @@ export function buildDocsMarkdown(annotations: DocsAnnotations): string {
     lines.push(`## ${protocolTag}${fullName}${annotation.custom ? " (custom)" : ""}`);
     if (annotation.description) lines.push("", annotation.description);
     if (annotation.notes) lines.push("", `> ${annotation.notes}`);
+    // Plain ``` fences on purpose: the sync regex looks for the ```json block
+    // below, and a json-tagged example here would shadow it.
+    if (annotation.requestExample) {
+      lines.push("", "### Request", "", "```", annotation.requestExample, "```");
+    }
+    if (annotation.responseExample) {
+      lines.push("", "### Response", "", "```", annotation.responseExample, "```");
+    }
     lines.push("");
   }
   lines.push("```json", JSON.stringify({ methods: annotations.methods }, null, 2), "```", "");

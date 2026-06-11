@@ -25,7 +25,7 @@ import {
 import { generateDefaultJson } from "@penguin/core";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { BookOpen, Globe, Server, Box, Play, ArrowLeft, Package, RefreshCw } from "lucide-react";
+import { BookOpen, Globe, Server, Box, ArrowLeft, Package, RefreshCw, Copy, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const PROTOCOL_META: Record<DocsProtocol, { label: string; icon: typeof Globe; className: string }> = {
@@ -50,9 +50,6 @@ interface DocMethodRef {
 
 interface ApiDocsPageProps {
   onClose: () => void;
-  // Hands off to the API Client module; the caller switches the view, then we
-  // patch the active tab with the chosen method (CommandSearch pattern).
-  onOpenApiClient: () => void;
 }
 
 // Recursive field table rows. Depth-capped: schemas can nest arbitrarily and
@@ -108,6 +105,45 @@ function FieldRow({ field, depth }: { field: FieldInfo; depth: number }) {
   );
 }
 
+// The module exists to store docs and copy from them — every block gets a
+// one-click copy affordance.
+function CopyButton({ text, label }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }}
+      className="flex items-center gap-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+      title="Copy / 复制"
+    >
+      {copied ? (
+        <>
+          <Check className="h-3 w-3 text-emerald-500" />
+          <span className="text-emerald-500">Copied</span>
+        </>
+      ) : (
+        <>
+          <Copy className="h-3 w-3" />
+          {label ?? "Copy"}
+        </>
+      )}
+    </button>
+  );
+}
+
+function annotationText(fullName: string, annotation: MethodAnnotation | undefined): string {
+  const parts = [fullName];
+  if (annotation?.description) parts.push("", annotation.description);
+  if (annotation?.notes) parts.push("", `Notes: ${annotation.notes}`);
+  if (annotation?.requestExample) parts.push("", "Request:", annotation.requestExample);
+  if (annotation?.responseExample) parts.push("", "Response:", annotation.responseExample);
+  return parts.join("\n");
+}
+
 // Display + inline edit for one method's team documentation. Used both for
 // real (schema-backed) methods and custom entries created in-app.
 function AnnotationEditor({
@@ -126,10 +162,14 @@ function AnnotationEditor({
   const [editing, setEditing] = useState(false);
   const [draftDescription, setDraftDescription] = useState("");
   const [draftNotes, setDraftNotes] = useState("");
+  const [draftRequest, setDraftRequest] = useState("");
+  const [draftResponse, setDraftResponse] = useState("");
 
   const startEdit = () => {
     setDraftDescription(annotation?.description ?? "");
     setDraftNotes(annotation?.notes ?? "");
+    setDraftRequest(annotation?.requestExample ?? "");
+    setDraftResponse(annotation?.responseExample ?? "");
     setEditing(true);
   };
 
@@ -138,6 +178,8 @@ function AnnotationEditor({
       upsertMethodAnnotation(fullName, {
         description: draftDescription,
         notes: draftNotes,
+        requestExample: draftRequest,
+        responseExample: draftResponse,
         custom: isCustom || annotation?.custom,
         // Preserve the protocol tag across edits.
         protocol: annotation?.protocol,
@@ -145,6 +187,12 @@ function AnnotationEditor({
     );
     setEditing(false);
   };
+
+  const hasContent =
+    annotation?.description ||
+    annotation?.notes ||
+    annotation?.requestExample ||
+    annotation?.responseExample;
 
   const remove = () => {
     onChange(deleteMethodAnnotation(fullName));
@@ -159,13 +207,16 @@ function AnnotationEditor({
           Documentation / 团队文档
         </span>
         {!editing && (
-          <button
-            type="button"
-            onClick={startEdit}
-            className="text-[10px] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {annotation?.description || annotation?.notes ? "Edit / 编辑" : "+ Add / 添加"}
-          </button>
+          <span className="flex items-center gap-3">
+            {hasContent && <CopyButton text={annotationText(fullName, annotation)} label="Copy all" />}
+            <button
+              type="button"
+              onClick={startEdit}
+              className="text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {hasContent ? "Edit / 编辑" : "+ Add / 添加"}
+            </button>
+          </span>
         )}
       </div>
       {editing ? (
@@ -184,6 +235,22 @@ function AnnotationEditor({
             rows={2}
             className="w-full rounded border border-border bg-background p-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary/60"
           />
+          <textarea
+            value={draftRequest}
+            onChange={(e) => setDraftRequest(e.target.value)}
+            placeholder={'Request example / 请求示例 — e.g. { "userId": "123" }'}
+            rows={4}
+            spellCheck={false}
+            className="w-full rounded border border-border bg-background p-2 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-primary/60"
+          />
+          <textarea
+            value={draftResponse}
+            onChange={(e) => setDraftResponse(e.target.value)}
+            placeholder={'Response example / 响应示例 — e.g. { "status": "OK", "data": ... }'}
+            rows={4}
+            spellCheck={false}
+            className="w-full rounded border border-border bg-background p-2 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-primary/60"
+          />
           <div className="flex items-center gap-1.5">
             <Button size="sm" className="h-6 text-[11px]" onClick={save}>
               Save / 保存
@@ -191,7 +258,7 @@ function AnnotationEditor({
             <Button size="sm" variant="ghost" className="h-6 text-[11px]" onClick={() => setEditing(false)}>
               Cancel
             </Button>
-            {(annotation?.description || annotation?.notes || isCustom) && (
+            {(hasContent || isCustom) && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -203,17 +270,43 @@ function AnnotationEditor({
             )}
           </div>
         </div>
-      ) : annotation?.description || annotation?.notes ? (
+      ) : hasContent ? (
         <div className="space-y-2 p-3">
-          {annotation.description && (
+          {annotation?.description && (
             <p className="whitespace-pre-wrap text-xs leading-relaxed text-foreground/90">
               {annotation.description}
             </p>
           )}
-          {annotation.notes && (
+          {annotation?.notes && (
             <p className="whitespace-pre-wrap rounded border-l-2 border-amber-400/60 bg-amber-500/5 px-2 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
               {annotation.notes}
             </p>
+          )}
+          {annotation?.requestExample && (
+            <div className="rounded border border-border/60 overflow-hidden">
+              <div className="flex items-center justify-between bg-muted/30 px-2 py-1">
+                <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Request / 请求示例
+                </span>
+                <CopyButton text={annotation.requestExample} />
+              </div>
+              <pre className="max-h-48 overflow-auto p-2 font-mono text-[11px] leading-relaxed text-foreground/90">
+                {annotation.requestExample}
+              </pre>
+            </div>
+          )}
+          {annotation?.responseExample && (
+            <div className="rounded border border-border/60 overflow-hidden">
+              <div className="flex items-center justify-between bg-muted/30 px-2 py-1">
+                <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Response / 响应示例
+                </span>
+                <CopyButton text={annotation.responseExample} />
+              </div>
+              <pre className="max-h-48 overflow-auto p-2 font-mono text-[11px] leading-relaxed text-foreground/90">
+                {annotation.responseExample}
+              </pre>
+            </div>
           )}
         </div>
       ) : (
@@ -243,7 +336,7 @@ function FieldTable({ title, typeName, fields }: { title: string; typeName: stri
   );
 }
 
-export function ApiDocsPage({ onClose, onOpenApiClient }: ApiDocsPageProps) {
+export function ApiDocsPage({ onClose }: ApiDocsPageProps) {
   const grpcWebPackages = useAppStore((s) => s.grpcWebPackages);
   const grpcPackages = useAppStore((s) => s.grpcPackages);
   const sdkPackages = useAppStore((s) => s.sdkPackages);
@@ -380,37 +473,6 @@ export function ApiDocsPage({ onClose, onOpenApiClient }: ApiDocsPageProps) {
     if (!active || !active.method.requestFields?.length) return "{}";
     return JSON.stringify(generateDefaultJson(active.method.requestFields), null, 2);
   }, [active]);
-
-  // Open this method in the API Client (mirrors CommandSearch.selectResult).
-  // View switches first so the Sidebar is mounted to receive focus-method.
-  const tryMethod = (ref: DocMethodRef) => {
-    onOpenApiClient();
-    setTimeout(() => {
-      const store = useAppStore.getState();
-      const tab = store.tabs.find((t) => t.id === store.activeTabId);
-      const patch = {
-        protocolTab: ref.protocol,
-        selectedPackage: ref.packageName,
-        selectedService: ref.service.fullName,
-        selectedMethod: ref.method,
-        requestBody:
-          ref.method.requestFields && ref.method.requestFields.length > 0
-            ? JSON.stringify(generateDefaultJson(ref.method.requestFields), null, 2)
-            : "{}",
-      };
-      if (tab && !tab.selectedMethod) {
-        store.updateActiveTab(patch);
-      } else {
-        store.addTab();
-        setTimeout(() => useAppStore.getState().updateActiveTab(patch), 0);
-      }
-      document.dispatchEvent(
-        new CustomEvent("penguin:focus-method", {
-          detail: { packageName: ref.packageName, serviceName: ref.service.fullName },
-        }),
-      );
-    }, 0);
-  };
 
   return (
     <div className="flex flex-1 min-h-0 flex-col bg-background">
@@ -622,6 +684,7 @@ export function ApiDocsPage({ onClose, onOpenApiClient }: ApiDocsPageProps) {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <h2 className="truncate font-mono text-base font-semibold text-foreground">{selectedCustom}</h2>
+                  <CopyButton text={selectedCustom} />
                   {annotations.methods[selectedCustom]?.protocol && (
                     <span
                       className={cn(
@@ -647,22 +710,17 @@ export function ApiDocsPage({ onClose, onOpenApiClient }: ApiDocsPageProps) {
             </div>
           ) : active ? (
             <div className="mx-auto max-w-3xl space-y-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="truncate font-mono text-base font-semibold text-foreground">
-                    {active.method.name}
-                  </h2>
-                  <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
-                    {active.method.fullName}
-                  </p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    {active.packageName} v{active.packageVersion} · {PROTOCOL_META[active.protocol].label}
-                  </p>
-                </div>
-                <Button size="sm" className="shrink-0" onClick={() => tryMethod(active)}>
-                  <Play className="mr-1.5 h-3.5 w-3.5" />
-                  Try it / 试调
-                </Button>
+              <div className="min-w-0">
+                <h2 className="truncate font-mono text-base font-semibold text-foreground">
+                  {active.method.name}
+                </h2>
+                <p className="mt-0.5 flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+                  <span className="truncate">{active.method.fullName}</span>
+                  <CopyButton text={active.method.fullName} />
+                </p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {active.packageName} v{active.packageVersion} · {PROTOCOL_META[active.protocol].label}
+                </p>
               </div>
 
               <AnnotationEditor
@@ -684,10 +742,11 @@ export function ApiDocsPage({ onClose, onOpenApiClient }: ApiDocsPageProps) {
               />
 
               <div className="rounded-md border border-border overflow-hidden">
-                <div className="border-b border-border bg-muted/30 px-3 py-1.5">
+                <div className="flex items-center justify-between border-b border-border bg-muted/30 px-3 py-1.5">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Sample request body / 示例请求体
                   </span>
+                  <CopyButton text={sampleRequest} />
                 </div>
                 <pre className="max-h-64 overflow-auto p-3 font-mono text-[11px] leading-relaxed text-foreground/90">
                   {sampleRequest}
