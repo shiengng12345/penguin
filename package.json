@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "pnpm -F @penguin/core build && pnpm -F @penguin/mcp build && tsc -b && vite build",
     "preview": "vite preview",
+    "test": "node --test tests/",
+    "typecheck": "pnpm -F @penguin/core build && pnpm -F @penguin/mcp build && tsc -b",
     "tauri": "tauri",
     "set-version": "node scripts/set-version.mjs"
   },
@@ -36,7 +38,6 @@
     "clsx": "^2.1.1",
     "codemirror": "^6.0.2",
     "lucide-react": "^0.469.0",
-    "protobufjs": "^7.4.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.0.0",

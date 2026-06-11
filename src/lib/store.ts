@@ -1,9 +1,13 @@
 import { create } from "zustand";
 import {
+  clearHistoryInDatabase,
+  countHistoryInDatabase,
   deleteSavedRequestFromDatabase,
+  listHistoryFromDatabase,
   loadSavedRequestsFromDatabase,
   persistSavedRequest,
   persistSavedRequests,
+  putHistoryEntryInDatabase,
   renameSavedRequestInDatabase,
 } from "./penguin-db";
 import {
@@ -78,6 +82,9 @@ export interface HistoryEntry {
   restMethod?: RestMethod;
   restBodyMode?: RestBodyMode;
   selectedMethod?: ProtoMethod | null;
+  // Full response archived after the request completes (v1.9+); older
+  // migrated entries have no response.
+  response?: ResponseState | null;
 }
 
 export interface SavedRequest {
@@ -303,8 +310,12 @@ export interface AppState {
   // boot starts clean because either Sync or Push must reconcile against Lark.
   vaultIsDirty: boolean;
   setVaultIsDirty: (value: boolean) => void;
+  // Paginated window over the request_history table — NOT the full archive.
   history: HistoryEntry[];
+  historyTotal: number;
   addHistory: (entry: HistoryEntry) => void;
+  attachHistoryResponse: (id: string, response: ResponseState) => void;
+  loadMoreHistory: () => Promise<void>;
   clearHistory: () => void;
 
   savedRequests: SavedRequest[];
@@ -452,14 +463,12 @@ function loadHistory(): HistoryEntry[] {
   return [];
 }
 
-let _saveHistoryTimer: ReturnType<typeof setTimeout> | null = null;
-function saveHistory(entries: HistoryEntry[], maxSize?: number) {
-  if (_saveHistoryTimer) clearTimeout(_saveHistoryTimer);
-  const limit = maxSize ?? useAppStore.getState().maxHistorySize;
-  _saveHistoryTimer = setTimeout(() => {
-    setPersistedValue(HISTORY_KEY, JSON.stringify(entries.slice(0, limit)));
-    _saveHistoryTimer = null;
-  }, 500);
+export const HISTORY_PAGE_SIZE = 50;
+
+// Pre-v1.9 versions kept the whole history as one JSON blob under HISTORY_KEY.
+// Read it only for the one-shot migration into the request_history table.
+function loadLegacyHistoryBlob(): HistoryEntry[] {
+  return loadHistory();
 }
 
 function loadSavedRequests(): SavedRequest[] {
@@ -722,16 +731,42 @@ export const useAppStore = create<AppState>((set, get) => {
     vaultIsDirty: false,
     setVaultIsDirty: (value) => set({ vaultIsDirty: value }),
     history: [],
+    historyTotal: 0,
     addHistory: (entry) => {
       set((s) => {
-        const next = [entry, ...s.history].slice(0, s.maxHistorySize);
-        saveHistory(next, s.maxHistorySize);
-        return { history: next };
+        void putHistoryEntryInDatabase(entry, s.maxHistorySize);
+        return {
+          history: [entry, ...s.history].slice(0, Math.max(s.maxHistorySize, HISTORY_PAGE_SIZE)),
+          historyTotal: Math.min(s.historyTotal + 1, s.maxHistorySize),
+        };
+      });
+    },
+    attachHistoryResponse: (id, response) => {
+      set((s) => {
+        const target = s.history.find((h) => h.id === id);
+        if (!target) return {};
+        const updated = { ...target, response };
+        void putHistoryEntryInDatabase(updated, s.maxHistorySize);
+        return { history: s.history.map((h) => (h.id === id ? updated : h)) };
+      });
+    },
+    loadMoreHistory: async () => {
+      const { history } = useAppStore.getState();
+      const [more, total] = await Promise.all([
+        listHistoryFromDatabase(HISTORY_PAGE_SIZE, history.length),
+        countHistoryInDatabase(),
+      ]);
+      set((s) => {
+        const seen = new Set(s.history.map((h) => h.id));
+        return {
+          history: [...s.history, ...more.filter((h) => !seen.has(h.id))],
+          historyTotal: total,
+        };
       });
     },
     clearHistory: () => {
-      saveHistory([], DEFAULT_MAX_HISTORY);
-      set({ history: [] });
+      void clearHistoryInDatabase();
+      set({ history: [], historyTotal: 0 });
     },
 
     savedRequests: [],
@@ -762,11 +797,12 @@ export const useAppStore = create<AppState>((set, get) => {
     maxHistorySize: loadMaxHistorySize(),
     setMaxHistorySize: (size) => {
       setPersistedValue(MAX_HISTORY_KEY, String(size));
-      set((s) => {
-        const trimmed = s.history.slice(0, size);
-        saveHistory(trimmed, size);
-        return { maxHistorySize: size, history: trimmed };
-      });
+      // DB rows beyond the new cap are trimmed on the next insert.
+      set((s) => ({
+        maxHistorySize: size,
+        history: s.history.slice(0, size),
+        historyTotal: Math.min(s.historyTotal, size),
+      }));
     },
 
     defaultHeaders: loadDefaultHeaders(),
@@ -790,7 +826,6 @@ if (typeof window !== "undefined") {
       const restored = loadTabs();
       const update: Partial<AppState> = {
         defaultHeaders: loadDefaultHeaders(),
-        history: loadHistory(),
         maxHistorySize: loadMaxHistorySize(),
         showTutorial: loadShowTutorial(),
         theme,
@@ -819,6 +854,23 @@ if (typeof window !== "undefined") {
       if (databaseSavedRequests.length > 0) {
         useAppStore.setState({ savedRequests: databaseSavedRequests });
       }
+
+      // One-shot migration: pre-v1.9 history blob → request_history rows.
+      const legacyHistory = loadLegacyHistoryBlob();
+      if (legacyHistory.length > 0) {
+        const maxSize = useAppStore.getState().maxHistorySize;
+        // Oldest first so the trim-on-insert keeps the newest entries.
+        for (const entry of [...legacyHistory].reverse()) {
+          await putHistoryEntryInDatabase(entry, maxSize);
+        }
+        deletePersistedValue(HISTORY_KEY);
+      }
+
+      const [firstPage, historyTotal] = await Promise.all([
+        listHistoryFromDatabase(HISTORY_PAGE_SIZE, 0),
+        countHistoryInDatabase(),
+      ]);
+      useAppStore.setState({ history: firstPage, historyTotal });
     });
   });
 }

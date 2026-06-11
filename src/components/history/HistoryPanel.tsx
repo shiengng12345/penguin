@@ -2,11 +2,13 @@ import { useState, useEffect, useRef } from "react";
 import {
   useAppStore,
   visibleProtocolForTab,
+  HISTORY_PAGE_SIZE,
   type ProtocolTab,
   type HistoryEntry,
   type RequestTab,
   getDefaultHeadersForProtocol,
 } from "@/lib/store";
+import { listHistoryFromDatabase } from "@/lib/penguin-db";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { History, Trash2, Globe, Server, Box } from "lucide-react";
@@ -94,16 +96,34 @@ function getContentType(metadata: HistoryEntry["metadata"]): string {
 }
 
 export function HistoryPanel({ open, onClose }: HistoryPanelProps) {
-  const { history, clearHistory, addTab } = useAppStore();
+  const { history, historyTotal, loadMoreHistory, clearHistory, addTab } = useAppStore();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [searchResults, setSearchResults] = useState<HistoryEntry[] | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   const visibleHistory = history.filter((h) => h.protocol !== "rest");
 
-  const filtered = query.trim()
+  // Search hits the SQLite archive (debounced) so it covers ALL entries, not
+  // just the loaded page. The in-memory filter bridges the debounce gap.
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      setSearchResults(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      void listHistoryFromDatabase(100, 0, q).then((rows) => {
+        setSearchResults(rows.filter((h) => h.protocol !== "rest"));
+      });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const clientFiltered = query.trim()
     ? visibleHistory.filter((h) => {
         const q = query.toLowerCase();
         return (
@@ -114,6 +134,18 @@ export function HistoryPanel({ open, onClose }: HistoryPanelProps) {
         );
       })
     : visibleHistory;
+
+  const filtered = query.trim() && searchResults !== null ? searchResults : clientFiltered;
+  const hasMore = !query.trim() && history.length < historyTotal;
+
+  const handleLoadMore = async () => {
+    setLoadingMore(true);
+    try {
+      await loadMoreHistory();
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const selectEntry = (entry: HistoryEntry) => {
     const targetProtocol = visibleProtocolForTab(entry.protocol);
@@ -129,6 +161,8 @@ export function HistoryPanel({ open, onClose }: HistoryPanelProps) {
       selectedPackage: isRest ? null : entry.packageName || null,
       selectedService: isRest ? null : entry.serviceName || null,
       selectedMethod: isRest ? null : entry.selectedMethod ?? null,
+      // Restore the archived response so the old result is visible immediately.
+      response: entry.response ?? null,
       origin: "history" as const,
     };
     if (isRest) {
@@ -231,7 +265,9 @@ export function HistoryPanel({ open, onClose }: HistoryPanelProps) {
 
         <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
           <span className="text-[10px] text-muted-foreground">
-            {filtered.length} {filtered.length === 1 ? "entry" : "entries"}
+            {query.trim()
+              ? `${filtered.length} ${filtered.length === 1 ? "match" : "matches"}`
+              : `${filtered.length} of ${historyTotal} ${historyTotal === 1 ? "entry" : "entries"}`}
           </span>
           <span className="text-[10px] text-muted-foreground">
             Enter to restore / ↑↓ navigate / Esc close
@@ -279,6 +315,19 @@ export function HistoryPanel({ open, onClose }: HistoryPanelProps) {
                     <span className="truncate text-[10px] text-muted-foreground">
                       {getServiceShortName(entry.serviceName)}
                     </span>
+                    {entry.response && (
+                      <span
+                        className={cn(
+                          "shrink-0 rounded px-1 py-0.5 text-[9px] font-medium",
+                          entry.response.status === "OK"
+                            ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                            : "bg-red-500/15 text-red-600 dark:text-red-400"
+                        )}
+                      >
+                        {entry.response.status}
+                        {entry.response.statusCode > 0 ? ` ${entry.response.statusCode}` : ""}
+                      </span>
+                    )}
                     <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60">
                       {formatTime(entry.timestamp)}
                     </span>
@@ -323,11 +372,34 @@ export function HistoryPanel({ open, onClose }: HistoryPanelProps) {
                           {tryFormatJson(entry.requestBody)}
                         </pre>
                       </div>
+                      {entry.response && (
+                        <div className="mt-1">
+                          <span className="text-[10px] font-semibold uppercase text-muted-foreground">
+                            Response · {entry.response.status}
+                            {entry.response.duration > 0 ? ` · ${entry.response.duration}ms` : ""}
+                          </span>
+                          <pre className="mt-0.5 max-h-24 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-foreground/80">
+                            {tryFormatJson(entry.response.body || entry.response.error || "(empty)")}
+                          </pre>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               );
             })
+          )}
+          {hasMore && (
+            <button
+              type="button"
+              onClick={handleLoadMore}
+              disabled={loadingMore}
+              className="mt-1 w-full rounded-md border border-dashed border-border py-1.5 text-[11px] text-muted-foreground hover:bg-accent/50 transition-colors"
+            >
+              {loadingMore
+                ? "Loading..."
+                : `Load ${Math.min(HISTORY_PAGE_SIZE, historyTotal - history.length)} more (${history.length}/${historyTotal})`}
+            </button>
           )}
         </div>
       </div>

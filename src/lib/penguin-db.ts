@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { SavedRequest } from "./store";
+import type { HistoryEntry, SavedRequest } from "./store";
 
 let databaseUnavailable = false;
 
@@ -95,6 +95,59 @@ export async function renameSavedRequestInDatabase(
   if (shouldSkipDatabase()) return;
   try {
     await invoke("db_rename_saved_request", { id, name });
+  } catch {
+    databaseUnavailable = true;
+  }
+}
+
+// --- Request history (request_history table) ---
+// One row per request with the full response archived in entry_json; the
+// frontend pages instead of hydrating the whole archive at boot.
+
+export async function putHistoryEntryInDatabase(
+  entry: HistoryEntry,
+  maxSize: number,
+): Promise<void> {
+  if (shouldSkipDatabase()) return;
+  try {
+    await invoke("db_put_history_entry", { entry, maxSize });
+  } catch {
+    databaseUnavailable = true;
+  }
+}
+
+export async function listHistoryFromDatabase(
+  limit: number,
+  offset: number,
+  query?: string,
+): Promise<HistoryEntry[]> {
+  if (shouldSkipDatabase()) return [];
+  try {
+    return await invoke<HistoryEntry[]>("db_list_history", {
+      limit,
+      offset,
+      query: query ?? null,
+    });
+  } catch {
+    databaseUnavailable = true;
+    return [];
+  }
+}
+
+export async function countHistoryInDatabase(): Promise<number> {
+  if (shouldSkipDatabase()) return 0;
+  try {
+    return await invoke<number>("db_count_history");
+  } catch {
+    databaseUnavailable = true;
+    return 0;
+  }
+}
+
+export async function clearHistoryInDatabase(): Promise<void> {
+  if (shouldSkipDatabase()) return;
+  try {
+    await invoke("db_clear_history");
   } catch {
     databaseUnavailable = true;
   }

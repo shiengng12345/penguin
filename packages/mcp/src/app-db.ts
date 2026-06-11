@@ -234,14 +234,32 @@ export function readDefaultHeaders(options: {
   return parseDefaultHeadersValue(values[APP_VALUE_KEYS.defaultHeaders], options.protocol);
 }
 
+// v1.9+ desktop versions keep history as rows in request_history (full
+// response archived per row); older versions used a single app_kv blob.
+function readHistoryEntries(dbPath: string): Record<string, unknown>[] {
+  try {
+    const rows = readSqliteRows(
+      dbPath,
+      "SELECT entry_json FROM request_history ORDER BY timestamp DESC LIMIT 500",
+    );
+    const entries = rows
+      .map((row) => asString(row.entry_json))
+      .flatMap((raw) => parseJsonArray(`[${raw}]`));
+    if (entries.length > 0) return entries;
+  } catch {
+    // Table missing (pre-v1.9 desktop) — fall through to the legacy blob.
+  }
+  const values = readAppValues(dbPath);
+  return parseJsonArray(values[APP_VALUE_KEYS.history]);
+}
+
 export function readRequestHistory(options: {
   dbPath?: string;
   protocol?: DesktopProtocol;
   query?: string;
   limit?: number;
 } = {}): StoredRequestSummary[] {
-  const values = readAppValues(options.dbPath);
-  const entries = parseJsonArray(values[APP_VALUE_KEYS.history]);
+  const entries = readHistoryEntries(options.dbPath ?? penguinDbPath());
   return filterStoredRequests(entries, options);
 }
 
@@ -282,11 +300,19 @@ export function desktopStateStatus(dbPath = penguinDbPath()): {
     const values = readAppValues(dbPath);
     const savedRows = readSqliteRows(dbPath, "SELECT COUNT(*) AS count FROM saved_requests");
     const count = savedRows[0]?.count;
+    let historyCount = parseJsonArray(values[APP_VALUE_KEYS.history]).length;
+    try {
+      const historyRows = readSqliteRows(dbPath, "SELECT COUNT(*) AS count FROM request_history");
+      const tableCount = historyRows[0]?.count;
+      if (typeof tableCount === "number" && tableCount > 0) historyCount = tableCount;
+    } catch {
+      // Table missing (pre-v1.9 desktop) — blob count already computed.
+    }
     return {
       ...base,
       ok: true,
       appValueKeys: Object.keys(values).sort(),
-      historyCount: parseJsonArray(values[APP_VALUE_KEYS.history]).length,
+      historyCount,
       savedRequestCount: typeof count === "number" ? count : 0,
     };
   } catch (error) {

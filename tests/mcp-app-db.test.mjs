@@ -110,3 +110,55 @@ test("MCP exposes SQLite-backed desktop state tools", async () => {
   assert.match(source, /readRequestHistory/);
   assert.match(source, /sqlite/);
 });
+
+test("readRequestHistory prefers the request_history table and falls back to the legacy blob", async (t) => {
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { readRequestHistory, desktopStateStatus } = await loadMcpAppDbModule();
+
+  const dir = await mkdtemp(join(tmpdir(), "penguin-history-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  const entry = (id, method) => JSON.stringify({
+    id,
+    timestamp: 100,
+    protocol: "grpc",
+    methodFullName: method,
+    serviceName: "Svc",
+    packageName: "@snsoft/pkg",
+    url: "http://localhost:5006",
+    requestBody: "{}",
+    metadata: [],
+    response: { status: "OK", statusCode: 200, body: "{}" },
+  });
+
+  // v1.9+ layout: request_history table rows win.
+  const tableDb = join(dir, "table.sqlite3");
+  execFileSync("sqlite3", [tableDb, `
+    CREATE TABLE app_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
+    CREATE TABLE saved_requests (id TEXT PRIMARY KEY, name TEXT, saved_at INTEGER, protocol TEXT,
+      method_full_name TEXT, service_name TEXT, package_name TEXT, url TEXT, entry_json TEXT);
+    CREATE TABLE request_history (
+      id TEXT PRIMARY KEY, timestamp INTEGER NOT NULL, protocol TEXT NOT NULL,
+      method_full_name TEXT NOT NULL, service_name TEXT NOT NULL,
+      package_name TEXT NOT NULL, url TEXT NOT NULL, entry_json TEXT NOT NULL
+    );
+    INSERT INTO request_history VALUES ('hist_t', 100, 'grpc', 'pkg.Svc.FromTable', 'Svc', '@snsoft/pkg', 'http://x', '${entry("hist_t", "pkg.Svc.FromTable")}');
+  `]);
+  const fromTable = readRequestHistory({ dbPath: tableDb });
+  assert.equal(fromTable.length, 1);
+  assert.equal(fromTable[0].methodFullName, "pkg.Svc.FromTable");
+  assert.equal(desktopStateStatus(tableDb).historyCount, 1);
+
+  // Pre-v1.9 layout: only the app_kv blob exists.
+  const blobDb = join(dir, "blob.sqlite3");
+  execFileSync("sqlite3", [blobDb, `
+    CREATE TABLE app_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
+    INSERT INTO app_kv VALUES ('penguin-history', '[${entry("hist_b", "pkg.Svc.FromBlob").replaceAll("'", "''")}]', 1);
+  `]);
+  const fromBlob = readRequestHistory({ dbPath: blobDb });
+  assert.equal(fromBlob.length, 1);
+  assert.equal(fromBlob[0].methodFullName, "pkg.Svc.FromBlob");
+});
