@@ -31,10 +31,13 @@ async function initializeIsolatedMcpServer(entryPath) {
 
   try {
     return await new Promise((resolve) => {
+      // Generous ceiling: under parallel test load, spawning node + loading
+      // the ~1MB bundle can take >500ms. Success resolves on child exit, so
+      // this only delays the failure path.
       const timer = setTimeout(() => {
         child.kill();
         resolve({ timedOut: true, stdout, stderr });
-      }, 500);
+      }, 5000);
 
       child.on("exit", (code) => {
         clearTimeout(timer);

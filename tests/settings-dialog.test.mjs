@@ -20,8 +20,8 @@ test("MCP primary action uses client-neutral wording", async () => {
     "utf8",
   );
 
-  assert.match(source, /Configure Claude \+ Codex/);
-  assert.match(source, /Reconfigure Claude \+ Codex/);
+  assert.match(source, /Configure MCP Clients/);
+  assert.match(source, /Reconfigure MCP Clients/);
   assert.match(source, /MCP Ready/);
   assert.match(source, /Server Check Failed/);
   assert.match(source, /Partial Setup/);
@@ -30,6 +30,9 @@ test("MCP primary action uses client-neutral wording", async () => {
   assert.doesNotMatch(source, /Re-add to Claude Desktop/);
   assert.doesNotMatch(source, /Claude Desktop Configured/);
   assert.doesNotMatch(source, /Restart Claude Desktop/);
+  // The one-click flow covers all three local clients, incl. Claude Code CLI.
+  assert.match(source, /claude_code_configured: boolean/);
+  assert.match(source, /mcpClaudeCodeConfigured/);
 });
 
 test("MCP install refreshes status after partial failure", async () => {

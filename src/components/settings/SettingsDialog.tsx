@@ -95,7 +95,7 @@ export function SettingsDialog({
   const setMaxHistorySize = useAppStore((s) => s.setMaxHistorySize);
   const defaultHeaders = useAppStore((s) => s.defaultHeaders);
   const setDefaultHeaders = useAppStore((s) => s.setDefaultHeaders);
-  const historyCount = useAppStore((s) => s.history.length);
+  const historyCount = useAppStore((s) => s.historyTotal);
 
   const [appVersion, setAppVersion] = useState<string>("");
 
@@ -109,6 +109,8 @@ export function SettingsDialog({
     server_health_error: string | null;
     claude_desktop_config_path: string | null;
     claude_desktop_configured: boolean;
+    claude_code_config_path: string | null;
+    claude_code_configured: boolean;
     codex_config_path: string | null;
     codex_configured: boolean;
   }
@@ -163,12 +165,14 @@ export function SettingsDialog({
   const mcpClaudeCliCommand = `claude mcp add --scope user penguin ${mcpNodePath} ${mcpServerPath}`;
   const mcpCodexCliCommand = `codex mcp add penguin -- ${mcpNodePath} ${mcpServerPath}`;
   const mcpClaudeConfigured = Boolean(mcpStatus?.claude_desktop_configured);
+  const mcpClaudeCodeConfigured = Boolean(mcpStatus?.claude_code_configured);
   const mcpCodexConfigured = Boolean(mcpStatus?.codex_configured);
   const mcpServerHealthy = Boolean(mcpStatus?.server_healthy);
-  const mcpBothConfigured = mcpClaudeConfigured && mcpCodexConfigured;
-  const mcpReady = mcpBothConfigured && mcpServerHealthy;
+  const mcpAllConfigured = mcpClaudeConfigured && mcpClaudeCodeConfigured && mcpCodexConfigured;
+  const mcpReady = mcpAllConfigured && mcpServerHealthy;
   const mcpServerCheckFailed = mcpStatus !== null && !mcpServerHealthy;
-  const mcpPartiallyConfigured = !mcpBothConfigured && (mcpClaudeConfigured || mcpCodexConfigured);
+  const mcpPartiallyConfigured =
+    !mcpAllConfigured && (mcpClaudeConfigured || mcpClaudeCodeConfigured || mcpCodexConfigured);
   const mcpStatusLabel = mcpReady
     ? "MCP Ready"
     : mcpServerCheckFailed
@@ -577,12 +581,12 @@ export function SettingsDialog({
             >
               {mcpInstallState === "installing" ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : mcpBothConfigured ? (
+              ) : mcpAllConfigured ? (
                 <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
               ) : (
                 <Sparkles className="mr-1.5 h-3.5 w-3.5" />
               )}
-              {mcpBothConfigured ? "Reconfigure Claude + Codex" : "Configure Claude + Codex"}
+              {mcpAllConfigured ? "Reconfigure MCP Clients" : "Configure MCP Clients"}
             </Button>
 
             {mcpInstallState === "success" && (
@@ -591,7 +595,7 @@ export function SettingsDialog({
                 mcpServerHealthy ? "text-emerald-500" : "text-amber-500",
               )}>
                 {mcpServerHealthy
-                  ? "✓ Configured Claude Desktop and Codex CLI. Penguin MCP server checked. Restart the clients to load it."
+                  ? "✓ Configured Claude Desktop, Claude Code and Codex CLI. Penguin MCP server checked. Restart the clients to load it."
                   : `Configured clients, but MCP server check failed: ${mcpStatus?.server_health_error ?? "unknown error"}`}
               </p>
             )}
