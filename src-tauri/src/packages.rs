@@ -2,7 +2,7 @@ use notify::{event::EventKind, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, RecvTimeoutError};
 use std::time::{Duration, Instant};
 use tauri::Emitter;
@@ -60,19 +60,42 @@ pub(crate) fn ensure_packages_dir(protocol: String) -> Result<String, String> {
             .map_err(|e| e.to_string())?;
     }
 
-    let local_npmrc = dir.join(".npmrc");
-    if !local_npmrc.exists() {
-        if let Some(home) = dirs::home_dir() {
-            let global_npmrc = home.join(".npmrc");
-            if global_npmrc.exists() {
-                let _ = fs::copy(&global_npmrc, &local_npmrc);
-            }
-        }
+    if let Some(home) = dirs::home_dir() {
+        mirror_npmrc(&home.join(".npmrc"), &dir.join(".npmrc"));
     }
 
     dir.to_str()
         .map(String::from)
         .ok_or_else(|| "Invalid path".to_string())
+}
+
+// Mirror ~/.npmrc into the per-protocol package dir. npm resolves .npmrc
+// walking UP from cwd, so a project-local file shadows the user-level one.
+// Pengvi's install cwd is ~/.penguin/<protocol>/ — if we cached ~/.npmrc
+// there once and never refreshed (the pre-1.10.1 behavior), users who
+// rotated registry credentials would silently keep hitting the old ones
+// via the stale snapshot: terminal `npm install` worked (used fresh
+// ~/.npmrc) but Pengvi-spawned npm hit ERR_SOCKET_TIMEOUT.
+//
+// Semantics:
+//   * global exists, local missing OR differs → copy global → local
+//   * global exists, local already matches → no-op (don't churn mtime)
+//   * global missing, local exists           → delete local snapshot
+//   * neither exists                         → no-op
+//
+// Failures are intentionally swallowed — worst case the user falls back to
+// the prior behavior (stale snapshot or no .npmrc); we never want this
+// helper to abort ensure_packages_dir.
+pub(crate) fn mirror_npmrc(global_npmrc: &Path, local_npmrc: &Path) {
+    if global_npmrc.exists() {
+        let global_bytes = fs::read(global_npmrc).ok();
+        let local_bytes = fs::read(local_npmrc).ok();
+        if global_bytes.is_some() && global_bytes != local_bytes {
+            let _ = fs::copy(global_npmrc, local_npmrc);
+        }
+    } else if local_npmrc.exists() {
+        let _ = fs::remove_file(local_npmrc);
+    }
 }
 
 #[tauri::command]
@@ -374,4 +397,115 @@ pub(crate) fn start_package_watcher<R: tauri::Runtime>(app: tauri::AppHandle<R>)
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    // Each test gets its own scratch directory under std::env::temp_dir() so
+    // they don't trip over each other when cargo runs in parallel.
+    fn scratch_dir(label: &str) -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let pid = std::process::id();
+        let dir = std::env::temp_dir().join(format!("penguin-npmrc-{label}-{pid}-{n}"));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create scratch dir");
+        dir
+    }
+
+    #[test]
+    fn mirror_copies_when_local_missing() {
+        let dir = scratch_dir("copy");
+        let global = dir.join("home.npmrc");
+        let local = dir.join("local.npmrc");
+        fs::write(&global, b"registry=https://new.example.com/\n").unwrap();
+
+        mirror_npmrc(&global, &local);
+
+        assert!(local.exists(), "local snapshot was not created");
+        assert_eq!(fs::read(&local).unwrap(), fs::read(&global).unwrap());
+    }
+
+    #[test]
+    fn mirror_refreshes_stale_local_after_credential_rotation() {
+        // This is the v1.10.1 bug fix's load-bearing case: the user updated
+        // ~/.npmrc with new credentials but Pengvi's local snapshot still
+        // contains the old ones. Pre-fix this silently kept the stale copy.
+        let dir = scratch_dir("rotate");
+        let global = dir.join("home.npmrc");
+        let local = dir.join("local.npmrc");
+        fs::write(&global, b"OLD_TOKEN=abc\n").unwrap();
+        fs::write(&local, b"OLD_TOKEN=abc\n").unwrap();
+
+        // Simulate user rotating credentials in ~/.npmrc.
+        fs::write(&global, b"NEW_TOKEN=xyz\nregistry=https://new.example.com/\n").unwrap();
+
+        mirror_npmrc(&global, &local);
+
+        let after = fs::read(&local).unwrap();
+        assert_eq!(after, fs::read(&global).unwrap());
+        assert!(
+            String::from_utf8_lossy(&after).contains("NEW_TOKEN"),
+            "local snapshot still contains stale credentials: {:?}",
+            String::from_utf8_lossy(&after)
+        );
+    }
+
+    #[test]
+    fn mirror_is_noop_when_local_already_matches() {
+        // Don't churn the file's mtime on every install — npm doesn't care
+        // about mtime here, but flapping it makes log diagnosis harder and
+        // would trip the file-watcher (packages-changed event) needlessly.
+        let dir = scratch_dir("noop");
+        let global = dir.join("home.npmrc");
+        let local = dir.join("local.npmrc");
+        fs::write(&global, b"same\n").unwrap();
+        fs::write(&local, b"same\n").unwrap();
+
+        let before_mtime = fs::metadata(&local).unwrap().modified().unwrap();
+        // sleep tiny so mtime delta would be observable IF we wrote.
+        std::thread::sleep(Duration::from_millis(20));
+
+        mirror_npmrc(&global, &local);
+
+        let after_mtime = fs::metadata(&local).unwrap().modified().unwrap();
+        assert_eq!(
+            before_mtime, after_mtime,
+            "mirror touched local snapshot even though contents already match",
+        );
+    }
+
+    #[test]
+    fn mirror_deletes_local_when_global_removed() {
+        // User deleted their ~/.npmrc (e.g. switched machines, scrubbed
+        // creds). The cached snapshot is no longer authoritative — drop it
+        // so npm falls back to its built-in defaults instead of stale state.
+        let dir = scratch_dir("delete");
+        let global = dir.join("home.npmrc");
+        let local = dir.join("local.npmrc");
+        fs::write(&local, b"orphaned snapshot\n").unwrap();
+        assert!(!global.exists());
+
+        mirror_npmrc(&global, &local);
+
+        assert!(!local.exists(), "orphaned local snapshot was not removed");
+    }
+
+    #[test]
+    fn mirror_is_noop_when_neither_exists() {
+        // Fresh machine with no ~/.npmrc. We don't conjure a local file out
+        // of thin air; npm will just use its defaults.
+        let dir = scratch_dir("none");
+        let global = dir.join("home.npmrc");
+        let local = dir.join("local.npmrc");
+        assert!(!global.exists());
+        assert!(!local.exists());
+
+        mirror_npmrc(&global, &local);
+
+        assert!(!local.exists());
+    }
 }
