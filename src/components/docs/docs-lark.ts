@@ -1,7 +1,9 @@
 import { logger } from "@/lib/logger";
 import { getPersistedValue, setPersistedValue } from "@/lib/app-persistence";
 import { APP_VALUE_KEYS } from "@/lib/persistence-keys";
-import { runLarkFetch, runLarkUpdate } from "@/components/vault/vault-lark";
+import { requireSuperAdmin } from "@/lib/dev-mode-store";
+import { runLarkFetch, runLarkUpdate, validateLarkUrl } from "@/components/vault/vault-lark";
+import { sha256Hex } from "@/components/vault/vault-push";
 
 const LOG_SCOPE = "docs-lark";
 
@@ -30,18 +32,36 @@ export interface EndpointField {
   example?: string;
 }
 
+// Headers table row — replaces the freeform `authentication` field in
+// Sprint 8.2's redesigned editor. Structured so the UI can render a table.
+export interface DocHeader {
+  key: string;
+  value: string;
+  description?: string;
+}
+
 export interface DocEndpoint {
   id: string;
   method: DocMethod;
   path: string; // "/cpf/check" or "pkg.Service.Method"
-  summary?: string; // one-liner under the path in lists
-  section?: string; // group header inside the collection (e.g. "CPF & Document Check")
+  // ---- Sprint 8.2 (new mock) primary fields ----
+  title?: string; // human-readable name shown in list + detail header
+  description?: string; // multi-line description (replaces overview/notes in new UI)
+  headers?: DocHeader[]; // structured request headers (Sprint 8.2)
+  requestBody?: string; // raw JSON body string (Sprint 8.2 — replaces requestExample in UI)
+  responseBody?: string; // raw JSON body string (Sprint 8.2 — replaces responseExample in UI)
+  // ---- Legacy fields retained for backward compat with Lark docs ----
+  // The UI no longer surfaces these (Phase A "data shape preserved, UI hidden"
+  // decision), but `parseEndpoint` migrates them into the new fields above on
+  // first load so old endpoints render correctly under the new design.
+  summary?: string;
+  section?: string;
   overview?: string;
   requestFields: EndpointField[];
   responseFields: EndpointField[];
   requestExample?: string;
   responseExample?: string;
-  notes?: string; // one bullet per line
+  notes?: string;
   service?: string;
   baseUrl?: string;
   rateLimit?: string;
@@ -80,6 +100,13 @@ export function emptyEndpoint(): DocEndpoint {
     id: newId("ep"),
     method: "GET",
     path: "/new-endpoint",
+    title: "",
+    description: "",
+    headers: [],
+    // Default to "{}" so the CodeMirror JSON editor doesn't flag an empty
+    // body as a lint error on first paint. User can clear/replace it.
+    requestBody: "{}",
+    responseBody: "{}",
     requestFields: [],
     responseFields: [],
     tags: [],
@@ -96,7 +123,10 @@ export function loadKnowledgeBase(): KnowledgeBase {
   if (!raw) return EMPTY_KB;
   try {
     return parseKnowledgeBase(JSON.parse(raw)) ?? EMPTY_KB;
-  } catch {
+  } catch (error) {
+    // Persisted JSON corrupted (manual edit / schema drift) — warn so future
+    // debug can spot it, return empty KB to avoid blocking the UI.
+    logger.warn(LOG_SCOPE, "loadKnowledgeBase — invalid JSON in persisted KB", { error: String(error) });
     return EMPTY_KB;
   }
 }
@@ -181,6 +211,18 @@ function parseField(value: unknown): EndpointField | null {
   return field;
 }
 
+// Headers table row parser — drops entries that have no key.
+function parseHeader(value: unknown): DocHeader | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  const key = asTrimmedString(v.key);
+  if (!key) return null;
+  const header: DocHeader = { key, value: asTrimmedString(v.value) ?? "" };
+  const description = asTrimmedString(v.description);
+  if (description) header.description = description;
+  return header;
+}
+
 function parseEndpoint(value: unknown): DocEndpoint | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
@@ -210,9 +252,13 @@ function parseEndpoint(value: unknown): DocEndpoint | null {
   };
 
   for (const key of [
+    "title",
+    "description",
     "summary",
     "section",
     "overview",
+    "requestBody",
+    "responseBody",
     "requestExample",
     "responseExample",
     "notes",
@@ -227,6 +273,40 @@ function parseEndpoint(value: unknown): DocEndpoint | null {
     const parsed = asTrimmedString(v[key]);
     if (parsed) endpoint[key] = parsed;
   }
+
+  // Headers — new structured table. If the stored shape has it, use as-is.
+  // Otherwise migrate from the legacy `authentication` string to a single
+  // Authorization row so old endpoints render correctly under the new UI.
+  if (Array.isArray(v.headers)) {
+    const headers = (v.headers as unknown[])
+      .map(parseHeader)
+      .filter((h): h is DocHeader => h !== null);
+    if (headers.length > 0) endpoint.headers = headers;
+  } else if (endpoint.authentication) {
+    endpoint.headers = [
+      { key: "Authorization", value: endpoint.authentication },
+    ];
+  }
+
+  // Sprint 8.2 backward-compat shims — surface legacy data through the new
+  // primary fields if the new ones are empty. Original fields stay populated
+  // so a re-export round-trips the source document.
+  if (!endpoint.title) {
+    endpoint.title = endpoint.summary ?? `${endpoint.method} ${endpoint.path}`;
+  }
+  if (!endpoint.description) {
+    const parts: string[] = [];
+    if (endpoint.overview) parts.push(endpoint.overview);
+    if (endpoint.notes) parts.push(endpoint.notes);
+    if (parts.length > 0) endpoint.description = parts.join("\n\n");
+  }
+  if (!endpoint.requestBody && endpoint.requestExample) {
+    endpoint.requestBody = endpoint.requestExample;
+  }
+  if (!endpoint.responseBody && endpoint.responseExample) {
+    endpoint.responseBody = endpoint.responseExample;
+  }
+
   return endpoint;
 }
 
@@ -257,14 +337,35 @@ export function parseKnowledgeBase(parsed: unknown): KnowledgeBase | null {
 // rendering plus the machine ```json block the pull reads back.
 // ---------------------------------------------------------------------------
 
-const LARK_HOST_REGEX = /^https:\/\/[a-z0-9.-]+\.(larksuite\.com|feishu\.cn)\//;
-const JSON_BLOCK_REGEX = /```json\s*([\s\S]*?)```/i;
+// Sentinel-anchored machine block — robust against user-authored ```json
+// fences inside example bodies. SENTINEL_REGEX is tried first; SENTINEL_BEGIN
+// / SENTINEL_END are the literal markers buildDocsMarkdown emits around the
+// machine JSON block.
+const SENTINEL_BEGIN = "<!-- penguin:kb:begin v1 -->";
+const SENTINEL_END = "<!-- penguin:kb:end -->";
+const SENTINEL_REGEX =
+  /<!--\s*penguin:kb:begin\s+v\d+\s*-->\s*```json\s*([\s\S]*?)\s*```\s*<!--\s*penguin:kb:end\s*-->/i;
 
+// Pull the machine JSON block out of a Lark markdown payload. Prefers the
+// sentinel-wrapped block (post-Sprint 8); falls back to the LAST ```json
+// fence in the doc for backward compatibility with pre-Sprint-8 markdown
+// where no sentinel was emitted yet.
+function extractMachineBlock(markdown: string): string | null {
+  const sentinelMatch = markdown.match(SENTINEL_REGEX);
+  if (sentinelMatch) return sentinelMatch[1];
+  const allBlocks = [...markdown.matchAll(/```json\s*([\s\S]*?)```/gi)];
+  if (allBlocks.length === 0) return null;
+  // Last block — machine block has always been emitted at end of doc, so the
+  // legacy markdown's last ```json fence is still ours even if users added
+  // earlier ```json fences in example bodies.
+  return allBlocks[allBlocks.length - 1][1];
+}
+
+// Delegate to vault-lark's hardened validator (host whitelist + shell-metachar
+// rejection). Sprint 5 DEC #126 deferred this dedupe; Sprint 8 finally landed
+// it because the shell-injection fix needed to live in exactly one place.
 export function validateDocsLarkUrl(url: string): { success: boolean; reason?: string } {
-  if (!LARK_HOST_REGEX.test(url.trim())) {
-    return { success: false, reason: "URL must be a Lark/Feishu document link" };
-  }
-  return { success: true };
+  return validateLarkUrl({ url });
 }
 
 export function loadDocsLarkUrl(): string | null {
@@ -331,7 +432,15 @@ export function buildDocsMarkdown(kb: KnowledgeBase): string {
       }
     }
   }
-  lines.push("", "```json", JSON.stringify(kb, null, 2), "```", "");
+  lines.push(
+    "",
+    SENTINEL_BEGIN,
+    "```json",
+    JSON.stringify(kb, null, 2),
+    "```",
+    SENTINEL_END,
+    "",
+  );
   return lines.join("\n");
 }
 
@@ -345,12 +454,12 @@ export async function syncDocsFromLark(): Promise<DocsSyncResult> {
     return { success: false, reason: fetched.reason ?? "Fetch failed" };
   }
 
-  const block = fetched.markdown.match(JSON_BLOCK_REGEX);
-  if (!block) return { success: false, reason: "Document has no ```json block" };
+  const blockJson = extractMachineBlock(fetched.markdown);
+  if (blockJson === null) return { success: false, reason: "Document has no ```json block" };
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(block[1]);
+    parsed = JSON.parse(blockJson);
   } catch (error) {
     logger.warn(LOG_SCOPE, "syncDocsFromLark — invalid JSON block", { error: String(error) });
     return { success: false, reason: "JSON block is not valid JSON" };
@@ -363,20 +472,53 @@ export async function syncDocsFromLark(): Promise<DocsSyncResult> {
 
   persist(kb);
   setPersistedValue(APP_VALUE_KEYS.docsLastSyncedAt, String(Date.now()));
+  // Save hash of the markdown we just pulled — Push will compare against this
+  // to detect remote drift (someone edited the Lark doc since last sync).
+  const fetchedHash = await sha256Hex({ text: fetched.markdown });
+  setPersistedValue(APP_VALUE_KEYS.docsLastSyncedHash, fetchedHash);
   logger.info(LOG_SCOPE, "syncDocsFromLark — synced", { endpointCount: endpointCount(kb) });
   return { success: true, endpointCount: endpointCount(kb) };
 }
 
 export async function pushDocsToLark(): Promise<DocsSyncResult> {
   logger.info(LOG_SCOPE, "pushDocsToLark — entry");
+  // Hard gate — UI hides the Push button for non-superadmins, but defense-in-depth
+  // here protects against direct callers (devtools, future programmatic flows).
+  const isAuthorized = requireSuperAdmin();
+  if (!isAuthorized) {
+    logger.warn(LOG_SCOPE, "pushDocsToLark — caller is not super admin");
+    return { success: false, reason: "not authorized" };
+  }
   const url = loadDocsLarkUrl();
   if (!url) return { success: false, reason: "No Lark document URL configured" };
+
+  // Pre-fetch remote and compare hash — if it differs from what we last synced,
+  // the doc has been edited externally and Push would silently clobber. Mirrors
+  // vault-push.ts conflict gate (Sprint 3 DEC #82 pattern). Empty remote (first
+  // push to a fresh doc) is allowed — only a failed fetch aborts.
+  const preFetch = await runLarkFetch({ url });
+  if (!preFetch.success) {
+    return { success: false, reason: preFetch.reason ?? "Pre-fetch failed" };
+  }
+  const remoteMarkdown = preFetch.markdown ?? "";
+  const remoteHash = await sha256Hex({ text: remoteMarkdown });
+  const expectedHash = getPersistedValue(APP_VALUE_KEYS.docsLastSyncedHash);
+  const isDrift = expectedHash !== null && expectedHash !== remoteHash;
+  if (isDrift) {
+    logger.warn(LOG_SCOPE, "pushDocsToLark — remote drift detected, aborting");
+    return {
+      success: false,
+      reason: "Lark doc was edited since last sync — Pull first to merge, then Push again.",
+    };
+  }
 
   const kb = loadKnowledgeBase();
   const markdown = buildDocsMarkdown(kb);
   const result = await runLarkUpdate({ url, markdown });
   if (!result.success) return { success: false, reason: result.reason ?? "Push failed" };
 
+  const newHash = await sha256Hex({ text: markdown });
   setPersistedValue(APP_VALUE_KEYS.docsLastSyncedAt, String(Date.now()));
+  setPersistedValue(APP_VALUE_KEYS.docsLastSyncedHash, newHash);
   return { success: true, endpointCount: endpointCount(kb) };
 }

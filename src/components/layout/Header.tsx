@@ -13,14 +13,12 @@ import type { AppUpdateController } from "@/hooks/useAppUpdateScheduler";
 import { syncRemoteConfigForProtocol } from "@/lib/environment-sync";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Palette, Settings, Clock, RefreshCw, Lock } from "lucide-react";
+import { Palette, Settings, Clock, RefreshCw } from "lucide-react";
 import { useDeveloperMode } from "@/hooks/useDeveloperMode";
 import { cn } from "@/lib/utils";
 
 interface HeaderProps {
   onOpenSettings: () => void;
-  onToggleVault: () => void;
-  isVaultOpen: boolean;
   onOpenHome: () => void;
   appUpdate: AppUpdateController;
 }
@@ -109,7 +107,7 @@ const PenguinBrand = memo(function PenguinBrand({ onClickHome, canEnterHome }: P
   );
 });
 
-export function Header({ onOpenSettings, onToggleVault, isVaultOpen, onOpenHome, appUpdate }: HeaderProps) {
+export function Header({ onOpenSettings, onOpenHome, appUpdate }: HeaderProps) {
   const { theme, setTheme } = useAppStore();
   // Gate on hasValidToken (DEC #56) — enabling Dev Mode alone is not enough;
   // the user must also validate the token before Vault + Home hub light up.
@@ -166,23 +164,7 @@ export function Header({ onOpenSettings, onToggleVault, isVaultOpen, onOpenHome,
       <PenguinBrand onClickHome={onOpenHome} canEnterHome={hasValidToken} />
 
       <div className="flex items-center gap-2">
-        {hasValidToken && (
-          <button
-            type="button"
-            onClick={onToggleVault}
-            title={isVaultOpen ? "Close Vault / 关闭保险柜" : "Open Vault / 打开保险柜"}
-            aria-pressed={isVaultOpen}
-            className={cn(
-              "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors",
-              isVaultOpen
-                ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
-                : "border-border bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground",
-            )}
-          >
-            <Lock className="h-3 w-3" />
-            <span>Vault</span>
-          </button>
-        )}
+        {/* Vault button removed (Sprint 8.3) — MainSidebar's Vault icon replaces it. */}
         <span className="rounded-md border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
           {protocolName}
         </span>

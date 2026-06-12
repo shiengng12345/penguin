@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import {
   createCollection,
   deleteCollection,
@@ -15,10 +15,16 @@ import {
   DOC_METHODS,
   type DocCollection,
   type DocEndpoint,
+  type DocHeader,
   type DocMethod,
-  type EndpointField,
   type KnowledgeBase,
 } from "./docs-lark";
+
+// JsonEditor is CodeMirror-based (~400KB). Lazy-load so the rest of the KB
+// shell renders fast and the editor only mounts when the user starts editing.
+const LazyJsonEditor = lazy(() =>
+  import("@/components/ui/json-editor").then((m) => ({ default: m.JsonEditor })),
+);
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -30,22 +36,15 @@ import {
   Copy,
   Folder,
   FolderOpen,
-  Globe,
-  KeyRound,
-  Link2,
   Pencil,
   Plus,
   RefreshCw,
-  Server,
-  Tag,
   Trash2,
-  User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-// The user's team doc — pre-filled when no URL has been configured yet.
-const DEFAULT_DOCS_LARK_URL =
-  "https://casinoplus.sg.larksuite.com/docx/R8EwdtG1Io9S5MxTIuVlSIuZgVg";
+import { useAppStore } from "@/lib/store";
+import { VaultConfirmModal } from "@/components/vault/VaultConfirmModal";
+import { parseCurl, splitUrlForKb } from "@/lib/curl-parser";
 
 const METHOD_COLORS: Record<DocMethod, string> = {
   GET: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
@@ -114,132 +113,116 @@ function Card({ title, action, children }: { title: string; action?: React.React
   );
 }
 
-// --- Field tables (view + edit) -------------------------------------------
+// Field tables removed in Sprint 8.2 — replaced by HeadersTableEditor +
+// JsonEditor for Request/Response Body. Legacy endpoints' requestFields /
+// responseFields data is still preserved (data shape unchanged) but no
+// longer displayed; parseEndpoint migrates requestExample → requestBody so
+// the user-facing JSON examples still surface in the new layout.
 
-function FieldTableView({ fields, withRequired }: { fields: EndpointField[]; withRequired: boolean }) {
-  if (fields.length === 0) {
-    return <p className="text-[11px] text-muted-foreground">(none / 无)</p>;
-  }
-  const cols = withRequired
-    ? "grid-cols-[1fr_0.7fr_0.5fr_1.6fr_1fr]"
-    : "grid-cols-[1fr_0.7fr_1.8fr_1.2fr]";
-  return (
-    <div className="overflow-x-auto">
-      <div className={cn("grid gap-x-3 border-b border-border/60 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground", cols)}>
-        <span>{withRequired ? "Parameter" : "Field"}</span>
-        <span>Type</span>
-        {withRequired && <span>Required</span>}
-        <span>Description</span>
-        <span>Example</span>
-      </div>
-      {fields.map((f, i) => (
-        <div key={i} className={cn("grid items-center gap-x-3 border-b border-border/30 py-1.5 text-[11px]", cols)}>
-          <span className="truncate font-mono text-foreground">{f.name}</span>
-          <span className="truncate font-mono text-sky-600 dark:text-sky-400">{f.type}</span>
-          {withRequired && <span className="text-muted-foreground">{f.required ? "Yes" : "No"}</span>}
-          <span className="text-muted-foreground">{f.description ?? ""}</span>
-          {f.example ? (
-            <button
-              type="button"
-              className="truncate text-left font-mono text-foreground/80 hover:text-foreground"
-              title={`Click to copy: ${f.example}`}
-              onClick={() => navigator.clipboard.writeText(f.example!)}
-            >
-              {f.example}
-            </button>
-          ) : (
-            <span />
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
+// --- Numbered section + headers table (Sprint 8.2 editor) ----------------
 
-function FieldTableEditor({
-  fields,
-  withRequired,
-  onChange,
+function Section({
+  number,
+  label,
+  required,
+  optional,
+  children,
 }: {
-  fields: EndpointField[];
-  withRequired: boolean;
-  onChange: (next: EndpointField[]) => void;
+  number: number;
+  label: string;
+  required?: boolean;
+  optional?: boolean;
+  children: React.ReactNode;
 }) {
-  const update = (i: number, patch: Partial<EndpointField>) =>
-    onChange(fields.map((f, j) => (j === i ? { ...f, ...patch } : f)));
   return (
     <div className="space-y-1.5">
-      {fields.map((f, i) => (
-        <div key={i} className="flex items-center gap-1.5">
-          <Input
-            value={f.name}
-            onChange={(e) => update(i, { name: e.target.value })}
-            placeholder="name"
-            className="h-6 w-28 font-mono text-[10px]"
-          />
-          <Input
-            value={f.type}
-            onChange={(e) => update(i, { type: e.target.value })}
-            placeholder="type"
-            className="h-6 w-20 font-mono text-[10px]"
-          />
-          {withRequired && (
-            <label className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={!!f.required}
-                onChange={(e) => update(i, { required: e.target.checked })}
-              />
-              req
-            </label>
-          )}
-          <Input
-            value={f.description ?? ""}
-            onChange={(e) => update(i, { description: e.target.value })}
-            placeholder="description"
-            className="h-6 flex-1 text-[10px]"
-          />
-          <Input
-            value={f.example ?? ""}
-            onChange={(e) => update(i, { example: e.target.value })}
-            placeholder="example"
-            className="h-6 w-32 font-mono text-[10px]"
-          />
-          <button
-            type="button"
-            onClick={() => onChange(fields.filter((_, j) => j !== i))}
-            className="shrink-0 text-muted-foreground hover:text-destructive"
-          >
-            <Trash2 className="h-3 w-3" />
-          </button>
-        </div>
-      ))}
-      <Button
-        size="sm"
-        variant="outline"
-        className="h-6 text-[10px]"
-        onClick={() => onChange([...fields, { name: "", type: "string" }])}
-      >
-        <Plus className="mr-1 h-3 w-3" />
-        Add field
-      </Button>
+      <label className="block text-xs font-medium text-foreground">
+        {number}. {label}
+        {required && <span className="ml-1 text-red-500">*</span>}
+        {optional && <span className="ml-1 text-[11px] font-normal text-muted-foreground">(optional)</span>}
+      </label>
+      {children}
     </div>
   );
 }
 
-// --- Right-rail detail row --------------------------------------------------
-
-function DetailRow({ icon: Icon, label, children }: { icon: typeof Tag; label: string; children: React.ReactNode }) {
+function HeadersTableEditor({
+  headers,
+  onChange,
+}: {
+  headers: DocHeader[];
+  onChange: (h: DocHeader[]) => void;
+}) {
+  const addRow = () => onChange([...headers, { key: "", value: "" }]);
+  const updateRow = (i: number, patch: Partial<DocHeader>) =>
+    onChange(headers.map((h, j) => (j === i ? { ...h, ...patch } : h)));
+  const deleteRow = (i: number) => onChange(headers.filter((_, j) => j !== i));
   return (
-    <div>
-      <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
-        <Icon className="h-2.5 w-2.5" />
-        {label}
-      </p>
-      <div className="mt-0.5 text-[11px] text-foreground">{children}</div>
+    <div className="rounded border border-border">
+      <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 border-b border-border/60 bg-muted/30 px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <span>Key</span>
+        <span>Value</span>
+        <span>Description (optional)</span>
+        <span className="w-5" />
+      </div>
+      {headers.length === 0 ? (
+        <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+          No headers yet — click Add Header below.
+        </p>
+      ) : (
+        headers.map((h, i) => (
+          <div
+            key={i}
+            className="grid grid-cols-[1fr_1fr_1fr_auto] items-center gap-2 border-b border-border/40 px-2 py-1.5 last:border-b-0"
+          >
+            <Input
+              value={h.key}
+              onChange={(e) => updateRow(i, { key: e.target.value })}
+              placeholder="Authorization"
+              className="h-7 text-xs"
+            />
+            <Input
+              value={h.value}
+              onChange={(e) => updateRow(i, { value: e.target.value })}
+              placeholder="Bearer Token"
+              className="h-7 text-xs"
+            />
+            <Input
+              value={h.description ?? ""}
+              onChange={(e) => updateRow(i, { description: e.target.value })}
+              placeholder="SIGAP access token"
+              className="h-7 text-xs"
+            />
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-destructive"
+              onClick={() => deleteRow(i)}
+              aria-label={`Delete header row ${i + 1}`}
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </div>
+        ))
+      )}
+      <div className="border-t border-border/60 px-2 py-1.5">
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={addRow}>
+          <Plus className="mr-1 h-3 w-3" />
+          Add Header
+        </Button>
+      </div>
     </div>
   );
 }
+
+const JSON_EDITOR_FALLBACK = (
+  <div className="rounded border border-border bg-background p-3 text-[11px] text-muted-foreground">
+    Loading editor...
+  </div>
+);
+
+// DetailRow removed in Sprint 8.2 — right-rail Details panel dropped from
+// the redesign (no Category / Authentication / Environment / Owner / Tags
+// chips). Data fields preserved on DocEndpoint for backward compat.
 
 // ---------------------------------------------------------------------------
 
@@ -248,6 +231,7 @@ interface ApiDocsPageProps {
 }
 
 export function ApiDocsPage({ onClose }: ApiDocsPageProps) {
+  const isSuperAdmin = useAppStore((s) => s.isSuperAdmin);
   const [kb, setKb] = useState<KnowledgeBase>(() => loadKnowledgeBase());
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [selectedEndpointId, setSelectedEndpointId] = useState<string | null>(null);
@@ -260,12 +244,62 @@ export function ApiDocsPage({ onClose }: ApiDocsPageProps) {
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<DocEndpoint | null>(null);
+  // Tracks an endpoint that was just created via "New Endpoint" but never
+  // saved — Cancel removes the stub instead of leaving it in the collection.
+  const [creatingNewEndpointId, setCreatingNewEndpointId] = useState<string | null>(null);
+  // Curl-paste autofill (Sprint 8.1) — collapsed panel above the editor that
+  // parses a pasted curl command into the draft fields.
+  const [curlPasteOpen, setCurlPasteOpen] = useState(false);
+  const [curlPasteText, setCurlPasteText] = useState("");
+  const [curlPasteError, setCurlPasteError] = useState<string | null>(null);
+  // Tags is the only array field edited as a single string — keep a local
+  // string buffer so the user can type trailing spaces/commas without the
+  // split/trim/join roundtrip eating characters mid-keystroke.
+  const [tagsInput, setTagsInput] = useState("");
+  useEffect(() => {
+    if (draft) setTagsInput(draft.tags.join(", "));
+  }, [draft?.id]);
+  // Destructive action confirm — open when user clicks Delete on a collection
+  // or endpoint, cleared by Cancel or by performConfirmedDelete.
+  const [confirmDelete, setConfirmDelete] = useState<
+    | { kind: "collection"; collectionId: string; name: string; endpointCount: number }
+    | { kind: "endpoint"; collectionId: string; endpointId: string; method: string; path: string }
+    | null
+  >(null);
+  // Escape closes the page from the view state. Inline editors (create /
+  // rename collection, edit endpoint) own their own Escape via input handlers;
+  // confirm-delete modal owns its own Cancel. Mirrors VaultPage's pattern.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const isEscape = e.key === "Escape";
+      if (!isEscape) return;
+      const inInlineEditor = creatingCollection || renamingCollection || editing;
+      const inModal = confirmDelete !== null;
+      if (inInlineEditor || inModal) return;
+      onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [creatingCollection, renamingCollection, editing, confirmDelete, onClose]);
 
   const [larkPanelOpen, setLarkPanelOpen] = useState(false);
-  const [larkUrl, setLarkUrl] = useState<string>(() => loadDocsLarkUrl() ?? DEFAULT_DOCS_LARK_URL);
+  const [larkUrl, setLarkUrl] = useState<string>(() => loadDocsLarkUrl() ?? "");
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(() => loadDocsLastSyncedAt());
-  const [syncState, setSyncState] = useState<"idle" | "working" | "error">("idle");
+  const [syncState, setSyncState] = useState<"idle" | "working" | "success" | "error">("idle");
   const [syncMessage, setSyncMessage] = useState("");
+  // Auto-clear sync feedback so the green/red banner doesn't linger forever
+  // after the action completed (M15 fix). Success clears faster than error
+  // because the user typically wants to keep reading the error message.
+  useEffect(() => {
+    const isTerminal = syncState === "success" || syncState === "error";
+    if (!isTerminal) return;
+    const timeoutMs = syncState === "success" ? 3000 : 5000;
+    const t = setTimeout(() => {
+      setSyncState("idle");
+      setSyncMessage("");
+    }, timeoutMs);
+    return () => clearTimeout(t);
+  }, [syncState]);
 
   const collection: DocCollection | null =
     kb.collections.find((c) => c.id === selectedCollectionId) ?? kb.collections[0] ?? null;
@@ -299,13 +333,6 @@ export function ApiDocsPage({ onClose }: ApiDocsPageProps) {
     filteredEndpoints[0] ??
     null;
 
-  const related = useMemo(() => {
-    if (!collection || !endpoint) return [];
-    return collection.endpoints
-      .filter((e) => e.id !== endpoint.id && (e.section ?? "General") === (endpoint.section ?? "General"))
-      .slice(0, 5);
-  }, [collection, endpoint]);
-
   // --- handlers ---
 
   const selectCollection = (id: string) => {
@@ -334,39 +361,96 @@ export function ApiDocsPage({ onClose }: ApiDocsPageProps) {
 
   const handleDeleteCollection = () => {
     if (!collection) return;
-    setKb(deleteCollection(collection.id));
-    setSelectedCollectionId(null);
-    setSelectedEndpointId(null);
-    setEditing(false);
+    setConfirmDelete({
+      kind: "collection",
+      collectionId: collection.id,
+      name: collection.name,
+      endpointCount: collection.endpoints.length,
+    });
   };
+
+  // Make sure request/response body are valid JSON (default to `{}`) so the
+  // CodeMirror JSON editor doesn't flag an empty body as a lint error when
+  // editing endpoints that were created or last saved with an empty string.
+  const withBodyDefaults = (ep: DocEndpoint): DocEndpoint => ({
+    ...ep,
+    requestBody: ep.requestBody?.trim() ? ep.requestBody : "{}",
+    responseBody: ep.responseBody?.trim() ? ep.responseBody : "{}",
+  });
 
   const handleNewEndpoint = () => {
     if (!collection) return;
-    const ep = emptyEndpoint();
+    const ep = withBodyDefaults(emptyEndpoint());
+    // Persist the stub so the right-panel detail view can render against it.
+    // creatingNewEndpointId tracks the stub so Cancel can remove it cleanly
+    // (Sprint 8 M5/M14 fix path).
     setKb(upsertEndpoint(collection.id, ep));
     setSelectedEndpointId(ep.id);
     setDraft(ep);
     setEditing(true);
+    setCreatingNewEndpointId(ep.id);
   };
 
   const startEdit = () => {
     if (!endpoint) return;
-    setDraft(JSON.parse(JSON.stringify(endpoint)) as DocEndpoint);
+    setDraft(withBodyDefaults(JSON.parse(JSON.stringify(endpoint)) as DocEndpoint));
     setEditing(true);
   };
 
   const saveEdit = () => {
     if (!collection || !draft) return;
-    setKb(upsertEndpoint(collection.id, draft));
-    setSelectedEndpointId(draft.id);
+    // Reject empty path — UI also disables the Save button in this state, but
+    // defensive guard ensures the editor cannot persist an unaddressable row.
+    if (!draft.path.trim()) return;
+    const tags = tagsInput
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    // Strip rows where the user added an empty field but didn't fill the name —
+    // an empty row in the table table is editor noise, not data.
+    const requestFields = draft.requestFields.filter((f) => f.name.trim());
+    const responseFields = draft.responseFields.filter((f) => f.name.trim());
+    const finalDraft = { ...draft, tags, requestFields, responseFields };
+    setKb(upsertEndpoint(collection.id, finalDraft));
+    setSelectedEndpointId(finalDraft.id);
+    setEditing(false);
+    // Save committed the row — clear the new-stub tracker.
+    setCreatingNewEndpointId(null);
+  };
+
+  const cancelEdit = () => {
+    // If we were editing a freshly-created stub the user never saved, drop
+    // the stub so the collection list stays clean.
+    if (creatingNewEndpointId && collection) {
+      setKb(deleteEndpoint(collection.id, creatingNewEndpointId));
+      setSelectedEndpointId(null);
+      setCreatingNewEndpointId(null);
+    }
     setEditing(false);
   };
 
   const handleDeleteEndpoint = () => {
     if (!collection || !endpoint) return;
-    setKb(deleteEndpoint(collection.id, endpoint.id));
+    setConfirmDelete({
+      kind: "endpoint",
+      collectionId: collection.id,
+      endpointId: endpoint.id,
+      method: endpoint.method,
+      path: endpoint.path,
+    });
+  };
+
+  const performConfirmedDelete = () => {
+    if (!confirmDelete) return;
+    if (confirmDelete.kind === "collection") {
+      setKb(deleteCollection(confirmDelete.collectionId));
+      setSelectedCollectionId(null);
+    } else {
+      setKb(deleteEndpoint(confirmDelete.collectionId, confirmDelete.endpointId));
+    }
     setSelectedEndpointId(null);
     setEditing(false);
+    setConfirmDelete(null);
   };
 
   const handleLark = async (action: "pull" | "push") => {
@@ -382,7 +466,7 @@ export function ApiDocsPage({ onClose }: ApiDocsPageProps) {
     if (result.success) {
       if (action === "pull") setKb(loadKnowledgeBase());
       setLastSyncedAt(loadDocsLastSyncedAt());
-      setSyncState("idle");
+      setSyncState("success");
       setSyncMessage(
         action === "pull"
           ? `✓ Pulled ${result.endpointCount} endpoints from Lark`
@@ -396,6 +480,39 @@ export function ApiDocsPage({ onClose }: ApiDocsPageProps) {
 
   const updateDraft = (patch: Partial<DocEndpoint>) =>
     setDraft((d) => (d ? { ...d, ...patch } : d));
+
+  // Parse a pasted curl command and overwrite the matching draft fields.
+  // Sprint 8.2: fills method / path / requestBody and the new structured
+  // headers table. baseUrl is preserved in the legacy field for round-trip
+  // with existing Lark docs; the new UI doesn't display it.
+  const applyCurlToDraft = () => {
+    const parsed = parseCurl(curlPasteText);
+    if (!parsed) {
+      setCurlPasteError("Not a valid curl command — make sure it starts with `curl` and includes a URL");
+      return;
+    }
+    const { baseUrl, path } = splitUrlForKb(parsed.url);
+    const method = (DOC_METHODS as readonly string[]).includes(parsed.method)
+      ? (parsed.method as DocMethod)
+      : "GET";
+    const headers: DocHeader[] = Object.entries(parsed.headers).map(([key, value]) => ({ key, value }));
+    const patch: Partial<DocEndpoint> = {
+      method,
+      path,
+      baseUrl,
+      requestBody: parsed.body || undefined,
+      headers: headers.length > 0 ? headers : undefined,
+    };
+    // Auto-derive a starter title from method+path if the user hasn't already
+    // typed one — saves a manual edit for the most common case.
+    if (!draft?.title?.trim()) {
+      patch.title = `${method} ${path}`;
+    }
+    updateDraft(patch);
+    setCurlPasteText("");
+    setCurlPasteError(null);
+    setCurlPasteOpen(false);
+  };
 
   const totalEndpoints = kb.collections.reduce((sum, c) => sum + c.endpoints.length, 0);
 
@@ -433,16 +550,18 @@ export function ApiDocsPage({ onClose }: ApiDocsPageProps) {
           <Button size="sm" className="h-7 text-xs" onClick={() => handleLark("pull")} disabled={syncState === "working" || !larkUrl.trim()}>
             Pull / 拉取
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-xs"
-            onClick={() => handleLark("push")}
-            disabled={syncState === "working" || !larkUrl.trim()}
-            title="Overwrites the Lark doc with the local knowledge base / 用本地数据覆盖 Lark 文档"
-          >
-            Push / 推送
-          </Button>
+          {isSuperAdmin && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => handleLark("push")}
+              disabled={syncState === "working" || !larkUrl.trim()}
+              title="Overwrites the Lark doc with the local knowledge base / 用本地数据覆盖 Lark 文档"
+            >
+              Push / 推送
+            </Button>
+          )}
           {syncMessage && (
             <span className={cn("text-[11px]", syncState === "error" ? "text-red-500" : "text-emerald-500")}>
               {syncMessage}
@@ -552,14 +671,17 @@ export function ApiDocsPage({ onClose }: ApiDocsPageProps) {
                   >
                     <Pencil className="h-3 w-3" />
                   </button>
-                  <button
-                    type="button"
-                    className="shrink-0 text-muted-foreground hover:text-destructive"
-                    title="Delete collection / 删除集合"
-                    onClick={handleDeleteCollection}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+                  {isSuperAdmin && (
+                    <button
+                      type="button"
+                      className="shrink-0 text-muted-foreground hover:text-destructive"
+                      title="Delete collection / 删除集合"
+                      aria-label="Delete collection"
+                      onClick={handleDeleteCollection}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  )}
                 </div>
               )}
               <p className="mt-0.5 text-[10px] text-muted-foreground">{collection.endpoints.length} endpoints</p>
@@ -593,15 +715,13 @@ export function ApiDocsPage({ onClose }: ApiDocsPageProps) {
                       >
                         <span className="flex items-center gap-1.5">
                           <MethodBadge method={ep.method} />
-                          <span className={cn("truncate font-mono text-[11px] font-medium", isActive ? "text-primary" : "text-foreground")}>
-                            {ep.path}
+                          <span className={cn("truncate text-[11px] font-medium", isActive ? "text-primary" : "text-foreground")}>
+                            {ep.title?.trim() || ep.path}
                           </span>
                         </span>
-                        {ep.summary && (
-                          <span className="mt-0.5 block truncate pl-0.5 text-[10px] text-muted-foreground">
-                            {ep.summary}
-                          </span>
-                        )}
+                        <span className="mt-0.5 block truncate pl-0.5 font-mono text-[10px] text-muted-foreground">
+                          {ep.path}
+                        </span>
                       </button>
                     );
                   })}
@@ -630,33 +750,37 @@ export function ApiDocsPage({ onClose }: ApiDocsPageProps) {
               <div className="mb-4 flex items-center gap-2">
                 <nav className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
                   <span className="truncate">{collection.name}</span>
-                  {endpoint.section && (
-                    <>
-                      <ChevronRight className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{endpoint.section}</span>
-                    </>
-                  )}
                   <ChevronRight className="h-3 w-3 shrink-0" />
-                  <span className="truncate font-mono text-foreground">{endpoint.path}</span>
+                  <span className="truncate text-foreground">
+                    {endpoint.title?.trim() || endpoint.path}
+                  </span>
                 </nav>
                 <div className="ml-auto flex shrink-0 items-center gap-1.5">
                   {editing ? (
                     <>
-                      <Button size="sm" className="h-7 text-xs" onClick={saveEdit}>
-                        Save / 保存
-                      </Button>
-                      <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditing(false)}>
-                        Cancel
-                      </Button>
                       <Button
                         size="sm"
-                        variant="ghost"
-                        className="h-7 text-xs text-destructive hover:text-destructive"
-                        onClick={handleDeleteEndpoint}
+                        className="h-7 text-xs"
+                        onClick={saveEdit}
+                        disabled={!draft?.path.trim()}
+                        title={!draft?.path.trim() ? "Path is required" : undefined}
                       >
-                        <Trash2 className="mr-1 h-3 w-3" />
-                        Delete
+                        Save / 保存
                       </Button>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={cancelEdit}>
+                        Cancel
+                      </Button>
+                      {isSuperAdmin && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs text-destructive hover:text-destructive"
+                          onClick={handleDeleteEndpoint}
+                        >
+                          <Trash2 className="mr-1 h-3 w-3" />
+                          Delete
+                        </Button>
+                      )}
                     </>
                   ) : (
                     <Button size="sm" className="h-7 text-xs" onClick={startEdit}>
@@ -670,221 +794,204 @@ export function ApiDocsPage({ onClose }: ApiDocsPageProps) {
               {editing && draft ? (
                 /* ---------------- EDIT MODE ---------------- */
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Select
-                      value={draft.method}
-                      onChange={(e) => updateDraft({ method: e.target.value as DocMethod })}
-                      options={METHOD_OPTIONS}
-                      className="h-8 w-28 font-mono text-xs"
-                    />
-                    <Input
-                      value={draft.path}
-                      onChange={(e) => updateDraft({ path: e.target.value })}
-                      placeholder="/cpf/check or pkg.Service.Method"
-                      className="h-8 flex-1 font-mono text-sm"
-                    />
+                  {/* Curl paste autofill — collapsed by default, expands to a
+                      textarea that parses + fills method/path/baseUrl/body/auth. */}
+                  <div className="rounded-md border border-dashed border-border bg-card/30">
+                    {curlPasteOpen ? (
+                      <div className="space-y-2 p-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-foreground">
+                            Paste curl to autofill / 粘贴 curl 自动填
+                          </span>
+                          <button
+                            type="button"
+                            className="text-[11px] text-muted-foreground hover:text-foreground"
+                            onClick={() => {
+                              setCurlPasteOpen(false);
+                              setCurlPasteText("");
+                              setCurlPasteError(null);
+                            }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        <textarea
+                          value={curlPasteText}
+                          onChange={(e) => {
+                            setCurlPasteText(e.target.value);
+                            if (curlPasteError) setCurlPasteError(null);
+                          }}
+                          placeholder={"curl 'https://api.example.com/users' \\\n  -H 'Authorization: Bearer xxx' \\\n  -d '{\"name\":\"Alice\"}'"}
+                          rows={5}
+                          className="w-full resize-y rounded border border-border bg-background px-2 py-1.5 font-mono text-[11px] text-foreground placeholder:text-muted-foreground"
+                        />
+                        {curlPasteError && (
+                          <p className="text-[11px] text-red-500">{curlPasteError}</p>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={applyCurlToDraft}
+                            disabled={!curlPasteText.trim()}
+                          >
+                            Apply / 应用
+                          </Button>
+                          <span className="text-[10px] text-muted-foreground">
+                            Fills method, path, base URL, request body, auth — keeps your other fields untouched.
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-muted-foreground hover:text-foreground"
+                        onClick={() => setCurlPasteOpen(true)}
+                      >
+                        <Plus className="h-3 w-3" />
+                        <span>Import from curl / 从 curl 导入（auto-fill method / path / body / auth）</span>
+                      </button>
+                    )}
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  {/* 1. Title */}
+                  <Section number={1} label="Title" required>
                     <Input
-                      value={draft.summary ?? ""}
-                      onChange={(e) => updateDraft({ summary: e.target.value })}
-                      placeholder="Summary — one line / 一句话说明"
-                      className="h-7 text-xs"
+                      value={draft.title ?? ""}
+                      onChange={(e) => updateDraft({ title: e.target.value })}
+                      placeholder="e.g. CPF Check (Impedimento)"
+                      className="h-9 text-sm"
                     />
-                    <Input
-                      value={draft.section ?? ""}
-                      onChange={(e) => updateDraft({ section: e.target.value })}
-                      placeholder="Section — list group / 分组(如 CPF & Document Check)"
-                      className="h-7 text-xs"
-                    />
-                    <Input
-                      value={draft.service ?? ""}
-                      onChange={(e) => updateDraft({ service: e.target.value })}
-                      placeholder="Service"
-                      className="h-7 text-xs"
-                    />
-                    <Input
-                      value={draft.baseUrl ?? ""}
-                      onChange={(e) => updateDraft({ baseUrl: e.target.value })}
-                      placeholder="Base URL"
-                      className="h-7 font-mono text-xs"
-                    />
-                    <Input
-                      value={draft.rateLimit ?? ""}
-                      onChange={(e) => updateDraft({ rateLimit: e.target.value })}
-                      placeholder="Rate limit (e.g. 100 req/min)"
-                      className="h-7 text-xs"
-                    />
-                    <Input
-                      value={draft.category ?? ""}
-                      onChange={(e) => updateDraft({ category: e.target.value })}
-                      placeholder="Category (e.g. KYC & Compliance)"
-                      className="h-7 text-xs"
-                    />
-                    <Input
-                      value={draft.authentication ?? ""}
-                      onChange={(e) => updateDraft({ authentication: e.target.value })}
-                      placeholder="Authentication (e.g. Bearer Token)"
-                      className="h-7 text-xs"
-                    />
-                    <Input
-                      value={draft.environment ?? ""}
-                      onChange={(e) => updateDraft({ environment: e.target.value })}
-                      placeholder="Environment (e.g. UAT & Production)"
-                      className="h-7 text-xs"
-                    />
-                    <Input
-                      value={draft.owner ?? ""}
-                      onChange={(e) => updateDraft({ owner: e.target.value })}
-                      placeholder="Owner (e.g. Platform Team)"
-                      className="h-7 text-xs"
-                    />
-                    <Input
-                      value={draft.tags.join(", ")}
-                      onChange={(e) =>
-                        updateDraft({
-                          tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean),
-                        })
-                      }
-                      placeholder="Tags, comma separated"
-                      className="h-7 text-xs"
-                    />
+                  </Section>
+
+                  {/* 2. Method + 3. Path */}
+                  <div className="grid grid-cols-[160px_1fr] gap-3">
+                    <Section number={2} label="Method" required>
+                      <Select
+                        value={draft.method}
+                        onChange={(e) => updateDraft({ method: e.target.value as DocMethod })}
+                        options={METHOD_OPTIONS}
+                        className="h-9 w-full font-mono text-sm"
+                      />
+                    </Section>
+                    <Section number={3} label="Path" required>
+                      <Input
+                        value={draft.path}
+                        onChange={(e) => updateDraft({ path: e.target.value })}
+                        placeholder="/impedimento/v2/condicao/{cpf}"
+                        className="h-9 font-mono text-sm"
+                      />
+                    </Section>
                   </div>
-                  <Card title="Overview">
+
+                  {/* 4. Description */}
+                  <Section number={4} label="Description">
                     <textarea
-                      value={draft.overview ?? ""}
-                      onChange={(e) => updateDraft({ overview: e.target.value })}
-                      placeholder="What this endpoint does / 端点说明"
-                      rows={3}
-                      className="w-full rounded border border-border bg-background p-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary/60"
+                      value={draft.description ?? ""}
+                      onChange={(e) => updateDraft({ description: e.target.value })}
+                      placeholder="Check if CPF is impeded or restricted in SIGAP."
+                      rows={5}
+                      className="w-full rounded border border-border bg-background p-2 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-primary/60"
                     />
-                  </Card>
-                  <Card title="Request">
-                    <FieldTableEditor
-                      fields={draft.requestFields}
-                      withRequired
-                      onChange={(requestFields) => updateDraft({ requestFields })}
+                  </Section>
+
+                  {/* 5. Headers */}
+                  <Section number={5} label="Headers">
+                    <HeadersTableEditor
+                      headers={draft.headers ?? []}
+                      onChange={(headers) => updateDraft({ headers })}
                     />
-                    <textarea
-                      value={draft.requestExample ?? ""}
-                      onChange={(e) => updateDraft({ requestExample: e.target.value })}
-                      placeholder="Request example (optional) / 请求示例"
-                      rows={3}
-                      spellCheck={false}
-                      className="mt-2 w-full rounded border border-border bg-background p-2 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-primary/60"
-                    />
-                  </Card>
-                  <Card title="Response">
-                    <FieldTableEditor
-                      fields={draft.responseFields}
-                      withRequired={false}
-                      onChange={(responseFields) => updateDraft({ responseFields })}
-                    />
-                    <textarea
-                      value={draft.responseExample ?? ""}
-                      onChange={(e) => updateDraft({ responseExample: e.target.value })}
-                      placeholder="Response example (optional) / 响应示例"
-                      rows={3}
-                      spellCheck={false}
-                      className="mt-2 w-full rounded border border-border bg-background p-2 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-primary/60"
-                    />
-                  </Card>
-                  <Card title="Notes">
-                    <textarea
-                      value={draft.notes ?? ""}
-                      onChange={(e) => updateDraft({ notes: e.target.value })}
-                      placeholder={"One note per line / 一行一条\nRequires a valid Bearer Token.\nCPF must contain only 11 digits."}
-                      rows={4}
-                      className="w-full rounded border border-border bg-background p-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary/60"
-                    />
-                  </Card>
+                  </Section>
+
+                  {/* 6. Request Body */}
+                  <Section number={6} label="Request Body" optional>
+                    <Suspense fallback={JSON_EDITOR_FALLBACK}>
+                      <LazyJsonEditor
+                        value={draft.requestBody ?? ""}
+                        onChange={(v) => updateDraft({ requestBody: v })}
+                        placeholder='{"cpf": "53477771842"}'
+                      />
+                    </Suspense>
+                  </Section>
+
+                  {/* 7. Response Body */}
+                  <Section number={7} label="Response Body">
+                    <Suspense fallback={JSON_EDITOR_FALLBACK}>
+                      <LazyJsonEditor
+                        value={draft.responseBody ?? ""}
+                        onChange={(v) => updateDraft({ responseBody: v })}
+                        placeholder='{"resultado": "NAO_IMPEDIDO"}'
+                      />
+                    </Suspense>
+                  </Section>
                 </div>
               ) : (
-                /* ---------------- VIEW MODE ---------------- */
-                <div className="space-y-4">
+                /* ---------------- VIEW MODE (Sprint 8.2) ---------------- */
+                <div className="space-y-5">
+                  {/* Title + description */}
                   <div>
-                    <div className="flex items-center gap-2.5">
-                      <MethodBadge method={endpoint.method} large />
-                      <h1 className="min-w-0 truncate font-mono text-xl font-semibold text-foreground">
-                        {endpoint.path}
-                      </h1>
-                      <CopyButton text={endpoint.path} />
-                    </div>
-                    {endpoint.summary && (
-                      <p className="mt-1 text-xs text-muted-foreground">{endpoint.summary}</p>
+                    <h1 className="text-xl font-semibold text-foreground">
+                      {endpoint.title || `${endpoint.method} ${endpoint.path}`}
+                    </h1>
+                    {endpoint.description && (
+                      <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                        {endpoint.description}
+                      </p>
                     )}
                   </div>
 
-                  {(endpoint.service || endpoint.baseUrl || endpoint.rateLimit) && (
-                    <div className="flex flex-wrap divide-x divide-border rounded-lg border border-border bg-card/50">
-                      {endpoint.service && (
-                        <div className="flex items-center gap-2 px-4 py-2.5">
-                          <Server className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span>
-                            <span className="block text-[10px] text-muted-foreground">Service</span>
-                            <span className="block text-[11px] text-foreground">{endpoint.service}</span>
-                          </span>
-                        </div>
-                      )}
-                      {endpoint.baseUrl && (
-                        <div className="flex min-w-0 items-center gap-2 px-4 py-2.5">
-                          <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                          <span className="min-w-0">
-                            <span className="block text-[10px] text-muted-foreground">Base URL</span>
-                            <span className="flex items-center gap-1.5">
-                              <span className="block max-w-72 truncate font-mono text-[11px] text-foreground">
-                                {endpoint.baseUrl}
-                              </span>
-                              <CopyButton text={endpoint.baseUrl} />
-                            </span>
-                          </span>
-                        </div>
-                      )}
-                      {endpoint.rateLimit && (
-                        <div className="flex items-center gap-2 px-4 py-2.5">
-                          <Globe className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span>
-                            <span className="block text-[10px] text-muted-foreground">Rate Limit</span>
-                            <span className="block text-[11px] text-foreground">{endpoint.rateLimit}</span>
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {/* Method + path */}
+                  <div className="flex items-center gap-2.5 rounded border border-border bg-card/50 px-3 py-2">
+                    <MethodBadge method={endpoint.method} large />
+                    <span className="min-w-0 flex-1 truncate font-mono text-sm text-foreground">
+                      {endpoint.path}
+                    </span>
+                    <CopyButton text={endpoint.path} />
+                  </div>
 
-                  {endpoint.overview && (
-                    <Card title="Overview">
-                      <p className="whitespace-pre-wrap text-xs leading-relaxed text-foreground/90">
-                        {endpoint.overview}
-                      </p>
+                  {/* Headers (read-only) */}
+                  {endpoint.headers && endpoint.headers.length > 0 && (
+                    <Card title="Headers">
+                      <div>
+                        <div className="grid grid-cols-[1fr_1fr_1fr] gap-2 border-b border-border/60 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          <span>Key</span>
+                          <span>Value</span>
+                          <span>Description</span>
+                        </div>
+                        {endpoint.headers.map((h, i) => (
+                          <div
+                            key={i}
+                            className="grid grid-cols-[1fr_1fr_1fr] items-center gap-2 border-b border-border/30 py-1.5 text-[11px] last:border-b-0"
+                          >
+                            <span className="font-mono text-foreground">{h.key}</span>
+                            <span className="break-all font-mono text-foreground">{h.value}</span>
+                            <span className="text-muted-foreground">{h.description ?? ""}</span>
+                          </div>
+                        ))}
+                      </div>
                     </Card>
                   )}
 
-                  <Card title="Request" action={endpoint.requestExample ? <CopyButton text={endpoint.requestExample} label="Copy example" /> : undefined}>
-                    <FieldTableView fields={endpoint.requestFields} withRequired />
-                    {endpoint.requestExample && (
-                      <pre className="mt-3 max-h-48 overflow-auto rounded border border-border/60 bg-background/60 p-2 font-mono text-[11px] leading-relaxed text-foreground/90">
-                        {endpoint.requestExample}
+                  {/* Request body */}
+                  {endpoint.requestBody && (
+                    <Card
+                      title="Request Body"
+                      action={<CopyButton text={endpoint.requestBody} label="Copy" />}
+                    >
+                      <pre className="max-h-72 overflow-auto rounded border border-border/60 bg-background/60 p-2 font-mono text-[11px] leading-relaxed text-foreground/90">
+                        {endpoint.requestBody}
                       </pre>
-                    )}
-                  </Card>
+                    </Card>
+                  )}
 
-                  <Card title="Response" action={endpoint.responseExample ? <CopyButton text={endpoint.responseExample} label="Copy example" /> : undefined}>
-                    <FieldTableView fields={endpoint.responseFields} withRequired={false} />
-                    {endpoint.responseExample && (
-                      <pre className="mt-3 max-h-48 overflow-auto rounded border border-border/60 bg-background/60 p-2 font-mono text-[11px] leading-relaxed text-foreground/90">
-                        {endpoint.responseExample}
+                  {/* Response body */}
+                  {endpoint.responseBody && (
+                    <Card
+                      title="Response Body"
+                      action={<CopyButton text={endpoint.responseBody} label="Copy" />}
+                    >
+                      <pre className="max-h-72 overflow-auto rounded border border-border/60 bg-background/60 p-2 font-mono text-[11px] leading-relaxed text-foreground/90">
+                        {endpoint.responseBody}
                       </pre>
-                    )}
-                  </Card>
-
-                  {endpoint.notes && (
-                    <Card title="Notes">
-                      <ul className="list-disc space-y-1 pl-4 text-xs leading-relaxed text-foreground/90">
-                        {endpoint.notes.split("\n").filter((n) => n.trim()).map((note, i) => (
-                          <li key={i}>{note.trim()}</li>
-                        ))}
-                      </ul>
                     </Card>
                   )}
                 </div>
@@ -903,67 +1010,23 @@ export function ApiDocsPage({ onClose }: ApiDocsPageProps) {
           )}
         </div>
 
-        {/* Column 4: details + related */}
-        {endpoint && !editing && (
-          <div className="hidden w-60 shrink-0 space-y-3 overflow-y-auto border-l border-border bg-card/30 p-3 xl:block">
-            <div className="rounded-lg border border-border bg-card/50 p-3">
-              <p className="mb-2.5 text-xs font-semibold text-foreground">Details</p>
-              <div className="space-y-2.5">
-                {endpoint.category && (
-                  <DetailRow icon={Tag} label="Category">
-                    <span className="inline-block rounded-full bg-muted px-2 py-0.5 text-[10px]">
-                      {endpoint.category}
-                    </span>
-                  </DetailRow>
-                )}
-                {endpoint.authentication && (
-                  <DetailRow icon={KeyRound} label="Authentication">{endpoint.authentication}</DetailRow>
-                )}
-                {endpoint.environment && (
-                  <DetailRow icon={Globe} label="Environment">{endpoint.environment}</DetailRow>
-                )}
-                <DetailRow icon={RefreshCw} label="Last Updated">
-                  {new Date(endpoint.updatedAt).toISOString().slice(0, 10)}
-                </DetailRow>
-                {endpoint.owner && <DetailRow icon={User} label="Owner">{endpoint.owner}</DetailRow>}
-                {endpoint.tags.length > 0 && (
-                  <DetailRow icon={Tag} label="Tags">
-                    <span className="flex flex-wrap gap-1">
-                      {endpoint.tags.map((tag) => (
-                        <span key={tag} className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
-                          {tag}
-                        </span>
-                      ))}
-                    </span>
-                  </DetailRow>
-                )}
-              </div>
-            </div>
-
-            {related.length > 0 && (
-              <div className="rounded-lg border border-border bg-card/50 p-3">
-                <p className="mb-2 text-xs font-semibold text-foreground">Related Endpoints</p>
-                {related.map((ep) => (
-                  <button
-                    key={ep.id}
-                    type="button"
-                    onClick={() => setSelectedEndpointId(ep.id)}
-                    className="mb-1 block w-full rounded px-1.5 py-1 text-left hover:bg-accent/50"
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <MethodBadge method={ep.method} />
-                      <span className="truncate font-mono text-[11px] text-foreground">{ep.path}</span>
-                    </span>
-                    {ep.summary && (
-                      <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{ep.summary}</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        {/* Sprint 8.2: right-rail Details + Related dropped — detail panel
+            is full-width now (Title/Method+Path/Description/Headers/Body). */}
       </div>
+      <VaultConfirmModal
+        open={confirmDelete !== null}
+        title={confirmDelete?.kind === "collection" ? "Delete Collection?" : "Delete Endpoint?"}
+        message={
+          confirmDelete?.kind === "collection"
+            ? `Delete "${confirmDelete.name}" and all ${confirmDelete.endpointCount} endpoint${confirmDelete.endpointCount === 1 ? "" : "s"}? This cannot be undone.`
+            : confirmDelete?.kind === "endpoint"
+            ? `Delete "${confirmDelete.method} ${confirmDelete.path}"? This cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete"
+        onCancel={() => setConfirmDelete(null)}
+        onConfirm={performConfirmedDelete}
+      />
     </div>
   );
 }

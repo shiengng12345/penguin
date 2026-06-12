@@ -27,6 +27,7 @@ export const APP_VALUE_KEYS = {
   docsLarkUrl: "penguin-docs-lark-url",
   docsKnowledgeBase: "penguin-docs-knowledge-base",
   docsLastSyncedAt: "penguin-docs-last-synced-at",
+  docsLastSyncedHash: "penguin-docs-last-synced-hash",
 } as const;
 
 export const ENVIRONMENT_VALUE_KEYS: Record<PersistedProtocol, string> = {

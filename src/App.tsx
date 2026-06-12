@@ -12,6 +12,8 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { UrlBar } from "@/components/layout/UrlBar";
 import { VaultPage } from "@/components/vault/VaultPage";
 import { ApiDocsPage } from "@/components/docs/ApiDocsPage";
+import { MainSidebar, type MainModule } from "@/components/layout/MainSidebar";
+import { useDeveloperMode } from "@/hooks/useDeveloperMode";
 import { HomePage } from "@/components/home/HomePage";
 import { PENGUIN_OPEN_SETTINGS_EVENT, PENGUIN_GO_HOME_EVENT } from "@/components/vault/VaultEmptyGate";
 import { initializeDevModeOnAppStart } from "@/lib/dev-mode-store";
@@ -69,10 +71,6 @@ export default function App() {
   const [homeOpen, setHomeOpen] = useState(false);
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const closeVault = useCallback(() => setVaultOpen(false), []);
-  const toggleVault = useCallback(() => {
-    setDocsOpen(false);
-    setVaultOpen((v) => !v);
-  }, []);
   const openHome = useCallback(() => {
     setVaultOpen(false);
     setDocsOpen(false);
@@ -93,6 +91,40 @@ export default function App() {
     setVaultOpen(false);
     setDocsOpen(true);
   }, []);
+  // Sidebar derives a single "active module" enum from the three boolean
+  // page flags. Clicking a rail item dispatches to the existing selectors
+  // (selectApiClient / openHome / selectVaultFromHome / selectDocsFromHome).
+  const activeModule: MainModule = vaultOpen
+    ? "vault"
+    : docsOpen
+    ? "docs"
+    : homeOpen
+    ? "home"
+    : "client";
+  // Three-tier gating (Sprint 8.5):
+  //   - Vault requires any valid dev token (enabled && hasValidToken)
+  //   - Docs / KB requires super-admin token (enabled && isSuperAdmin)
+  // Super-admin implies hasValidToken, so super users see everything.
+  const { enabled: devModeEnabled, hasValidToken, isSuperAdmin } = useDeveloperMode();
+  const canAccessVault = devModeEnabled && hasValidToken;
+  const canAccessDocs = devModeEnabled && isSuperAdmin;
+  // If user loses their token mid-session, fall back to the API Client so
+  // they're not stuck on a "please validate token" gate. Each module checks
+  // its own gate so revoking super-admin but keeping dev token leaves the
+  // user inside Vault but kicks them out of Docs.
+  useEffect(() => {
+    if (vaultOpen && !canAccessVault) setVaultOpen(false);
+    if (docsOpen && !canAccessDocs) setDocsOpen(false);
+  }, [canAccessVault, canAccessDocs, vaultOpen, docsOpen]);
+  const handleModuleSelect = useCallback(
+    (m: MainModule) => {
+      if (m === "client") selectApiClient();
+      else if (m === "vault") selectVaultFromHome();
+      else if (m === "docs") selectDocsFromHome();
+      else openHome();
+    },
+    [selectApiClient, selectVaultFromHome, selectDocsFromHome, openHome],
+  );
   const appUpdate = useAppUpdateScheduler(openSettings);
   const handlePackagesCleared = useCallback(async () => {
     resetPackageTabs();
@@ -345,8 +377,6 @@ export default function App() {
       <div className="relative z-10 flex h-full flex-col">
         <Header
           onOpenSettings={openSettings}
-          onToggleVault={toggleVault}
-          isVaultOpen={vaultOpen}
           onOpenHome={openHome}
           appUpdate={appUpdate}
         />
@@ -358,6 +388,14 @@ export default function App() {
           onLater={appUpdate.dismiss}
           onUpdate={appUpdate.downloadInstallAndRestart}
         />
+        <div className="flex flex-1 min-h-0">
+          <MainSidebar
+            active={activeModule}
+            onSelect={handleModuleSelect}
+            hasValidToken={canAccessVault}
+            isSuperAdmin={canAccessDocs}
+          />
+          <div className="flex flex-1 flex-col min-w-0">
         {homeOpen ? (
           <HomePage
             onSelectApiClient={selectApiClient}
@@ -400,6 +438,8 @@ export default function App() {
           </div>
           </>
         )}
+          </div>
+        </div>
 
         <Suspense fallback={null}>
           {isInstallerOpen && (

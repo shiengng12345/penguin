@@ -74,17 +74,37 @@ export function loadLastSyncedAtFromDisk(): number | null {
   return parsed;
 }
 
+// Shell metacharacters that zsh interprets inside double quotes — `$` triggers
+// command substitution ($(…)) and variable expansion, backtick triggers legacy
+// command substitution, others can break out of quoting via newlines or other
+// special chars. The URL is interpolated into `lark-cli --doc "<url>"` inside a
+// zsh -c script, so any of these in the URL = arbitrary command execution.
+const SHELL_METACHAR_REGEX = /[$`;&|()<>\\\n\r\t"']/;
+
 // Validate the URL shape before we hand it to a shell command. Only Lark
-// Suite / Feishu hosts are accepted to avoid arbitrary command injection.
+// Suite / Feishu hosts are accepted, AND the URL must not contain any shell
+// metacharacter — JSON.stringify quoting alone does NOT protect against zsh
+// command substitution inside double quotes.
 export function validateLarkUrl(payload: { url: string }): LarkUrlValidationResult {
-  const isEmpty = payload.url.trim().length === 0;
+  const trimmed = payload.url.trim();
+  const isEmpty = trimmed.length === 0;
   if (isEmpty) return { success: false, reason: "URL is empty" };
-  const isLarkHost = LARK_HOST_REGEX.test(payload.url.trim());
+  const isLarkHost = LARK_HOST_REGEX.test(trimmed);
   // Restrict shell execution to known Lark hosts.
   if (!isLarkHost) {
     return {
       success: false,
       reason: "URL must be a Lark Suite or Feishu link (larksuite.com / feishu.cn)",
+    };
+  }
+  const hasShellMetachar = SHELL_METACHAR_REGEX.test(trimmed);
+  // Defense-in-depth — well-formed Lark URLs never contain these characters,
+  // but a crafted URL could otherwise execute commands via $(…) inside the
+  // double-quoted shell argument.
+  if (hasShellMetachar) {
+    return {
+      success: false,
+      reason: "URL contains characters that could be interpreted by the shell",
     };
   }
   return { success: true };

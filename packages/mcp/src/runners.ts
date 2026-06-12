@@ -144,12 +144,16 @@ export async function uninstallPackageViaNpm(
   });
 }
 
-// Streams the sidecar script into `node -` via stdin. Mirrors the Penguin
-// desktop runner (which goes through zsh-login) but skips the shell layer —
-// MCP servers don't need user PATH inheritance the way the GUI does.
+// Streams the sidecar script into the running node binary via stdin.
+// Uses process.execPath (absolute path of the node binary running THIS
+// MCP server) instead of bare "node" — Claude Desktop launches the server
+// without an interactive shell, so $PATH may not contain "node", but
+// process.execPath is guaranteed to be a valid node binary.
 export const nodeSidecarRunner: SidecarRunner = async (script: string) => {
   return await new Promise((resolve, reject) => {
-    const child = spawn("node", ["-"], { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(process.execPath, ["-"], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {

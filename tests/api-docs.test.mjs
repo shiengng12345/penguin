@@ -22,11 +22,23 @@ async function loadDocsLarkModule() {
         docsLarkUrl: "penguin-docs-lark-url",
         docsKnowledgeBase: "penguin-docs-knowledge-base",
         docsLastSyncedAt: "penguin-docs-last-synced-at",
+        docsLastSyncedHash: "penguin-docs-last-synced-hash",
       };
     `,
     "@/components/vault/vault-lark": `
       export const runLarkFetch = (...args) => globalThis.__docsLarkFetch(...args);
       export const runLarkUpdate = (...args) => globalThis.__docsLarkUpdate(...args);
+      export const validateLarkUrl = ({ url }) =>
+        url && url.trim().length > 0
+          ? { success: true }
+          : { success: false, reason: "empty" };
+    `,
+    "@/lib/dev-mode-store": "export const requireSuperAdmin = () => true;",
+    "@/components/vault/vault-push": `
+      export const sha256Hex = async ({ text }) => {
+        const { createHash } = await import("node:crypto");
+        return createHash("sha256").update(text).digest("hex");
+      };
     `,
   };
 
@@ -109,6 +121,9 @@ test("push exports readable markdown + machine block; pull round-trips", async (
   const kb = docs.createCollection("KYC Service");
   docs.upsertEndpoint(kb.collections[0].id, sampleEndpoint(docs));
 
+  // Push now pre-fetches remote for the SHA-256 conflict check (Sprint 8 B4).
+  // First push has no expected hash on disk, so any pre-fetch response works.
+  globalThis.__docsLarkFetch = async () => ({ success: true, markdown: "" });
   let pushedMarkdown = "";
   globalThis.__docsLarkUpdate = async ({ markdown }) => {
     pushedMarkdown = markdown;
@@ -143,6 +158,48 @@ test("push exports readable markdown + machine block; pull round-trips", async (
   const badShape = await docs.syncDocsFromLark();
   assert.equal(badShape.success, false);
   assert.equal(docs.loadKnowledgeBase().collections.length, 1);
+});
+
+test("fence-collision: user examples with ```json fences don't shadow the machine block (Sprint 8 B5/B8)", async () => {
+  const docs = await loadDocsLarkModule();
+  docs.saveDocsLarkUrl("https://team.larksuite.com/docx/Test");
+
+  // User authors examples and notes containing literal ```json fences — these
+  // would shadow the machine block under the legacy `match first ```json`
+  // parser. Sentinel-anchored extractor (B5) must ignore them.
+  const tricky = sampleEndpoint(docs, {
+    path: "/with-fence",
+    requestExample: '```json\n{ "fake": "machine block" }\n```',
+    responseExample: '```json\n{ "also": "fake" }\n```',
+    notes: 'Hostile inline json:\n```json\n{ "hostile": true }\n```',
+  });
+  const kb = docs.createCollection("Tricky");
+  docs.upsertEndpoint(kb.collections[0].id, tricky);
+
+  globalThis.__docsLarkFetch = async () => ({ success: true, markdown: "" });
+  let pushedMarkdown = "";
+  globalThis.__docsLarkUpdate = async ({ markdown }) => {
+    pushedMarkdown = markdown;
+    return { success: true };
+  };
+  const pushed = await docs.pushDocsToLark();
+  assert.equal(pushed.success, true, pushed.reason);
+
+  // Sentinel must be present in pushed markdown so future pulls anchor to it
+  // even if the user later hand-edits the doc and adds another ```json fence.
+  assert.match(pushedMarkdown, /<!-- penguin:kb:begin v1 -->/);
+  assert.match(pushedMarkdown, /<!-- penguin:kb:end -->/);
+
+  // Round-trip: the parser must extract the REAL machine block, not the
+  // fake "machine block" or "hostile" payloads inside the user's examples.
+  globalThis.__docsLarkFetch = async () => ({ success: true, markdown: pushedMarkdown });
+  const pulled = await docs.syncDocsFromLark();
+  assert.equal(pulled.success, true, pulled.reason);
+  const restored = docs.loadKnowledgeBase();
+  const restoredEp = restored.collections[0].endpoints[0];
+  assert.equal(restoredEp.path, "/with-fence");
+  assert.equal(restoredEp.requestExample, '```json\n{ "fake": "machine block" }\n```');
+  assert.equal(restoredEp.notes, 'Hostile inline json:\n```json\n{ "hostile": true }\n```');
 });
 
 test("parseKnowledgeBase normalizes leniently but rejects wrong top-level shape", async () => {
@@ -181,31 +238,41 @@ test("Knowledge Base module is wired into Home and App", async () => {
   assert.match(app, /selectDocsFromHome/);
 });
 
-test("page matches the Knowledge Base design: collections rail, sectioned list, detail, details rail — no request sending", async () => {
+test("page matches the Knowledge Base design (Sprint 8.2 numbered-section editor)", async () => {
   const page = await readFile(
     new URL("../src/components/docs/ApiDocsPage.tsx", import.meta.url),
     "utf8",
   );
-  // Layout pieces from the approved mock.
+  // Layout pieces from the approved Sprint 8.2 mock.
   assert.match(page, /New Collection/);
   assert.match(page, /New Endpoint/);
   assert.match(page, /Search endpoints/);
-  assert.match(page, /Related Endpoints/);
-  assert.match(page, /Rate Limit/);
-  assert.match(page, /Authentication/);
-  assert.match(page, /Last Updated/);
   assert.match(page, /MethodBadge/);
-  assert.match(page, /FieldTableView/);
-  assert.match(page, /FieldTableEditor/);
+  // Numbered sections 1-7 with the Section helper component.
+  assert.match(page, /function Section\(/);
+  assert.match(page, /HeadersTableEditor/);
+  assert.match(page, /number=\{1\}/);
+  assert.match(page, /number=\{7\}/);
+  // JSON body editors are lazy-loaded (CodeMirror chunk).
+  assert.match(page, /LazyJsonEditor/);
   // Copy-first store.
   assert.match(page, /CopyButton/);
   assert.match(page, /navigator\.clipboard\.writeText/);
   // Documentation only — never sends requests.
   assert.doesNotMatch(page, /callGrpcWeb|callGrpcNative|callSdk|callRest|proxyFetch/);
-  // Lark sync present with the team doc pre-filled as default.
+  // Lark sync present, no hardcoded team URL (removed in Sprint 8 B6).
   assert.match(page, /pushDocsToLark/);
   assert.match(page, /syncDocsFromLark/);
-  assert.match(page, /casinoplus\.sg\.larksuite\.com\/docx\/R8EwdtG1Io9S5MxTIuVlSIuZgVg/);
+  assert.doesNotMatch(page, /casinoplus\.sg\.larksuite\.com\/docx\/R8EwdtG1Io9S5MxTIuVlSIuZgVg/);
+  // Push button is gated by isSuperAdmin (Sprint 8 B1).
+  assert.match(page, /isSuperAdmin && \(/);
+  // Delete actions route through confirm modal (Sprint 8 B7).
+  assert.match(page, /VaultConfirmModal/);
+  // Curl import autofill (Sprint 8.1).
+  assert.match(page, /applyCurlToDraft/);
+  // Sprint 8.2 dropped the right-rail Details + Related (full-width detail).
+  assert.doesNotMatch(page, /Related Endpoints/);
+  assert.doesNotMatch(page, /FieldTableEditor/);
 });
 
 test("docs-lark reuses the vault lark-cli pipeline instead of duplicating it", async () => {
@@ -219,4 +286,129 @@ test("docs-lark reuses the vault lark-cli pipeline instead of duplicating it", a
   const keys = await readFile(new URL("../src/lib/persistence-keys.ts", import.meta.url), "utf8");
   assert.match(keys, /penguin-docs-lark-url/);
   assert.match(keys, /penguin-docs-knowledge-base/);
+});
+
+// ---------------------------------------------------------------------------
+// Sprint 8.2 backward-compat migration shims — parseEndpoint must surface
+// legacy endpoint shape (authentication / overview+notes / requestExample /
+// responseExample / no title) through the new primary fields without dropping
+// the originals.
+// ---------------------------------------------------------------------------
+
+function parseLegacyEndpoint(docs, legacy) {
+  const kb = docs.parseKnowledgeBase({
+    collections: [{ name: "Legacy", endpoints: [legacy] }],
+  });
+  assert.ok(kb, "parseKnowledgeBase returned null");
+  assert.equal(kb.collections.length, 1);
+  assert.equal(kb.collections[0].endpoints.length, 1);
+  return kb.collections[0].endpoints[0];
+}
+
+test("parseEndpoint migrates legacy authentication string into headers row", async () => {
+  const docs = await loadDocsLarkModule();
+  const ep = parseLegacyEndpoint(docs, {
+    method: "GET",
+    path: "/legacy/auth",
+    authentication: "Bearer Token",
+  });
+  assert.ok(Array.isArray(ep.headers), "headers must be an array");
+  assert.equal(ep.headers.length, 1);
+  assert.equal(ep.headers[0].key, "Authorization");
+  assert.equal(ep.headers[0].value, "Bearer Token");
+  // Original legacy field is preserved for round-trip.
+  assert.equal(ep.authentication, "Bearer Token");
+});
+
+test("parseEndpoint joins legacy overview + notes into description with \\n\\n", async () => {
+  const docs = await loadDocsLarkModule();
+  const ep = parseLegacyEndpoint(docs, {
+    method: "POST",
+    path: "/legacy/both",
+    overview: "Checks the thing.",
+    notes: "Must be authenticated.",
+  });
+  assert.equal(ep.description, "Checks the thing.\n\nMust be authenticated.");
+  assert.equal(ep.overview, "Checks the thing.");
+  assert.equal(ep.notes, "Must be authenticated.");
+});
+
+test("parseEndpoint falls back to overview alone when notes missing", async () => {
+  const docs = await loadDocsLarkModule();
+  const ep = parseLegacyEndpoint(docs, {
+    method: "GET",
+    path: "/legacy/overview-only",
+    overview: "Just an overview.",
+  });
+  assert.equal(ep.description, "Just an overview.");
+});
+
+test("parseEndpoint falls back to notes alone when overview missing", async () => {
+  const docs = await loadDocsLarkModule();
+  const ep = parseLegacyEndpoint(docs, {
+    method: "GET",
+    path: "/legacy/notes-only",
+    notes: "Only notes here.",
+  });
+  assert.equal(ep.description, "Only notes here.");
+});
+
+test("parseEndpoint surfaces legacy requestExample as requestBody", async () => {
+  const docs = await loadDocsLarkModule();
+  const ep = parseLegacyEndpoint(docs, {
+    method: "POST",
+    path: "/legacy/req-example",
+    requestExample: '{ "cpf": "53477771842" }',
+  });
+  assert.equal(ep.requestBody, '{ "cpf": "53477771842" }');
+  assert.equal(ep.requestExample, '{ "cpf": "53477771842" }');
+});
+
+test("parseEndpoint surfaces legacy responseExample as responseBody", async () => {
+  const docs = await loadDocsLarkModule();
+  const ep = parseLegacyEndpoint(docs, {
+    method: "GET",
+    path: "/legacy/res-example",
+    responseExample: '{ "resultado": "NAO_IMPEDIDO" }',
+  });
+  assert.equal(ep.responseBody, '{ "resultado": "NAO_IMPEDIDO" }');
+  assert.equal(ep.responseExample, '{ "resultado": "NAO_IMPEDIDO" }');
+});
+
+test("parseEndpoint synthesizes title as 'METHOD /path' when title and summary missing", async () => {
+  const docs = await loadDocsLarkModule();
+  const ep = parseLegacyEndpoint(docs, {
+    method: "DELETE",
+    path: "/legacy/no-title",
+  });
+  assert.equal(ep.title, "DELETE /legacy/no-title");
+});
+
+test("parseEndpoint uses explicit headers array verbatim and ignores legacy authentication", async () => {
+  const docs = await loadDocsLarkModule();
+  const ep = parseLegacyEndpoint(docs, {
+    method: "GET",
+    path: "/legacy/headers-win",
+    authentication: "Bearer SHOULD-NOT-APPEAR",
+    headers: [
+      { key: "X-Api-Key", value: "abc123" },
+      { key: "Accept", value: "application/json" },
+    ],
+  });
+  assert.equal(ep.headers.length, 2);
+  assert.equal(ep.headers[0].key, "X-Api-Key");
+  assert.equal(ep.headers[0].value, "abc123");
+  assert.equal(ep.headers[1].key, "Accept");
+  // Legacy authentication string is NOT injected as an Authorization row.
+  assert.equal(
+    ep.headers.find((h) => h.key === "Authorization"),
+    undefined,
+  );
+});
+
+test("emptyEndpoint() defaults requestBody and responseBody to '{}' (Sprint 8.2)", async () => {
+  const docs = await loadDocsLarkModule();
+  const ep = docs.emptyEndpoint();
+  assert.equal(ep.requestBody, "{}");
+  assert.equal(ep.responseBody, "{}");
 });
