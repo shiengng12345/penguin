@@ -9,9 +9,19 @@ import { requireSuperAdmin } from "@/lib/dev-mode-store";
 import { getPersistedValue } from "@/lib/app-persistence";
 import { APP_VALUE_KEYS } from "@/lib/persistence-keys";
 import { VaultEmptyGate, PENGUIN_GO_HOME_EVENT } from "./VaultEmptyGate";
-import { VaultSidebar } from "./VaultSidebar";
+import {
+  VaultSidebar,
+  VAULT_SIDEBAR_DEFAULT_WIDTH,
+  VAULT_SIDEBAR_MAX_WIDTH,
+  VAULT_SIDEBAR_MIN_WIDTH,
+  VAULT_SIDEBAR_PERSIST_KEY,
+} from "./VaultSidebar";
+// VAULT_KIND_RAIL_* tokens are consumed inside VaultMainPanel where
+// the rail's ResizableColumn wrapper lives — no need to import them
+// at this level.
+import { ResizableColumn } from "@/components/ui/resizable-column";
 import { VaultMainPanel } from "./VaultMainPanel";
-import { VaultCredentialEditor } from "./VaultCredentialEditor";
+import { VaultCredentialEditor, resolveTemplateIdForKind } from "./VaultCredentialEditor";
 import { VaultProjectEditor } from "./VaultProjectEditor";
 import { VaultConfirmModal } from "./VaultConfirmModal";
 import { loadVaultFromDisk, persistVaultToDisk, parseVaultJson } from "./vault-storage";
@@ -22,32 +32,40 @@ import {
   syncVaultFromLark,
 } from "./vault-lark";
 import { computeVaultDiff } from "./vault-diff";
-import { pushToLark } from "./vault-push";
+import { pushToLark, serializeVaultMarkdown, sha256Hex } from "./vault-push";
 import { reorderCredentialsByGroup } from "./vault-grouping";
 import type {
   VaultCredential,
-  VaultEnvId,
   VaultProject,
 } from "./types";
 
 const LOG_SCOPE = "VaultPage";
 const ESCAPE_KEY = "Escape";
-const DEFAULT_ENV_ID: VaultEnvId = "DEV";
 
 interface VaultPageProps {
   onClose: () => void;
+  // Called when the user wants to open a credential's URL in the
+  // in-app Browser module — fires both a deeplink request and a
+  // module switch. App.tsx owns the implementation; we just thread
+  // the callback down to the credential cards.
+  onOpenInBrowser?: (deeplink: {
+    url: string;
+    label: string;
+    prefillToken?: string;
+    baseKind?: string;
+  }) => void;
 }
 
 type CredentialModalState =
   | { open: false }
-  | { open: true; mode: "add" }
+  | { open: true; mode: "add"; kindHint?: string }
   | { open: true; mode: "edit"; credentialId: string };
 
 
 
 // Vault shell (DEC #52 + #54 + #56 + Sprint 3 #92 + Sprint 4 redesign).
 // Sprint 4 flattens credentials onto the project — categories removed.
-export function VaultPage({ onClose }: VaultPageProps) {
+export function VaultPage({ onClose, onOpenInBrowser }: VaultPageProps) {
   const { enabled, hasValidToken, isSuperAdmin } = useDeveloperMode();
   const vaultProjects = useAppStore((state) => state.vaultProjects);
   const setVaultProjects = useAppStore((state) => state.setVaultProjects);
@@ -56,9 +74,13 @@ export function VaultPage({ onClose }: VaultPageProps) {
   const setVaultLarkUrl = useAppStore((state) => state.setVaultLarkUrl);
   const setVaultIsDirty = useAppStore((state) => state.setVaultIsDirty);
 
-  const firstProjectId = vaultProjects[0]?.id ?? null;
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(firstProjectId);
-  const [selectedEnvId, setSelectedEnvId] = useState<VaultEnvId>(DEFAULT_ENV_ID);
+  // Selection lives in the store so switching modules and coming back
+  // doesn't drop the user on the first project / default env. Session-
+  // only — a fresh app boot resets to null + default below.
+  const selectedProjectId = useAppStore((s) => s.vaultSelectedProjectId);
+  const setSelectedProjectId = useAppStore((s) => s.setVaultSelectedProjectId);
+  const selectedEnvId = useAppStore((s) => s.vaultSelectedEnvId);
+  const setSelectedEnvId = useAppStore((s) => s.setVaultSelectedEnvId);
 
   const [credentialModal, setCredentialModal] = useState<CredentialModalState>({ open: false });
   const [projectModal, setProjectModal] = useState<{ open: boolean; editingProjectId: string | null }>({
@@ -139,6 +161,30 @@ export function VaultPage({ onClose }: VaultPageProps) {
     void loadVaultFromDisk();
   }, [setVaultLarkUrl]);
 
+  // Recompute vaultIsDirty whenever vault data changes by comparing the
+  // current serialized hash against the last-synced hash on disk. This
+  // makes the dirty flag survive dev-server HMR + app restarts — the
+  // Zustand flag is transient, but the underlying "current ≠ last push"
+  // semantic is durable because both sides are persisted.
+  useEffect(() => {
+    let cancelled = false;
+    const storedHash = getPersistedValue(APP_VALUE_KEYS.vaultLastSyncedHash);
+    if (storedHash === null || storedHash === undefined) {
+      // No prior sync/push. If the user has projects locally, they're
+      // unsynced → dirty. Empty vault → not dirty.
+      setVaultIsDirty(vaultProjects.length > 0);
+      return;
+    }
+    const markdown = serializeVaultMarkdown({ projects: vaultProjects });
+    void sha256Hex({ text: markdown }).then((currentHash) => {
+      if (cancelled) return;
+      setVaultIsDirty(currentHash !== storedHash);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [vaultProjects, setVaultIsDirty]);
+
   // Keep selectedProjectId in sync as projects load from disk / sync.
   useEffect(() => {
     const needsFirst = selectedProjectId === null && vaultProjects.length > 0;
@@ -195,6 +241,12 @@ export function VaultPage({ onClose }: VaultPageProps) {
   // Apply a structural mutation to vaultProjects + persist + mark dirty.
   // Single funnel for every CRUD so the dirty flag and disk persist stay in
   // lockstep with in-memory state.
+  //
+  // IMPORTANT: reads vaultProjects fresh from the store at call time (not
+  // via closure). Without this, two saves in quick succession would both
+  // mutate the SAME pre-save snapshot and overwrite each other — the
+  // bug that produced 4× tangled ArgoCD credentials whose `pairedWith`
+  // pointed to the wrong sibling.
   const mutateProjects = useCallback(
     (mutator: (projects: VaultProject[]) => VaultProject[]): void => {
       const isAuthorized = requireSuperAdmin();
@@ -204,7 +256,8 @@ export function VaultPage({ onClose }: VaultPageProps) {
         logger.warn(LOG_SCOPE, "mutateProjects — not authorized");
         return;
       }
-      const next = mutator(vaultProjects);
+      const current = useAppStore.getState().vaultProjects;
+      const next = mutator(current);
       setVaultProjects(next);
       setVaultIsDirty(true);
       const persist = persistVaultToDisk({ projects: next });
@@ -214,15 +267,19 @@ export function VaultPage({ onClose }: VaultPageProps) {
         logger.warn(LOG_SCOPE, "mutateProjects — in-memory mutated but persist failed");
       }
     },
-    [vaultProjects, setVaultProjects, setVaultIsDirty],
+    [setVaultProjects, setVaultIsDirty],
   );
 
-  const handleAddCredential = useCallback((): void => {
+  const handleAddCredential = useCallback((kindHint?: string): void => {
     const projectId = activeProject?.id;
     const noProject = projectId === undefined;
     // No active project — should never happen because UI hides the button.
     if (noProject) return;
-    setCredentialModal({ open: true, mode: "add" });
+    // kindHint comes from VaultKindRail's selectedKind when the user
+    // clicks "Add credential" with a kind filter active. Stored on
+    // the modal state so the editor's mount-time prop derivation can
+    // resolve it into initialTemplateId + seedKind.
+    setCredentialModal({ open: true, mode: "add", kindHint });
   }, [activeProject]);
 
   const handleEditCredential = useCallback((credentialId: string): void => {
@@ -276,13 +333,46 @@ export function VaultPage({ onClose }: VaultPageProps) {
         if (!isTargetProject) return project;
         // Edit always emits exactly one credential — replace in place.
         // Add can emit N (template bundle) — append all.
-        const credentials = isEdit
-          ? project.credentials.map((cred) => {
+        if (isEdit) {
+          return {
+            ...project,
+            credentials: project.credentials.map((cred) => {
               const replacement = incoming.find((c) => c.id === cred.id);
               return replacement ?? cred;
-            })
-          : [...project.credentials, ...incoming];
-        return { ...project, credentials };
+            }),
+          };
+        }
+        // ADD path — defensive id-collision rewrite. The form computed
+        // ids using a possibly-stale existingIdsInProject snapshot (e.g.
+        // user double-clicks Save or rapidly adds two bundles). Re-check
+        // against the CURRENT project's ids; on collision, suffix the
+        // new id AND remap any sibling's `pairedWith` reference to it
+        // so the bundle stays internally consistent.
+        const usedIds = new Set(project.credentials.map((c) => c.id));
+        const idRename = new Map<string, string>();
+        const rebased: VaultCredential[] = [];
+        for (const cred of incoming) {
+          let finalId = cred.id;
+          if (usedIds.has(finalId)) {
+            const base = finalId.replace(/-\d+$/, "");
+            let n = 2;
+            while (usedIds.has(`${base}-${n}`)) n += 1;
+            finalId = `${base}-${n}`;
+            idRename.set(cred.id, finalId);
+          }
+          usedIds.add(finalId);
+          rebased.push({ ...cred, id: finalId });
+        }
+        const remapped =
+          idRename.size === 0
+            ? rebased
+            : rebased.map((c) => {
+                if (c.pairedWith !== undefined && idRename.has(c.pairedWith)) {
+                  return { ...c, pairedWith: idRename.get(c.pairedWith)! };
+                }
+                return c;
+              });
+        return { ...project, credentials: [...project.credentials, ...remapped] };
       }),
     );
     setCredentialModal({ open: false });
@@ -426,6 +516,97 @@ export function VaultPage({ onClose }: VaultPageProps) {
     });
   }, [mutateProjects]);
 
+  // Sprint 5 — Kinds CRUD. All four handlers mutate the active
+  // project's `kinds` array via the existing mutateProjects pipeline,
+  // so the change is persisted + push-dirty-flagged + Lark-synced via
+  // the same code path as project / credential edits.
+  const handleAddKind = useCallback((label: string): void => {
+    const projectId = activeProject?.id;
+    if (projectId === undefined) return;
+    const isAuthorized = requireSuperAdmin();
+    if (!isAuthorized) return;
+    const trimmed = label.trim();
+    if (trimmed.length === 0) return;
+    mutateProjects((projects) => projects.map((project) => {
+      if (project.id !== projectId) return project;
+      const existing = project.kinds ?? [];
+      // Generate a kind id that won't collide with built-ins or with
+      // existing entries in this project. Stable enough — kinds are
+      // a tiny set per project, no race risk.
+      const newId = `kind-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      return {
+        ...project,
+        kinds: [...existing, { id: newId, label: trimmed }],
+      };
+    }));
+  }, [activeProject, mutateProjects]);
+
+  const handleRenameKind = useCallback((kindId: string, label: string): void => {
+    const projectId = activeProject?.id;
+    if (projectId === undefined) return;
+    const isAuthorized = requireSuperAdmin();
+    if (!isAuthorized) return;
+    const trimmed = label.trim();
+    if (trimmed.length === 0) return;
+    mutateProjects((projects) => projects.map((project) => {
+      if (project.id !== projectId) return project;
+      const existing = project.kinds ?? [];
+      return {
+        ...project,
+        kinds: existing.map((k) => (k.id === kindId ? { ...k, label: trimmed } : k)),
+      };
+    }));
+  }, [activeProject, mutateProjects]);
+
+  const handleDeleteKind = useCallback((kindId: string): void => {
+    const projectId = activeProject?.id;
+    if (projectId === undefined) return;
+    const isAuthorized = requireSuperAdmin();
+    if (!isAuthorized) return;
+    // Block deletion when any credential still references this kind —
+    // otherwise the credential becomes an orphan that can't be filtered
+    // back into view. Tell the user via window.alert (the only modal
+    // we can synchronously gate on without rewriting the confirm flow).
+    const project = activeProject;
+    if (project === undefined) return;
+    const usage = project.credentials.filter((c) => c.kind === kindId).length;
+    if (usage > 0) {
+      logger.warn(LOG_SCOPE, `handleDeleteKind — refused, ${usage} credential(s) still use kind ${kindId}`);
+      window.alert(
+        `Can't delete this kind — ${usage} credential${usage === 1 ? "" : "s"} still use it. Move or delete them first.`,
+      );
+      return;
+    }
+    mutateProjects((projects) => projects.map((p) => {
+      if (p.id !== projectId) return p;
+      const existing = p.kinds ?? [];
+      return { ...p, kinds: existing.filter((k) => k.id !== kindId) };
+    }));
+  }, [activeProject, mutateProjects]);
+
+  const handleReorderKinds = useCallback((orderedIds: string[]): void => {
+    const projectId = activeProject?.id;
+    if (projectId === undefined) return;
+    const isAuthorized = requireSuperAdmin();
+    if (!isAuthorized) return;
+    mutateProjects((projects) => projects.map((project) => {
+      if (project.id !== projectId) return project;
+      const existing = project.kinds ?? [];
+      const byId = new Map(existing.map((k) => [k.id, k]));
+      const reordered = [];
+      for (const id of orderedIds) {
+        const kind = byId.get(id);
+        if (kind !== undefined) reordered.push(kind);
+      }
+      // Defensive: append any kind not in the supplied order so a
+      // stale payload can't drop data.
+      for (const kind of existing) {
+        if (!orderedIds.includes(kind.id)) reordered.push(kind);
+      }
+      return { ...project, kinds: reordered };
+    }));
+  }, [activeProject, mutateProjects]);
+
   // Reorder credential groups within the active project. Group internal
   // order is preserved so paired field sequence stays stable.
   const handleReorderCredentials = useCallback((orderedGroupHeadIds: readonly string[]): void => {
@@ -552,18 +733,25 @@ export function VaultPage({ onClose }: VaultPageProps) {
     <div className="flex flex-1 min-h-0 bg-background">
       {activeProject ? (
         <>
-          <VaultSidebar
-            projects={vaultProjects}
-            selectedProjectId={activeProject.id}
-            selectedEnvId={selectedEnvId}
-            onSelectEnv={setSelectedEnvId}
-            onClose={onClose}
-            onAddProject={isSuperAdmin ? handleAddProject : undefined}
-            onSelectProject={handleSelectProject}
-            onDeleteProject={isSuperAdmin ? handleDeleteProject : undefined}
-            onEditProject={isSuperAdmin ? handleEditProject : undefined}
-            onReorderProjects={isSuperAdmin ? handleReorderProjects : undefined}
-          />
+          <ResizableColumn
+            defaultWidth={VAULT_SIDEBAR_DEFAULT_WIDTH}
+            minWidth={VAULT_SIDEBAR_MIN_WIDTH}
+            maxWidth={VAULT_SIDEBAR_MAX_WIDTH}
+            persistKey={VAULT_SIDEBAR_PERSIST_KEY}
+          >
+            <VaultSidebar
+              projects={vaultProjects}
+              selectedProjectId={activeProject.id}
+              selectedEnvId={selectedEnvId}
+              onSelectEnv={setSelectedEnvId}
+              onClose={onClose}
+              onAddProject={isSuperAdmin ? handleAddProject : undefined}
+              onSelectProject={handleSelectProject}
+              onDeleteProject={isSuperAdmin ? handleDeleteProject : undefined}
+              onEditProject={isSuperAdmin ? handleEditProject : undefined}
+              onReorderProjects={isSuperAdmin ? handleReorderProjects : undefined}
+            />
+          </ResizableColumn>
           <VaultMainPanel
             project={activeProject}
             selectedEnvId={selectedEnvId}
@@ -576,6 +764,11 @@ export function VaultPage({ onClose }: VaultPageProps) {
             onPush={isSuperAdmin ? handlePushClick : undefined}
             isPushing={isPushing}
             onReorderCredentials={isSuperAdmin ? handleReorderCredentials : undefined}
+            onAddKind={isSuperAdmin ? handleAddKind : undefined}
+            onRenameKind={isSuperAdmin ? handleRenameKind : undefined}
+            onDeleteKind={isSuperAdmin ? handleDeleteKind : undefined}
+            onReorderKinds={isSuperAdmin ? handleReorderKinds : undefined}
+            onOpenInBrowser={onOpenInBrowser}
           />
         </>
       ) : (
@@ -591,6 +784,27 @@ export function VaultPage({ onClose }: VaultPageProps) {
         siblingCredentials={credentialModalSiblings}
         onCancel={() => setCredentialModal({ open: false })}
         onSave={handleSaveCredential}
+        // Sprint 5 — rail kind pre-fill. If the user clicked "Add
+        // credential" with a kind row selected on VaultKindRail,
+        // resolveTemplateIdForKind maps the kind hint to a template id
+        // (or "custom" + seedKind for kinds without a dedicated
+        // multi-field template). When kindHint is undefined the
+        // resolver returns undefined and the editor falls back to
+        // showing the full picker grid (existing behavior).
+        {...(credentialModal.open && credentialModal.mode === "add"
+          ? (() => {
+              const resolved = resolveTemplateIdForKind(credentialModal.kindHint);
+              if (!resolved) return {};
+              const kindLabel = credentialModal.kindHint
+                ? activeProject?.kinds?.find((k) => k.id === credentialModal.kindHint)?.label
+                : undefined;
+              return {
+                initialTemplateId: resolved.templateId,
+                seedKind: resolved.seedKind,
+                seedKindLabel: kindLabel,
+              };
+            })()
+          : {})}
       />
 
       <VaultProjectEditor

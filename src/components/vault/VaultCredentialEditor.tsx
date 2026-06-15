@@ -17,6 +17,7 @@ import {
   Database,
   Zap,
   Settings,
+  KeyRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,6 +65,58 @@ export interface VaultCredentialEditorProps {
   // Add can emit multiple credentials at once (e.g. URL + Token for a Vault
   // template); Edit always emits a single credential.
   onSave: (credentials: VaultCredential[]) => void;
+  // Sprint 5 — rail kind pre-fill. When a kind row is selected on
+  // VaultKindRail and the user clicks "Add credential", the parent
+  // resolves the matching template id + the seed kind via
+  // resolveTemplateIdForKind() and passes them here. Editor opens
+  // directly on that template's form, skipping the picker grid. For
+  // kinds without a multi-field template (token, argocd, custom user
+  // kinds, etc.) the resolver returns templateId="custom" + seedKind
+  // = the hinted kind, so the user lands on a SingleCredentialForm
+  // with the kind dropdown pre-set and locked.
+  initialTemplateId?: string;
+  seedKind?: VaultCredentialKind;
+  // Optional display label for the seed kind — used when seedKind is
+  // a user-created kind id NOT present in KIND_OPTIONS so the form
+  // can render a read-only "Kind: <label>" row instead of an empty
+  // <select>. Looked up from project.kinds[].label by the parent.
+  seedKindLabel?: string;
+}
+
+// kind → TEMPLATES.id mapping. Built-in kinds that have a multi-field
+// template (URL + token, etc.) map directly; everything else lands on
+// the "custom" single-field form with the kind pre-seeded. Exported so
+// VaultPage can resolve at mount time instead of duplicating the logic.
+const KIND_TO_TEMPLATE_ID: Record<string, string> = {
+  vault: "vault-server",
+  argocd: "argocd-server",
+  login: "service-auth",
+  database: "database",
+  cache: "cache",
+  link: "link",
+  totp: "totp-authenticator",
+};
+
+export interface ResolveTemplateResult {
+  templateId: string;
+  // Only set when the resolver falls through to "custom" — tells the
+  // editor which kind to seed + lock on the SingleCredentialForm.
+  seedKind?: string;
+}
+
+export function resolveTemplateIdForKind(
+  kindHint: string | undefined,
+): ResolveTemplateResult | undefined {
+  if (kindHint === undefined || kindHint === "all") return undefined;
+  const direct = KIND_TO_TEMPLATE_ID[kindHint];
+  if (direct !== undefined) {
+    // Built-in kind with a dedicated multi-field template — no need
+    // to seed the kind, the template's fields already carry it.
+    return { templateId: direct };
+  }
+  // Fall through — token, argocd, monitoring, web, api, generic, or
+  // any user-created kind id. Single-field custom form, kind locked.
+  return { templateId: "custom", seedKind: kindHint };
 }
 
 interface TemplateFieldSpec {
@@ -113,6 +166,17 @@ const TEMPLATES: TemplateSpec[] = [
     ],
   },
   {
+    id: "argocd-server",
+    title: "ArgoCD Server",
+    description: "ArgoCD URL + Username + Password. Browser module auto-fills sign-in.",
+    icon: LogIn,
+    fields: [
+      { idSuffix: "", label: "URL", kind: "argocd", sensitive: false, placeholder: "https://argocd.internal/" },
+      { idSuffix: "-username", label: "Username", kind: "generic", sensitive: false, placeholder: "admin" },
+      { idSuffix: "-password", label: "Password", kind: "token", sensitive: true, placeholder: "••••" },
+    ],
+  },
+  {
     id: "database",
     title: "Database (URI + Password)",
     description: "Connection URI + separate password — for Postgres, MongoDB, etc.",
@@ -130,6 +194,16 @@ const TEMPLATES: TemplateSpec[] = [
     fields: [
       { idSuffix: "", label: "Host", kind: "cache", sensitive: false, placeholder: "redis://host:6379" },
       { idSuffix: "-password", label: "Password", kind: "token", sensitive: true, placeholder: "(empty if none)" },
+    ],
+  },
+  {
+    id: "totp-authenticator",
+    title: "Authenticator (TOTP)",
+    description: "Account label + base32 secret. Codes appear in the Browser module's KeyRound popover.",
+    icon: KeyRound,
+    fields: [
+      { idSuffix: "", label: "Account", kind: "totp", sensitive: false, placeholder: "shieng@snsoft.my" },
+      { idSuffix: "-secret", label: "Secret", kind: "token", sensitive: true, placeholder: "JBSWY3DPEHPK3PXP (base32)" },
     ],
   },
   {
@@ -161,11 +235,17 @@ export function VaultCredentialEditor(props: VaultCredentialEditorProps) {
 
   // Template picker — only relevant in Add mode. Edit jumps straight to the
   // single-credential form pre-filled with the existing credential.
-  const [pickedTemplateId, setPickedTemplateId] = useState<string | null>(null);
+  // Sprint 5 — seed with initialTemplateId when provided so the rail
+  // kind filter can skip the picker step.
+  const [pickedTemplateId, setPickedTemplateId] = useState<string | null>(
+    props.initialTemplateId ?? null,
+  );
 
-  // Reset the template selection every time the modal reopens in Add mode so
-  // the user always lands on the picker — earlier sessions' choice was
-  // sticking because the early-return `if (!isOpen)` keeps state alive.
+  // Reset the template selection every time the modal reopens in Add mode.
+  // When the parent supplies initialTemplateId (rail kind pre-fill), we
+  // honor it instead of resetting to null — otherwise the modal would
+  // flash the picker grid for one frame before settling on the hinted
+  // template. Edit-mode and close keep the null reset semantics.
   useEffect(() => {
     const closed = !props.open;
     // Modal closed — clear so next open starts at the picker again.
@@ -174,9 +254,8 @@ export function VaultCredentialEditor(props: VaultCredentialEditorProps) {
       return;
     }
     const isAddMode = props.mode === "add";
-    // Open in add mode — defensively reset (covers fast close→open cycles).
-    if (isAddMode) setPickedTemplateId(null);
-  }, [props.open, props.mode]);
+    if (isAddMode) setPickedTemplateId(props.initialTemplateId ?? null);
+  }, [props.open, props.mode, props.initialTemplateId]);
 
   const pickedTemplate = useMemo<TemplateSpec | null>(() => {
     const noPick = pickedTemplateId === null;
@@ -254,6 +333,13 @@ export function VaultCredentialEditor(props: VaultCredentialEditorProps) {
       onCancel={props.onCancel}
       onBack={isEdit ? null : () => setPickedTemplateId(null)}
       onSave={props.onSave}
+      // Sprint 5 — rail kind pre-fill. Only meaningful when we landed
+      // on the "custom" branch via initialTemplateId; otherwise the
+      // multi-field template already encodes the kind via its first
+      // field, and SingleCredentialForm's existing seed logic handles
+      // the single-field built-in case.
+      seedKind={isCustom ? props.seedKind : undefined}
+      seedKindLabel={isCustom ? props.seedKindLabel : undefined}
     />
   );
 }
@@ -465,10 +551,21 @@ interface SingleCredentialFormProps {
   onCancel: () => void;
   onBack: (() => void) | null;
   onSave: (credentials: VaultCredential[]) => void;
+  // Sprint 5 — when set, seed `kind` to this value AND lock the kind
+  // selector (rendered as disabled select OR a read-only label if the
+  // kind id isn't in KIND_OPTIONS — user-created custom kinds).
+  // Only active in Add mode; Edit always pulls kind from the existing
+  // credential.
+  seedKind?: string;
+  seedKindLabel?: string;
 }
 
 function SingleCredentialForm(props: SingleCredentialFormProps) {
-  const seedKind = props.initialCredential?.kind
+  // Add-mode rail-prefill seed wins over template default; falls back
+  // to existing seed logic when no rail hint was supplied.
+  const railSeedKind = props.mode === "add" ? props.seedKind : undefined;
+  const seedKind = (railSeedKind as VaultCredentialKind | undefined)
+    ?? props.initialCredential?.kind
     ?? props.template?.fields[0]?.kind
     ?? "generic";
   const seedSensitive = props.initialCredential?.isSensitive
@@ -497,8 +594,17 @@ function SingleCredentialForm(props: SingleCredentialFormProps) {
   const pairCandidates = props.siblingCredentials.filter((cred) => cred.id !== editingId);
 
   // Templates with a single field (Link only) override kind + sensitivity
-  // automatically; the Custom path leaves these editable.
+  // automatically; the Custom path leaves these editable EXCEPT when a
+  // rail seedKind is provided — then kind is locked too. Sensitivity
+  // stays user-editable on the rail-prefill path.
   const lockedToTemplate = props.template !== null && props.template.id !== "custom";
+  const lockedByRailKind = props.mode === "add" && props.seedKind !== undefined;
+  // Render the kind <select> as a read-only label when the seed kind
+  // isn't in the built-in KIND_OPTIONS list (user-created custom
+  // kinds — arbitrary nanoid ids). Falls back to the project's
+  // display label so the user sees what they picked.
+  const seedKindNotInOptions =
+    lockedByRailKind && !KIND_OPTIONS.includes(seedKind as VaultCredentialKind);
 
   const handleEnvChange = (envId: VaultEnvId, value: string): void => {
     setValueByEnv((prev) => ({ ...prev, [envId]: value }));
@@ -573,17 +679,29 @@ function SingleCredentialForm(props: SingleCredentialFormProps) {
             <label className="block text-xs text-muted-foreground">
               Kind <span className="text-muted-foreground/60">(icon mapping)</span>
             </label>
-            <select
-              value={kind}
-              onChange={(e) => setKind(e.target.value as VaultCredentialKind)}
-              className="mt-1 h-9 w-full rounded-md border border-input bg-card px-3 text-sm text-foreground"
-            >
-              {KIND_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
+            {seedKindNotInOptions ? (
+              // User-created kind id not in KIND_OPTIONS — render a
+              // read-only label sourced from project.kinds[].label via
+              // seedKindLabel prop. Looks like the disabled select
+              // below but it's a div so React doesn't complain about
+              // an unmatched <option>.
+              <div className="mt-1 flex h-9 w-full items-center rounded-md border border-input bg-muted/30 px-3 text-sm text-muted-foreground">
+                {props.seedKindLabel ?? seedKind}
+              </div>
+            ) : (
+              <select
+                value={kind}
+                onChange={(e) => setKind(e.target.value as VaultCredentialKind)}
+                disabled={lockedByRailKind}
+                className="mt-1 h-9 w-full rounded-md border border-input bg-card px-3 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {KIND_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         ) : null}
 

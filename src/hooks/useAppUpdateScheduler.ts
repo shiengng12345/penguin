@@ -35,6 +35,11 @@ export interface AppUpdateController {
   restart: () => Promise<void>;
   dismiss: () => void;
   openUpdateSettings: () => void;
+  // User-controlled toggle — default false. When false, the scheduler does
+  // NOT auto-check on startup / interval / focus. Manual checkNow() still
+  // works regardless.
+  autoCheckEnabled: boolean;
+  setAutoCheckEnabled: (next: boolean) => void;
 }
 
 async function restartApplication(): Promise<void> {
@@ -49,7 +54,16 @@ export function useAppUpdateScheduler(onOpenSettings: () => void): AppUpdateCont
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(() =>
     import.meta.env.DEV ? null : getPersistedValue(APP_VALUE_KEYS.updateDismissedVersion),
   );
+  // Default false — user must explicitly opt in via Settings → App Updates.
+  const [autoCheckEnabled, setAutoCheckEnabledState] = useState<boolean>(
+    () => getPersistedValue(APP_VALUE_KEYS.autoCheckForUpdates) === "1",
+  );
   const checkingRef = useRef(false);
+
+  const setAutoCheckEnabled = useCallback((next: boolean) => {
+    setAutoCheckEnabledState(next);
+    setPersistedValue(APP_VALUE_KEYS.autoCheckForUpdates, next ? "1" : "0");
+  }, []);
 
   const runCheck = useCallback(
     async (manual: boolean) => {
@@ -104,6 +118,12 @@ export function useAppUpdateScheduler(onOpenSettings: () => void): AppUpdateCont
     if (import.meta.env.DEV) {
       return;
     }
+    // User must opt in — default OFF. Skip the startup / interval / focus
+    // background checks until they enable "Auto-check for updates" in
+    // Settings. The manual "Check for Updates" button stays available.
+    if (!autoCheckEnabled) {
+      return;
+    }
 
     const startupTimer = window.setTimeout(() => {
       void runCheck(false);
@@ -122,7 +142,7 @@ export function useAppUpdateScheduler(onOpenSettings: () => void): AppUpdateCont
       window.clearInterval(interval);
       window.removeEventListener("focus", onFocus);
     };
-  }, [runCheck]);
+  }, [runCheck, autoCheckEnabled]);
 
   const checkNow = useCallback(async () => {
     await runCheck(true);
@@ -210,6 +230,8 @@ export function useAppUpdateScheduler(onOpenSettings: () => void): AppUpdateCont
       restart,
       dismiss,
       openUpdateSettings,
+      autoCheckEnabled,
+      setAutoCheckEnabled,
     }),
     [
       status,
@@ -224,6 +246,8 @@ export function useAppUpdateScheduler(onOpenSettings: () => void): AppUpdateCont
       restart,
       dismiss,
       openUpdateSettings,
+      autoCheckEnabled,
+      setAutoCheckEnabled,
     ],
   );
 }

@@ -1,7 +1,7 @@
 {
   "identifier": "default",
-  "description": "Default capability for the main window",
-  "windows": ["main"],
+  "description": "Default capability — main window + auth-popover popup",
+  "windows": ["main", "auth-popover"],
   "permissions": [
     "core:default",
     "shell:allow-open",
@@ -9,6 +9,8 @@
     "store:default",
     "updater:default",
     "process:allow-restart",
+    "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-read-text",
     {
       "identifier": "shell:allow-execute",
       "allow": [

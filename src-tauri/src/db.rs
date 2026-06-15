@@ -47,6 +47,80 @@ fn open_product_db_at(path: &Path) -> Result<Connection, String> {
         );
         CREATE INDEX IF NOT EXISTS idx_request_history_timestamp
             ON request_history(timestamp DESC);
+        -- Sprint 10 Phase 10A — REST module 4 tables (DEC #196). parent_id
+        -- on rest_collections is nullable to support future folder nesting
+        -- without breaking the schema (UI doesn't expose folder add in MVP).
+        CREATE TABLE IF NOT EXISTS rest_collections (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            env_id TEXT,
+            parent_id TEXT,
+            name TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_rest_collections_project
+            ON rest_collections(project_id);
+        CREATE INDEX IF NOT EXISTS idx_rest_collections_parent
+            ON rest_collections(parent_id);
+        CREATE TABLE IF NOT EXISTS rest_requests (
+            id TEXT PRIMARY KEY,
+            collection_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            method TEXT NOT NULL,
+            url TEXT NOT NULL,
+            headers_json TEXT NOT NULL,
+            query_params_json TEXT NOT NULL,
+            body_json TEXT,
+            auth_json TEXT,
+            timeout_ms INTEGER,
+            follow_redirects INTEGER NOT NULL DEFAULT 1,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_rest_requests_collection
+            ON rest_requests(collection_id);
+        CREATE TABLE IF NOT EXISTS rest_env_vars (
+            id TEXT PRIMARY KEY,
+            scope TEXT NOT NULL,
+            scope_id TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT,
+            is_secret INTEGER NOT NULL DEFAULT 0,
+            secret_handle_id TEXT,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_rest_env_vars_scope
+            ON rest_env_vars(scope, scope_id);
+        CREATE TABLE IF NOT EXISTS rest_cookies (
+            id TEXT PRIMARY KEY,
+            collection_id TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            name TEXT NOT NULL,
+            value TEXT NOT NULL,
+            path TEXT,
+            expires_at INTEGER,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_rest_cookies_collection
+            ON rest_cookies(collection_id);
+        -- Sprint 12 — unified FE+BE error log. Capped at ERROR_LOG_MAX_ROWS
+        -- (see error_log.rs) with oldest-first trim on each insert. Columns:
+        --   source:   'fe' | 'be'
+        --   severity: 'error' | 'warn'
+        --   scope:    'rest' | 'vault' | 'package-installer' | …  (nullable)
+        --   details:  JSON string — stack trace, context object, etc.
+        CREATE TABLE IF NOT EXISTS error_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp INTEGER NOT NULL,
+            source TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            scope TEXT,
+            message TEXT NOT NULL,
+            details TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_error_log_timestamp
+            ON error_log(timestamp DESC);
         "#,
     )
     .map_err(|e| e.to_string())?;
@@ -56,6 +130,12 @@ fn open_product_db_at(path: &Path) -> Result<Connection, String> {
 fn open_product_db() -> Result<Connection, String> {
     let path = penguin_db_path()?;
     open_product_db_at(&path)
+}
+
+// Re-exported for sibling modules (e.g. rest::cookie_store) that need a
+// connection but don't want to re-implement the path / migration plumbing.
+pub(crate) fn open_product_db_shared() -> Result<Connection, String> {
+    open_product_db()
 }
 
 fn unix_millis() -> i64 {
@@ -367,6 +447,139 @@ pub(crate) fn db_count_history() -> Result<i64, String> {
 pub(crate) fn db_clear_history() -> Result<(), String> {
     let conn = open_product_db()?;
     conn.execute("DELETE FROM request_history", [])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// --- Error log ---
+//
+// Unified FE + BE error sink. Capped at ERROR_LOG_MAX_ROWS; oldest rows
+// dropped on every insert. The frontend hits db_list_error_log on
+// dialog open and slices in-memory (1k rows is ~1MB worst-case JSON).
+
+const ERROR_LOG_MAX_ROWS: i64 = 1000;
+
+fn insert_error_log_at(
+    conn: &Connection,
+    timestamp: i64,
+    source: &str,
+    severity: &str,
+    scope: Option<&str>,
+    message: &str,
+    details: Option<&str>,
+) -> Result<(), String> {
+    conn.execute(
+        r#"
+        INSERT INTO error_log (timestamp, source, severity, scope, message, details)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        "#,
+        params![timestamp, source, severity, scope, message, details],
+    )
+    .map_err(|e| e.to_string())?;
+    conn.execute(
+        r#"
+        DELETE FROM error_log WHERE id NOT IN (
+            SELECT id FROM error_log ORDER BY timestamp DESC LIMIT ?1
+        )
+        "#,
+        params![ERROR_LOG_MAX_ROWS],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Frontend-facing command. Source typically "fe" but we accept any
+/// short string so Rust callers can route through the same SQL path.
+#[tauri::command]
+pub(crate) fn db_record_error_log(
+    source: String,
+    severity: String,
+    scope: Option<String>,
+    message: String,
+    details: Option<String>,
+) -> Result<(), String> {
+    if source.trim().is_empty() || message.trim().is_empty() {
+        return Err("source and message are required".to_string());
+    }
+    let conn = open_product_db()?;
+    insert_error_log_at(
+        &conn,
+        unix_millis(),
+        &source,
+        &severity,
+        scope.as_deref(),
+        &message,
+        details.as_deref(),
+    )
+}
+
+/// Rust-side shortcut so internal failure points can record without
+/// going through the IPC layer. Errors here are swallowed — logging
+/// must never tank the caller.
+pub(crate) fn record_be_error_log(
+    severity: &str,
+    scope: &str,
+    message: &str,
+    details: Option<&str>,
+) {
+    if let Ok(conn) = open_product_db() {
+        let _ = insert_error_log_at(
+            &conn,
+            unix_millis(),
+            "be",
+            severity,
+            Some(scope),
+            message,
+            details,
+        );
+    }
+}
+
+#[tauri::command]
+pub(crate) fn db_list_error_log() -> Result<Vec<serde_json::Value>, String> {
+    let conn = open_product_db()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, timestamp, source, severity, scope, message, details \
+             FROM error_log ORDER BY timestamp DESC LIMIT ?1",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(params![ERROR_LOG_MAX_ROWS], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, i64>(0)?,
+                "timestamp": row.get::<_, i64>(1)?,
+                "source": row.get::<_, String>(2)?,
+                "severity": row.get::<_, String>(3)?,
+                "scope": row.get::<_, Option<String>>(4)?,
+                "message": row.get::<_, String>(5)?,
+                "details": row.get::<_, Option<String>>(6)?,
+            }))
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut entries = Vec::new();
+    for row in rows {
+        entries.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(entries)
+}
+
+#[tauri::command]
+pub(crate) fn db_count_error_log_since(since: i64) -> Result<i64, String> {
+    let conn = open_product_db()?;
+    conn.query_row(
+        "SELECT COUNT(*) FROM error_log WHERE timestamp > ?1",
+        params![since],
+        |row| row.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn db_clear_error_log() -> Result<(), String> {
+    let conn = open_product_db()?;
+    conn.execute("DELETE FROM error_log", [])
         .map_err(|e| e.to_string())?;
     Ok(())
 }

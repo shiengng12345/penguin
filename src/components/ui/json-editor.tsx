@@ -260,6 +260,11 @@ interface JsonEditorProps {
   onChange: (value: string) => void;
   placeholder?: string;
   fields?: FieldInfo[];
+  // Read-only mode for displaying a response body / preview. Same
+  // syntax highlighting + theme as the editable form, just non-
+  // editable. CodeMirror's EditorState.readOnly + EditorView.editable
+  // disable input handlers but keep selection + copy working.
+  readOnly?: boolean;
 }
 
 export const JsonEditor = memo(function JsonEditor({
@@ -267,6 +272,7 @@ export const JsonEditor = memo(function JsonEditor({
   onChange,
   placeholder = '{"key": "value"}',
   fields,
+  readOnly = false,
 }: JsonEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -283,6 +289,9 @@ export const JsonEditor = memo(function JsonEditor({
     const state = EditorState.create({
       doc: value,
       extensions: [
+        ...(readOnly
+          ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
+          : []),
         lineNumbers(),
         highlightActiveLineGutter(),
         highlightActiveLine(),

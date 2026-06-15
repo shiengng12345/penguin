@@ -5,17 +5,56 @@ import { usePackages } from "@/hooks/usePackages";
 import { useEnvironments } from "@/hooks/useEnvironments";
 import { useAppUpdateScheduler } from "@/hooks/useAppUpdateScheduler";
 import { interpolate } from "@/lib/environment-store";
+import { hideAllInlineWebviews } from "@/lib/inline-webview";
 import { Header } from "@/components/layout/Header";
 import { UpdateNotification } from "@/components/layout/UpdateNotification";
 import { TabBar } from "@/components/layout/TabBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { UrlBar } from "@/components/layout/UrlBar";
 import { VaultPage } from "@/components/vault/VaultPage";
+import { BrowserPage } from "@/components/browser/BrowserPage";
 import { ApiDocsPage } from "@/components/docs/ApiDocsPage";
+import { RestPage } from "@/components/rest/RestPage";
 import { MainSidebar, type MainModule } from "@/components/layout/MainSidebar";
+import { getPersistedValue, setPersistedValue } from "@/lib/app-persistence";
+import { APP_VALUE_KEYS } from "@/lib/persistence-keys";
+
+// Restore activeModule across main-webview reloads. The OS context
+// menu "Reload" entry refreshes Penguin itself — every module's
+// useState(false) flag resets, and the user lands on Client even if
+// they were in Browser. Persisting + restoring fixes that.
+const VALID_MODULES: ReadonlySet<MainModule> = new Set([
+  "home",
+  "client",
+  "vault",
+  "rest",
+  "docs",
+  "browser",
+]);
+function loadInitialActiveModule(): MainModule | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = getPersistedValue(APP_VALUE_KEYS.activeModule);
+    if (raw === null) return null;
+    if (VALID_MODULES.has(raw as MainModule)) return raw as MainModule;
+  } catch {
+    /* fall through to null */
+  }
+  return null;
+}
 import { useDeveloperMode } from "@/hooks/useDeveloperMode";
 import { HomePage } from "@/components/home/HomePage";
 import { PENGUIN_OPEN_SETTINGS_EVENT, PENGUIN_GO_HOME_EVENT } from "@/components/vault/VaultEmptyGate";
+import {
+  REST_NEW_REQUEST_EVENT,
+  REST_CLOSE_TAB_EVENT,
+  REST_SEND_REQUEST_EVENT,
+  REST_SAVE_REQUEST_EVENT,
+  REST_FOCUS_SEARCH_EVENT,
+  REST_FOCUS_URL_EVENT,
+  REST_OPEN_CURL_IMPORT_EVENT,
+  REST_OPEN_HISTORY_EVENT,
+} from "@/lib/rest-events";
 import { initializeDevModeOnAppStart } from "@/lib/dev-mode-store";
 import { RequestPanel } from "@/components/request/RequestPanel";
 import { ResponsePanel } from "@/components/request/ResponsePanel";
@@ -36,6 +75,8 @@ const CurlImport = lazy(() => import("@/components/environment/CurlImport").then
 const ProtoViewer = lazy(() => import("@/components/request/ProtoViewer").then(m => ({ default: m.ProtoViewer })));
 const InteractiveTutorial = lazy(() => import("@/components/onboarding/InteractiveTutorial").then(m => ({ default: m.InteractiveTutorial })));
 const Welcome = lazy(() => import("@/components/onboarding/Welcome").then(m => ({ default: m.Welcome })));
+
+import { StatusBar } from "@/components/layout/StatusBar";
 
 export default function App() {
   const {
@@ -66,38 +107,87 @@ export default function App() {
   const [networkOpen, setNetworkOpen] = useState(false);
   const [curlImportOpen, setCurlImportOpen] = useState(false);
   const [protoViewerOpen, setProtoViewerOpen] = useState(false);
-  const [vaultOpen, setVaultOpen] = useState(false);
-  const [docsOpen, setDocsOpen] = useState(false);
-  const [homeOpen, setHomeOpen] = useState(false);
+  // Seed the module flags from the persisted activeModule (if any),
+  // so a Penguin main-webview reload restores the user's last module.
+  const initialModule = loadInitialActiveModule();
+  const [vaultOpen, setVaultOpen] = useState(initialModule === "vault");
+  const [docsOpen, setDocsOpen] = useState(initialModule === "docs");
+  const [restOpen, setRestOpen] = useState(initialModule === "rest");
+  const [homeOpen, setHomeOpen] = useState(initialModule === "home");
+  const [browserOpen, setBrowserOpen] = useState(initialModule === "browser");
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const closeVault = useCallback(() => setVaultOpen(false), []);
+  const closeBrowser = useCallback(() => setBrowserOpen(false), []);
+  // Vault → Browser deeplink dispatcher. Vault cards call this when
+  // the user clicks the "Open in Browser" button; we push the deeplink
+  // into the store (so BrowserPage's mount-effect consumes it) and
+  // switch the active module — single source of truth without prop
+  // drilling state ownership.
+  const requestBrowserDeeplink = useAppStore((s) => s.requestBrowserDeeplink);
+  const handleOpenInBrowser = useCallback(
+    (deeplink: { url: string; label: string; prefillToken?: string; baseKind?: string; projectId?: string; envId?: string }) => {
+      requestBrowserDeeplink(deeplink);
+      setBrowserOpen(true);
+      setVaultOpen(false);
+      setDocsOpen(false);
+      setRestOpen(false);
+      setHomeOpen(false);
+    },
+    [requestBrowserDeeplink],
+  );
   const openHome = useCallback(() => {
     setVaultOpen(false);
     setDocsOpen(false);
+    setRestOpen(false);
+    setBrowserOpen(false);
     setHomeOpen(true);
   }, []);
   const selectApiClient = useCallback(() => {
     setVaultOpen(false);
     setDocsOpen(false);
+    setRestOpen(false);
+    setBrowserOpen(false);
     setHomeOpen(false);
   }, []);
   const selectVaultFromHome = useCallback(() => {
     setHomeOpen(false);
     setDocsOpen(false);
+    setRestOpen(false);
+    setBrowserOpen(false);
     setVaultOpen(true);
   }, []);
   const selectDocsFromHome = useCallback(() => {
     setHomeOpen(false);
     setVaultOpen(false);
+    setRestOpen(false);
+    setBrowserOpen(false);
     setDocsOpen(true);
   }, []);
-  // Sidebar derives a single "active module" enum from the three boolean
-  // page flags. Clicking a rail item dispatches to the existing selectors
-  // (selectApiClient / openHome / selectVaultFromHome / selectDocsFromHome).
+  // Sprint 10 — REST module entry. Mirrors vault/docs pattern + new in 10A.
+  const selectRest = useCallback(() => {
+    setHomeOpen(false);
+    setVaultOpen(false);
+    setDocsOpen(false);
+    setBrowserOpen(false);
+    setRestOpen(true);
+  }, []);
+  const selectBrowser = useCallback(() => {
+    setHomeOpen(false);
+    setVaultOpen(false);
+    setDocsOpen(false);
+    setRestOpen(false);
+    setBrowserOpen(true);
+  }, []);
+  // Sidebar derives a single "active module" enum from the boolean page
+  // flags. Clicking a rail item dispatches to the matching selector.
   const activeModule: MainModule = vaultOpen
     ? "vault"
     : docsOpen
     ? "docs"
+    : restOpen
+    ? "rest"
+    : browserOpen
+    ? "browser"
     : homeOpen
     ? "home"
     : "client";
@@ -106,24 +196,48 @@ export default function App() {
   //   - Docs / KB requires super-admin token (enabled && isSuperAdmin)
   // Super-admin implies hasValidToken, so super users see everything.
   const { enabled: devModeEnabled, hasValidToken, isSuperAdmin } = useDeveloperMode();
+  // Dev-mode token loads asynchronously at boot. Until it lands,
+  // `hasValidToken` / `isSuperAdmin` are still `false` even when the
+  // user IS authorized — so any effect that uses them to revoke access
+  // or persist state must wait for hydration. See [[persist-active-module]].
+  const devModeHydrated = useAppStore((s) => s.devModeHydrated);
   const canAccessVault = devModeEnabled && hasValidToken;
   const canAccessDocs = devModeEnabled && isSuperAdmin;
+  // Sprint 10 — REST module is super-admin-only. Normal admins (dev token but
+  // not super) only see Client + Vault; the Home launcher AND REST + Docs all
+  // require the super-admin token. Updated post-10D per user direction.
+  const canAccessRest = devModeEnabled && isSuperAdmin;
+  const canAccessHome = devModeEnabled && isSuperAdmin;
   // If user loses their token mid-session, fall back to the API Client so
   // they're not stuck on a "please validate token" gate. Each module checks
   // its own gate so revoking super-admin but keeping dev token leaves the
   // user inside Vault but kicks them out of Docs.
+  // Browser requires a valid dev token — same tier as Vault.
+  const canAccessBrowser = devModeEnabled && hasValidToken;
   useEffect(() => {
+    // Wait for the dev-mode token to finish loading before deciding to
+    // revoke access. Pre-hydration, hasValidToken / isSuperAdmin are
+    // both false even for authorized users, so running this gate early
+    // boots the user back to Client on every main-webview reload.
+    if (!devModeHydrated) return;
     if (vaultOpen && !canAccessVault) setVaultOpen(false);
     if (docsOpen && !canAccessDocs) setDocsOpen(false);
-  }, [canAccessVault, canAccessDocs, vaultOpen, docsOpen]);
+    if (restOpen && !canAccessRest) setRestOpen(false);
+    if (browserOpen && !canAccessBrowser) setBrowserOpen(false);
+    // Home is super-admin only — drop a non-super back to Client if they
+    // somehow landed on it (e.g. token rotation mid-session).
+    if (homeOpen && !canAccessHome) setHomeOpen(false);
+  }, [devModeHydrated, canAccessVault, canAccessDocs, canAccessRest, canAccessBrowser, canAccessHome, vaultOpen, docsOpen, restOpen, browserOpen, homeOpen]);
   const handleModuleSelect = useCallback(
     (m: MainModule) => {
       if (m === "client") selectApiClient();
       else if (m === "vault") selectVaultFromHome();
       else if (m === "docs") selectDocsFromHome();
+      else if (m === "rest") selectRest();
+      else if (m === "browser") selectBrowser();
       else openHome();
     },
-    [selectApiClient, selectVaultFromHome, selectDocsFromHome, openHome],
+    [selectApiClient, selectVaultFromHome, selectDocsFromHome, selectRest, selectBrowser, openHome],
   );
   const appUpdate = useAppUpdateScheduler(openSettings);
   const handlePackagesCleared = useCallback(async () => {
@@ -140,6 +254,23 @@ export default function App() {
   // to be pulled off disk asynchronously here.
   useEffect(() => {
     void initializeDevModeOnAppStart();
+  }, []);
+
+  // Hydrate vault data into the store at App mount, not only when the
+  // user opens the Vault module. The In-App Browser module's "From
+  // Vault" picker + paste-URL auto-match both read `vaultProjects` —
+  // they'd see an empty array if VaultPage was never visited this
+  // session. Lifting the load to App-level fixes that. Idempotent if
+  // VaultPage's own mount-effect also runs.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const mod = await import("@/components/vault/vault-storage");
+        await mod.loadVaultFromDisk();
+      } catch {
+        // best-effort — Vault module's own mount will retry if needed
+      }
+    })();
   }, []);
 
   const resolvedUrl = activeEnv
@@ -223,26 +354,68 @@ export default function App() {
   );
 
   useEffect(() => {
+    // Module-aware shortcut dispatcher. Every Cmd/Ctrl shortcut checks the
+    // currently active module (client / rest / vault / docs / home) and
+    // either runs the client-shaped action, dispatches a `penguin:rest-*`
+    // event the REST module listens for, or no-ops with preventDefault. This
+    // replaces the previous "always-on global" handler where Cmd+N would open
+    // the gRPC NewRequestDialog even when the user was inside the REST page.
     const onKeyDown = (e: KeyboardEvent) => {
       if (!e.metaKey && !e.ctrlKey) return;
+      const isClient = activeModule === "client";
+      const isRest = activeModule === "rest";
 
       switch (e.key.toLowerCase()) {
-        case "f":
+        // Universal — always available; module-aware target.
+        case "/":
           e.preventDefault();
-          setSearchOpen((o) => !o);
+          setShortcutsOpen((o) => !o);
           break;
-        case "n":
+        case "i":
           e.preventDefault();
-          setNewRequestOpen(true);
-          break;
-        case "w": {
-          e.preventDefault();
-          if (activeTabId) {
-            removeTab(activeTabId);
+          if (e.shiftKey) {
+            // cURL import is REST-shaped — when REST module is active, open
+            // the REST-aware import dialog instead of the gRPC-shaped one.
+            if (isRest) document.dispatchEvent(new CustomEvent(REST_OPEN_CURL_IMPORT_EVENT));
+            else setCurlImportOpen((o) => !o);
+          } else {
+            setNetworkOpen((o) => !o);
           }
           break;
-        }
+
+        // Find — client opens CommandSearch; REST focuses sidebar search.
+        case "f":
+          e.preventDefault();
+          if (isClient) setSearchOpen((o) => !o);
+          else if (isRest) document.dispatchEvent(new CustomEvent(REST_FOCUS_SEARCH_EVENT));
+          break;
+
+        // New (Cmd+N) — module-aware. Cmd+T is a REST alias.
+        case "n":
+          e.preventDefault();
+          if (isClient) setNewRequestOpen(true);
+          else if (isRest) document.dispatchEvent(new CustomEvent(REST_NEW_REQUEST_EVENT));
+          break;
+        case "t":
+          if (isRest) {
+            e.preventDefault();
+            document.dispatchEvent(new CustomEvent(REST_NEW_REQUEST_EVENT));
+          }
+          break;
+
+        // Close active tab — module-aware.
+        case "w":
+          e.preventDefault();
+          if (isClient && activeTabId) removeTab(activeTabId);
+          else if (isRest) document.dispatchEvent(new CustomEvent(REST_CLOSE_TAB_EVENT));
+          break;
+
+        // Reset tab — client-only; noop elsewhere (REST records auto-persist).
         case "r":
+          if (!isClient) {
+            e.preventDefault();
+            break;
+          }
           e.preventDefault();
           if (activeTab) {
             updateActiveTab({
@@ -257,48 +430,68 @@ export default function App() {
           refresh();
           document.dispatchEvent(new CustomEvent("penguin:collapse-sidebar"));
           break;
+
+        // Save — client Cmd+S = installer, Cmd+Shift+S = save gRPC request.
+        // REST always saves the active request (Postman convention).
         case "s":
           e.preventDefault();
-          if (e.shiftKey) {
-            document.dispatchEvent(new CustomEvent("penguin:save-request"));
-          } else {
-            setInstallerOpen(true);
+          if (isRest) {
+            document.dispatchEvent(new CustomEvent(REST_SAVE_REQUEST_EVENT));
+          } else if (isClient) {
+            if (e.shiftKey) document.dispatchEvent(new CustomEvent("penguin:save-request"));
+            else setInstallerOpen(true);
           }
           break;
+
+        // Cycle protocol — gRPC-only concept.
         case "e":
-          e.preventDefault();
-          handleCycleProtocol();
+          if (isClient) {
+            e.preventDefault();
+            handleCycleProtocol();
+          }
           break;
+
+        // History / saved / docs / proto — gRPC-only.
         case "h":
-          e.preventDefault();
-          setHistoryOpen((o) => !o);
+          if (isClient) {
+            e.preventDefault();
+            setHistoryOpen((o) => !o);
+          } else if (isRest) {
+            e.preventDefault();
+            document.dispatchEvent(new CustomEvent(REST_OPEN_HISTORY_EVENT));
+          }
           break;
         case "o":
-          e.preventDefault();
-          setSavedOpen((o) => !o);
+          if (isClient) {
+            e.preventDefault();
+            setSavedOpen((o) => !o);
+          }
           break;
         case "d":
-          e.preventDefault();
-          setDocOpen((o) => !o);
-          break;
-        case "enter":
-          e.preventDefault();
-          document.dispatchEvent(new CustomEvent("penguin:send-request"));
-          break;
-        case "/":
-          e.preventDefault();
-          setShortcutsOpen((o) => !o);
+          if (isClient) {
+            e.preventDefault();
+            setDocOpen((o) => !o);
+          }
           break;
         case "p":
-          e.preventDefault();
-          setProtoViewerOpen((o) => !o);
+          if (isClient) {
+            e.preventDefault();
+            setProtoViewerOpen((o) => !o);
+          }
           break;
-        case "i":
+
+        // Send active request — module-aware target event.
+        case "enter":
           e.preventDefault();
-          if (e.shiftKey) {
-            setCurlImportOpen((o) => !o);
-          } else {
-            setNetworkOpen((o) => !o);
+          if (isClient) document.dispatchEvent(new CustomEvent("penguin:send-request"));
+          else if (isRest) document.dispatchEvent(new CustomEvent(REST_SEND_REQUEST_EVENT));
+          break;
+
+        // Focus URL bar — REST-only (Postman convention).
+        case "l":
+          if (isRest) {
+            e.preventDefault();
+            document.dispatchEvent(new CustomEvent(REST_FOCUS_URL_EVENT));
           }
           break;
       }
@@ -307,11 +500,14 @@ export default function App() {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [
+    activeModule,
     activeTabId,
+    activeTab,
     removeTab,
     refresh,
     setInstallerOpen,
     handleCycleProtocol,
+    updateActiveTab,
   ]);
 
   useEffect(() => {
@@ -324,6 +520,39 @@ export default function App() {
       document.removeEventListener("penguin:open-proto", openProto);
     };
   }, []);
+
+  // Defense-in-depth guard against inline webviews bleeding into other
+  // modules. macOS WKWebView's close timing can race the next module's
+  // first paint — earlier the user reported seeing the Vault sign-in
+  // page painted over the gRPC-Web view after switching.
+  //
+  // We HIDE rather than CLOSE: closing would destroy the WKWebView and
+  // force a URL reload (white-screen flash) every time the user comes
+  // back to the Browser. Hidden webviews don't paint anything, so the
+  // bleed-prevention still holds, and session + cookies + scroll
+  // position all survive the trip.
+  useEffect(() => {
+    if (activeModule === "vault" || activeModule === "browser") return;
+    hideAllInlineWebviews().catch(() => {
+      // best-effort — the next module is what matters, not the IPC log
+    });
+  }, [activeModule]);
+
+  // Persist the active module on every change so an OS-level reload
+  // (right-click → Reload, Cmd+R, etc.) re-enters the same module
+  // instead of dumping the user back on Client. Gated on
+  // `devModeHydrated`: until the token finishes loading, the gate
+  // effect may have transiently kicked the user back to Client based
+  // on stale `hasValidToken=false` — persisting that would corrupt the
+  // restore value for the next reload.
+  useEffect(() => {
+    if (!devModeHydrated) return;
+    try {
+      setPersistedValue(APP_VALUE_KEYS.activeModule, activeModule);
+    } catch {
+      /* best-effort — losing this just means the next reload resets */
+    }
+  }, [devModeHydrated, activeModule]);
 
   useEffect(() => {
     const closeAll = () => {
@@ -393,7 +622,7 @@ export default function App() {
             active={activeModule}
             onSelect={handleModuleSelect}
             hasValidToken={canAccessVault}
-            isSuperAdmin={canAccessDocs}
+            isSuperAdmin={canAccessDocs || canAccessRest}
           />
           <div className="flex flex-1 flex-col min-w-0">
         {homeOpen ? (
@@ -401,11 +630,16 @@ export default function App() {
             onSelectApiClient={selectApiClient}
             onSelectVault={selectVaultFromHome}
             onSelectDocs={selectDocsFromHome}
+            onSelectRest={selectRest}
           />
         ) : vaultOpen ? (
-          <VaultPage onClose={closeVault} />
+          <VaultPage onClose={closeVault} onOpenInBrowser={handleOpenInBrowser} />
         ) : docsOpen ? (
           <ApiDocsPage onClose={openHome} />
+        ) : restOpen ? (
+          <RestPage onClose={openHome} />
+        ) : browserOpen ? (
+          <BrowserPage onClose={closeBrowser} />
         ) : (
           <>
             <TabBar
@@ -441,6 +675,15 @@ export default function App() {
           </div>
         </div>
 
+        {/* Persistent bottom status bar — same row across every module
+            (Home / Client / Vault / REST / Docs). Lives at the root of
+            the flex column so it stays pinned regardless of which
+            module is mounted. */}
+        <StatusBar
+          onOpenSettings={openSettings}
+          onOpenShortcuts={() => setShortcutsOpen(true)}
+        />
+
         <Suspense fallback={null}>
           {isInstallerOpen && (
             <PackageInstaller
@@ -464,7 +707,7 @@ export default function App() {
           {savedOpen && <SavedRequestsPanel open={savedOpen} onClose={() => setSavedOpen(false)} />}
           {newRequestOpen && <NewRequestDialog open={newRequestOpen} onClose={() => setNewRequestOpen(false)} />}
           {docOpen && <RequestDocDialog open={docOpen} onClose={() => setDocOpen(false)} />}
-          {shortcutsOpen && <ShortcutCheatSheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />}
+          {shortcutsOpen && <ShortcutCheatSheet open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} activeModule={activeModule} />}
           {networkOpen && <NetworkCheck open={networkOpen} onClose={() => setNetworkOpen(false)} />}
           {curlImportOpen && <CurlImport open={curlImportOpen} onClose={() => setCurlImportOpen(false)} />}
           {protoViewerOpen && <ProtoViewer open={protoViewerOpen} onClose={() => setProtoViewerOpen(false)} />}

@@ -9,13 +9,14 @@ export type {
   ConnectServiceDef,
 } from "./types.js";
 
-export { logger } from "./logger.js";
+export { logger, setLoggerSink, type LoggerSink } from "./logger.js";
 export { parseProtoContent, generateDefaultJson, generateMethodPath } from "./proto-parser.js";
 export { parseSdkDts } from "./sdk-parser.js";
 export { discoverServices } from "./discover-services.js";
 export { normalizeGrpcJsonBody, type GrpcJsonRequestType } from "./grpc-json.js";
 export {
   isAllowedSnsoftPackageSpec,
+  normalizePackageSpec,
   protocolFromSnsoftPackageSpec,
   snsoftPackageNameFromSpec,
   type SnsoftPackageProtocol,

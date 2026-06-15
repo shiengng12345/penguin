@@ -44,6 +44,12 @@ function DialogContent({
       <DialogOverlay onClick={onClose} />
       <div
         role="dialog"
+        // `data-state="open"` is the signal InlineWebviewPanel's
+        // `useFloatingOverlayOpen` hook scans for to hide the native
+        // child WKWebView while a dialog is up. Without it, the webview
+        // (native subview, paints above HTML) renders ON TOP of the
+        // dialog content and obscures it.
+        data-state="open"
         className={cn(
           "relative z-50 w-full max-w-lg rounded-lg border border-border bg-popover p-4 shadow-xl animate-in fade-in-0 zoom-in-95",
           className

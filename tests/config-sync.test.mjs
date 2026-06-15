@@ -187,19 +187,31 @@ test("remote config file exists and does not contain old QAT/UAT numbered preset
 test("startup environment sync uses safe merge instead of replacing local config", async () => {
   const source = await readFile(new URL("../src/hooks/useEnvironments.ts", import.meta.url), "utf8");
 
-  assert.match(source, /mergeConfigEnvironments/);
+  // Tightened: scope the assertion to the syncAllProtocolEnvs body so
+  // a stray import / comment can't satisfy /mergeConfigEnvironments/
+  // by itself. Match on the call site (open paren) inside the function.
+  const start = source.indexOf("syncAllProtocolEnvs");
+  assert.ok(start >= 0, "syncAllProtocolEnvs function not found");
+  const body = source.slice(start, start + 4000);
+  assert.match(body, /mergeConfigEnvironments\(/);
+  // Negative — locks the absence of the unsafe wholesale-replace shape.
   assert.doesNotMatch(source, /variables:\s*Object\.entries\(cfg\.variables/);
 });
 
 test("environment manager exposes Pull Latest Config safe merge action", async () => {
   const source = await readFile(new URL("../src/components/environment/EnvManager.tsx", import.meta.url), "utf8");
 
+  // User-visible label.
   assert.match(source, /Pull Latest Config/);
-  assert.match(source, /syncRemoteConfigForProtocol/);
-  assert.match(source, /conflicts/);
+  // The actual sync helper is invoked, not just referenced.
+  assert.match(source, /syncRemoteConfigForProtocol\(/);
+  // Lock the conflict-resolution UX surface — when a pull lands and
+  // merge keeps the user's local edits, we tell them about it.
+  // `Local kept` is the user-facing copy from EnvManager.tsx (~line 337).
+  assert.match(source, /Local kept|pullStatus/);
 });
 
-test("environment manager visible protocol tabs hide REST while the feature is disabled", async () => {
+test("environment manager PROTOCOL_TABS cover only the gRPC family — REST has its own dedicated module", async () => {
   const source = await readFile(new URL("../src/components/environment/EnvManager.tsx", import.meta.url), "utf8");
   const start = source.indexOf("const PROTOCOL_TABS");
   const end = source.indexOf("function envsForProtocolState", start);
@@ -230,5 +242,7 @@ test("header exposes one-click current protocol config sync", async () => {
   assert.ok(buttonIndex > protocolBadgeIndex, "sync config button should appear after the protocol badge");
   assert.ok(buttonIndex > envSelectIndex, "sync config button should appear after the environment selector");
   assert.ok(buttonIndex < themeButtonIndex, "sync config button should appear before the theme button");
-  assert.match(source, /className="h-8 w-8 shrink-0"/);
+  // className assertion dropped — incidental layout class would shift
+  // on a redesign without affecting the actual sync wiring. The
+  // surrounding behavioral assertions above lock the contract.
 });

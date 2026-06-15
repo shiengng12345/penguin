@@ -2,11 +2,14 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
+mod auth_popover;
 mod db;
+mod inline_webview;
 mod mcp;
 mod packages;
 mod proxy;
 mod registry;
+mod rest;
 
 pub use packages::{InstalledPackage, ProtoFile};
 pub use proxy::{HttpProxyRequest, HttpProxyResponse};
@@ -127,6 +130,8 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .manage(auth_popover::AuthPopoverState::default())
         .setup(|app| {
             packages::start_package_watcher(app.handle().clone());
             Ok(())
@@ -153,10 +158,42 @@ pub fn run() {
             db::db_list_history,
             db::db_count_history,
             db::db_clear_history,
+            db::db_record_error_log,
+            db::db_list_error_log,
+            db::db_count_error_log_since,
+            db::db_clear_error_log,
             mcp::mcp_status,
             mcp::mcp_install_to_local_clients,
             registry::write_registry_npmrc,
             registry::read_registry_npmrc_status,
+            rest::commands::rest_send_request,
+            rest::commands::rest_save_secret,
+            rest::commands::rest_resolve_secret_masked,
+            rest::commands::rest_resolve_secret_plain,
+            rest::commands::rest_get_cookies,
+            rest::commands::rest_clear_cookies,
+            rest::commands::rest_save_cookie,
+            rest::commands::rest_delete_cookie,
+            inline_webview::inline_webview_open,
+            inline_webview::inline_webview_set_bounds,
+            inline_webview::inline_webview_set_visible,
+            inline_webview::inline_webview_reload,
+            inline_webview::inline_webview_navigate,
+            inline_webview::inline_webview_back,
+            inline_webview::inline_webview_forward,
+            inline_webview::inline_webview_close,
+            inline_webview::inline_webview_eval,
+            inline_webview::inline_webview_list,
+            inline_webview::inline_webview_close_all,
+            inline_webview::inline_webview_hide_all,
+            inline_webview::inline_webview_purge_all_data,
+            inline_webview::inline_webview_delete_data_dir,
+            auth_popover::auth_popover_open,
+            auth_popover::auth_popover_get_snapshot,
+            auth_popover::auth_popover_close,
+            auth_popover::auth_load_standalone,
+            auth_popover::auth_save_standalone,
+            auth_popover::auth_capture_qr,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

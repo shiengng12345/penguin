@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Send, Plus, X, RotateCcw, Copy, Braces, Bookmark, Check, FileText, Terminal, Ban, Code2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { buildRestCurl, REST_BODY_MODES, resolveRestUrl } from "@/lib/rest";
+import { writeClipboard } from "@/lib/clipboard";
 
 // Pattern matches any `{{VAR}}` template that survived interpolation —
 // signals the active env is missing the variable. Sending such a header
@@ -257,7 +258,7 @@ export function RequestPanel() {
   };
 
   const handleCopyBody = () => {
-    navigator.clipboard.writeText(tab.requestBody);
+    writeClipboard(tab.requestBody);
   };
 
   const handleSaveRequest = () => {
@@ -311,7 +312,7 @@ export function RequestPanel() {
         headers,
         body: tab.requestBody,
       });
-      navigator.clipboard.writeText(curl);
+      writeClipboard(curl);
       setCurlFlash(true);
       setTimeout(() => setCurlFlash(false), 1500);
       return;
@@ -351,7 +352,7 @@ export function RequestPanel() {
     }
 
     const curl = `curl -X POST '${fullUrl}' \\\n${allHeaders} \\\n  -d '${body}'`;
-    navigator.clipboard.writeText(curl);
+    writeClipboard(curl);
     setCurlFlash(true);
     setTimeout(() => setCurlFlash(false), 1500);
   };

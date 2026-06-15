@@ -32,7 +32,13 @@ import { useDeveloperMode } from "@/hooks/useDeveloperMode";
 import type { VaultEnvId, VaultProject } from "./types";
 
 const LOG_SCOPE = "VaultSidebar";
-const SIDEBAR_WIDTH_CLASS = "w-60";
+// Width tokens for the ResizableColumn wrapper at the call site in
+// VaultPage. The component itself no longer owns its width — the
+// wrapper drives it dynamically so the user can drag the right edge.
+export const VAULT_SIDEBAR_DEFAULT_WIDTH = 240; // matches the old w-60
+export const VAULT_SIDEBAR_MIN_WIDTH = 200;
+export const VAULT_SIDEBAR_MAX_WIDTH = 400;
+export const VAULT_SIDEBAR_PERSIST_KEY = "penguin-vault-sidebar-width";
 
 interface VaultSidebarProps {
   projects: VaultProject[];
@@ -109,10 +115,13 @@ export function VaultSidebar({
   };
 
   return (
+    // Width is owned by the ResizableColumn wrapper in VaultPage —
+    // the <aside> itself fills its parent (h-full + w-full inside the
+    // resizable shell). border-r stays here so the visible separator
+    // moves with the column boundary.
     <aside
       className={cn(
-        SIDEBAR_WIDTH_CLASS,
-        "flex shrink-0 flex-col border-r border-border bg-card",
+        "flex h-full w-full flex-col border-r border-border bg-card",
       )}
     >
       <div className="flex items-center gap-2 border-b border-border px-3 py-3">

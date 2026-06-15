@@ -16,6 +16,10 @@ export const APP_VALUE_KEYS = {
   remoteConfigSource: "penguin-remote-config-source",
   updateLastCheckedAt: "penguin-update-last-checked-at",
   updateDismissedVersion: "penguin-update-dismissed-version",
+  // Auto-update preference — user opts IN (default false). When false, the
+  // scheduler skips its startup + interval + focus checks. The Settings
+  // "Check for Updates" button still works manually regardless.
+  autoCheckForUpdates: "penguin-auto-check-for-updates",
   devModeEnabled: "penguin-dev-mode-enabled",
   devModeToken: "penguin-dev-mode-token",
   vaultData: "penguin-vault-data",
@@ -28,6 +32,43 @@ export const APP_VALUE_KEYS = {
   docsKnowledgeBase: "penguin-docs-knowledge-base",
   docsLastSyncedAt: "penguin-docs-last-synced-at",
   docsLastSyncedHash: "penguin-docs-last-synced-hash",
+  // In-app Browser module — pinned shortcuts list. Cookies / sessions
+  // persist independently via Tauri's WKWebSiteDataStore; this key
+  // just holds the user's curated URL set.
+  browserShortcuts: "penguin-browser-shortcuts",
+  // Per-shortcut "click Sign in after prefill" opt-in. Stored as a
+  // Record<shortcutId, true>. Off by default — auto-submit can burn a
+  // failed-login attempt and trip lockout policies.
+  browserAutoSubmit: "penguin-browser-auto-submit",
+  // Master kill-switch for auto-submit. Even when a shortcut has the
+  // per-shortcut ⚡ enabled, prefill scripts will NOT click submit if
+  // this is "false". On by default; users flip off when they're about
+  // to debug a sign-in flow or want manual control session-wide.
+  browserAutoSubmitGlobal: "penguin-browser-auto-submit-global",
+  // Survives Penguin main-webview reloads — e.g. user right-clicks the
+  // page and picks "Reload" from the OS context menu. Without this
+  // the active module resets to "client" because every module-open
+  // flag is just a `useState(false)`.
+  activeModule: "penguin-active-module",
+  // Last time the user opened the error-log dialog. Used to count
+  // "unread" entries (errors with timestamp > this value) for the
+  // StatusBar badge.
+  errorLogLastSeenAt: "penguin-error-log-last-seen-at",
+  // Currently-selected Browser top-bar tab ("vault" | "argocd" | "aliyun").
+  // Persists across reloads so the user lands on the same view they
+  // left.
+  browserActiveTab: "penguin-browser-active-tab",
+  // Aliyun tab's independent CRUD store. JSON shape:
+  //   { accounts: AliyunAccount[], links: AliyunLink[] }
+  // Lives outside Vault on purpose — Aliyun SLS bookmarks + RAM-user
+  // creds don't fit Vault's project/env model and the user wanted to
+  // manage them in-place inside the Aliyun tab.
+  aliyunData: "penguin-aliyun-data",
+  // Jenkins tab — same shape as aliyunData, independent blob.
+  jenkinsData: "penguin-jenkins-data",
+  // Browser sidebar "pinned-expanded" preference. When true the sidebar
+  // stays at full width even without hover; when false it auto-collapses.
+  browserSidebarPinned: "penguin-browser-sidebar-pinned",
 } as const;
 
 export const ENVIRONMENT_VALUE_KEYS: Record<PersistedProtocol, string> = {

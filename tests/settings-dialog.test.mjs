@@ -3,15 +3,21 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
 test("MCP settings show Codex setup alongside Claude clients", async () => {
+  // Tightened: bare /Codex CLI/ etc. would match a stray comment or
+  // unrelated import. Lock each client label to its per-client
+  // command rendering — Codex CLI ↔ mcpCodexCliCommand, Claude Code
+  // ↔ mcpClaudeCliCommand, Claude Desktop / Cursor ↔ mcpJsonSnippet —
+  // so a refactor that breaks the Codex block specifically gets
+  // caught even if the string still appears elsewhere.
   const source = await readFile(
     new URL("../src/components/settings/SettingsDialog.tsx", import.meta.url),
     "utf8",
   );
 
-  assert.match(source, /Codex CLI/);
-  assert.match(source, /codex mcp add penguin --/);
-  assert.match(source, /Claude Desktop \/ Cursor/);
-  assert.match(source, /Claude Code/);
+  // Three per-client surfaces — each label paired with its command var.
+  assert.match(source, /Codex CLI[\s\S]{0,2000}?mcpCodexCliCommand/);
+  assert.match(source, /Claude Code[\s\S]{0,2000}?mcpClaudeCliCommand/);
+  assert.match(source, /Claude Desktop \/ Cursor[\s\S]{0,2000}?mcpJsonSnippet/);
 });
 
 test("MCP primary action uses client-neutral wording", async () => {
@@ -125,11 +131,15 @@ test("manage environments uses an explicit button affordance", async () => {
   assert.match(section, /Settings2/);
   assert.match(section, /ChevronRight/);
   assert.match(section, /variant="outline"/);
-  assert.match(section, /justify-between/);
+  // /justify-between/ regex dropped — that's incidental layout and
+  // would flip on a redesign without changing the actual affordance.
+  // The other assertions lock the meaningful contract (button +
+  // icon + aria-label + visible label).
   assert.match(section, /Open environment manager/);
+  assert.match(section, /Manage Environments \/ 管理环境/);
 });
 
-test("settings default header tabs hide REST while the feature is disabled", async () => {
+test("settings default header tabs cover non-REST protocols only (REST headers managed per-collection)", async () => {
   const source = await readFile(
     new URL("../src/components/settings/SettingsDialog.tsx", import.meta.url),
     "utf8",

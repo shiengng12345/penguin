@@ -6,6 +6,42 @@ export function isAllowedSnsoftPackageSpec(spec: string): boolean {
   return SNSOFT_PACKAGE_SPEC_RE.test(spec.trim());
 }
 
+/**
+ * Normalize copy-pasted package.json / yarn-lock / yaml-ish lines into the
+ * canonical `<name>@<version>` spec the installer expects.
+ *
+ * Inputs handled:
+ *   `"@snsoft/x": "1.0.0"`     → `@snsoft/x@1.0.0`   (package.json dependency entry)
+ *   `"@snsoft/x": "1.0.0",`    → `@snsoft/x@1.0.0`   (trailing comma — package.json mid-list)
+ *   `@snsoft/x: 1.0.0`         → `@snsoft/x@1.0.0`   (yaml-style, no quotes)
+ *   `@snsoft/x@1.0.0`          → `@snsoft/x@1.0.0`   (already canonical — passthrough)
+ *   anything else / partial    → returned as-is (caller validates later)
+ *
+ * The matcher is intentionally narrow — it only fires when both name and
+ * version are obviously present so mid-typing doesn't mutate the input.
+ */
+export function normalizePackageSpec(input: string): string {
+  const cleaned = input.trim().replace(/,\s*$/, "").trim();
+
+  // 1. package.json style: "name": "version" (both halves quoted)
+  const pj = cleaned.match(/^"([^"]+)"\s*:\s*"([^"]+)"$/);
+  if (pj) return `${pj[1]}@${pj[2]}`;
+
+  // 2. yaml-ish: name: version (no quotes). Restrict first char so we
+  //    don't false-match canonical `@scope/name@1.2.3` (which contains no
+  //    colon anyway, but defensive).
+  const yaml = cleaned.match(/^(@?[\w/.-]+)\s*:\s*([\w.\-T]+)$/);
+  if (yaml && !cleaned.includes("@", 1)) {
+    // Reject if the supposed name part already contains an @ past pos 0 —
+    // that means it's already canonical (@scope/x@1.2.3 doesn't have ':')
+    // and shouldn't have matched, but belt + suspenders.
+    return `${yaml[1]}@${yaml[2]}`;
+  }
+
+  // Already canonical or partial — pass through unchanged.
+  return input;
+}
+
 export function snsoftPackageNameFromSpec(spec: string): string | null {
   const trimmed = spec.trim();
   if (!isAllowedSnsoftPackageSpec(trimmed)) return null;

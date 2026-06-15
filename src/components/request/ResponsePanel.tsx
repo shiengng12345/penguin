@@ -6,6 +6,7 @@ import { Copy, Clock, AlertCircle, CheckCircle2 } from "lucide-react";
 import { isLightAppTheme } from "@/lib/theme";
 import { formatGrpcStatusBadgeLabel, summarizeGrpcStatusResponse } from "@/lib/grpc-status";
 import { cn } from "@/lib/utils";
+import { writeClipboard } from "@/lib/clipboard";
 
 function stripUnderscoreKeys(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
@@ -292,7 +293,7 @@ export function ResponsePanel() {
     `${tab.response.status}${tab.response.statusCode > 0 ? ` ${tab.response.statusCode}` : ""}`;
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(activeBody);
+    writeClipboard(activeBody);
   };
 
   return (

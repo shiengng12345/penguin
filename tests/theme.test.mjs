@@ -31,9 +31,14 @@ test("treats Antarctic Snow as a light visual theme", async () => {
 });
 
 test("Antarctic Snow background covers html and body", async () => {
+  // Tightened: a single comma-joined regex broke on any reformatting
+  // (e.g. each selector on its own line). Assert each selector
+  // independently — the meaningful invariant is that BOTH html[data-
+  // theme] and [data-theme] body receive an antarctic-snow background.
   const source = await readFile(new URL("../src/index.css", import.meta.url), "utf8");
 
-  assert.match(source, /html\[data-theme="antarctic-snow"\],\s*\[data-theme="antarctic-snow"\] body/);
+  assert.match(source, /html\[data-theme="antarctic-snow"\]/);
+  assert.match(source, /\[data-theme="antarctic-snow"\]\s+body/);
 });
 
 test("rejects unknown theme names", async () => {

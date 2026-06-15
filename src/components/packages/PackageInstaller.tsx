@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Package, X, Download, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { isAllowedSnsoftPackageSpec, protocolFromSnsoftPackageSpec } from "@penguin/core";
+import { isAllowedSnsoftPackageSpec, normalizePackageSpec, protocolFromSnsoftPackageSpec } from "@penguin/core";
 
 function detectProtocol(spec: string): "grpc-web" | "grpc" | "sdk" | null {
   return protocolFromSnsoftPackageSpec(spec);
@@ -131,7 +131,7 @@ export function PackageInstaller({ onInstall, onClose }: PackageInstallerProps) 
             <div className="flex gap-2">
               <Input
                 value={spec}
-                onChange={(e) => setSpec(e.target.value)}
+                onChange={(e) => setSpec(normalizePackageSpec(e.target.value))}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     if (installDone) { onClose(); return; }
@@ -157,7 +157,10 @@ export function PackageInstaller({ onInstall, onClose }: PackageInstallerProps) 
               )}
             </div>
             <p className="mt-1 text-[10px] text-muted-foreground">
-              Format: @snsoft/example-grpc-web@1.0.0 or @snsoft/js-sdk@1.0.0
+              Format: <code>@snsoft/example-grpc-web@1.0.0</code> or <code>@snsoft/js-sdk@1.0.0</code>
+            </p>
+            <p className="mt-0.5 text-[10px] text-muted-foreground/80">
+              Tip: paste a <code>package.json</code> line like <code>&quot;@snsoft/x&quot;: &quot;1.0.0&quot;</code> — auto-converts.
             </p>
           </div>
 

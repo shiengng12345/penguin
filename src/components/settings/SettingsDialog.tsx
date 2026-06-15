@@ -36,6 +36,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { writeClipboard } from "@/lib/clipboard";
 
 const PROTOCOL_TABS: { id: VisibleProtocolTab; label: string; icon: typeof Globe }[] = [
   { id: "grpc-web", label: "gRPC-Web", icon: Globe },
@@ -186,7 +187,7 @@ export function SettingsDialog({
     setCopiedState: (copied: boolean) => void,
   ) => {
     if (!canCopyMcpSetup) return;
-    await navigator.clipboard.writeText(text);
+    await writeClipboard(text);
     setCopiedState(true);
     setTimeout(() => setCopiedState(false), 2000);
   };
@@ -309,7 +310,7 @@ export function SettingsDialog({
 
   const handleCopyExport = () => {
     exportRef.current?.select();
-    navigator.clipboard.writeText(exportRef.current?.value ?? "");
+    writeClipboard(exportRef.current?.value ?? "");
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -511,6 +512,26 @@ export function SettingsDialog({
                 </div>
               )}
             </div>
+
+            {/* Auto-check toggle — default OFF. User opts in to background
+                update polling. Manual "Check for Updates" above still works. */}
+            <label className="mt-3 flex cursor-pointer items-start gap-2 rounded border border-border/60 bg-background/40 p-2 text-xs hover:bg-accent/30">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer accent-primary"
+                checked={appUpdate.autoCheckEnabled}
+                onChange={(e) => appUpdate.setAutoCheckEnabled(e.target.checked)}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-foreground">
+                  Auto-check for updates / 自动检查更新
+                </p>
+                <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                  Polls on startup, hourly, and when the window regains focus.
+                  Off by default — flip on if you want background checks.
+                </p>
+              </div>
+            </label>
           </div>
 
           <DeveloperModeSection />

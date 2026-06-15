@@ -67,15 +67,30 @@ test("REST method selector uses themed app Select instead of native select", asy
 });
 
 test("URL bar keeps REST method menu above the request panel", async () => {
+  // Stacking context — the URL bar root sits above the request panel
+  // (z-30 + relative to anchor the method dropdown). Match the tokens
+  // independently so Tailwind class reorder doesn't break the test.
   const source = await readFile(new URL("../src/components/layout/UrlBar.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /relative z-30 border-b border-border bg-card/);
+  const rootClassMatch = source.match(/className="([^"]+)"/);
+  assert.ok(rootClassMatch, "UrlBar must have a className on its root");
+  const rootClass = rootClassMatch[1];
+  assert.match(rootClass, /\brelative\b/);
+  assert.match(rootClass, /\bz-30\b/);
 });
 
 test("header keeps environment and theme dropdowns above lower bars", async () => {
+  // Header must declare a stacking context (z-40) so its dropdowns float
+  // above the URL bar (z-30). Anchor on the <header> element + assert
+  // each token independently so a Prettier class reorder doesn't break
+  // the test.
   const source = await readFile(new URL("../src/components/layout/Header.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /relative z-40/);
+  const headerMatch = source.match(/<header className="([^"]+)"/);
+  assert.ok(headerMatch, "<header> element with className not found");
+  const headerClass = headerMatch[1];
+  assert.match(headerClass, /\brelative\b/);
+  assert.match(headerClass, /\bz-40\b/);
 });
 
 test("themed Select menu uses an opaque app background", async () => {
@@ -87,9 +102,22 @@ test("themed Select menu uses an opaque app background", async () => {
 });
 
 test("themed Select selected and highlighted rows use solid primary color", async () => {
+  // Tightened: closing-quote-anchored regex broke on any token
+  // reorder. Now extract each conditional's class string and assert
+  // tokens independently.
   const source = await readFile(new URL("../src/components/ui/select.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /isHighlighted && "bg-primary text-primary-foreground"/);
-  assert.match(source, /isSelected && "bg-primary text-primary-foreground font-medium"/);
+  const hi = source.match(/isHighlighted && "([^"]+)"/);
+  assert.ok(hi, "isHighlighted conditional className not found");
+  assert.match(hi[1], /\bbg-primary\b/);
+  assert.match(hi[1], /\btext-primary-foreground\b/);
+
+  const sel = source.match(/isSelected && "([^"]+)"/);
+  assert.ok(sel, "isSelected conditional className not found");
+  assert.match(sel[1], /\bbg-primary\b/);
+  assert.match(sel[1], /\btext-primary-foreground\b/);
+  assert.match(sel[1], /\bfont-medium\b/);
+
+  // Anti-regression — must NOT regress to the prior pale-accent style.
   assert.doesNotMatch(source, /isHighlighted && "bg-accent/);
 });

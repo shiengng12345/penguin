@@ -1,4 +1,4 @@
-import { BookOpen, Globe, Lock, Sparkles } from "lucide-react";
+import { BookOpen, Globe, Lock, Send } from "lucide-react";
 import { useDeveloperMode } from "@/hooks/useDeveloperMode";
 import { logger } from "@/lib/logger";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,7 @@ interface HomePageProps {
   onSelectApiClient: () => void;
   onSelectVault: () => void;
   onSelectDocs: () => void;
+  onSelectRest: () => void;
 }
 
 interface ModuleCardProps {
@@ -21,12 +22,16 @@ interface ModuleCardProps {
   onClick: () => void;
 }
 
-// Module launcher landing page. Reached by clicking the Penguin avatar in the
-// Header. Renders a grid of available modules; clicking a card hands off to
-// the chosen module via the supplied callback.
+// Module launcher landing page. Reached by clicking the Penguin avatar in
+// the Header. Tier gating mirrors MainSidebar so the cards stay in sync
+// with what's actually clickable from the rail:
+//   - Client: always available
+//   - Vault: token tier (dev mode on + valid token)
+//   - REST + Knowledge Base: super-admin tier
 export function HomePage(props: HomePageProps) {
-  const { enabled, hasValidToken } = useDeveloperMode();
+  const { enabled, hasValidToken, isSuperAdmin } = useDeveloperMode();
   const isVaultUnlocked = enabled && hasValidToken;
+  const isSuperUnlocked = enabled && isSuperAdmin;
 
   const handleSelectApiClient = (): void => {
     logger.info(LOG_SCOPE, "handleSelectApiClient — entry");
@@ -35,16 +40,27 @@ export function HomePage(props: HomePageProps) {
   };
 
   const handleSelectVault = (): void => {
-    logger.info(LOG_SCOPE, "handleSelectVault — entry");
-    const isLocked = !isVaultUnlocked;
-    // Card is rendered disabled when locked, but defensive guard prevents a
-    // misconfigured caller from punching through.
-    if (isLocked) {
+    if (!isVaultUnlocked) {
       logger.warn(LOG_SCOPE, "handleSelectVault — locked");
       return;
     }
     props.onSelectVault();
-    logger.info(LOG_SCOPE, "handleSelectVault — exit");
+  };
+
+  const handleSelectDocs = (): void => {
+    if (!isSuperUnlocked) {
+      logger.warn(LOG_SCOPE, "handleSelectDocs — locked (super-admin required)");
+      return;
+    }
+    props.onSelectDocs();
+  };
+
+  const handleSelectRest = (): void => {
+    if (!isSuperUnlocked) {
+      logger.warn(LOG_SCOPE, "handleSelectRest — locked (super-admin required)");
+      return;
+    }
+    props.onSelectRest();
   };
 
   return (
@@ -62,32 +78,34 @@ export function HomePage(props: HomePageProps) {
       <div className="grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2">
         <ModuleCard
           title="API Client"
-          description="gRPC-Web · gRPC · SDK · REST — 发送请求 / 调试 / 保存"
+          description="gRPC-Web · gRPC · SDK — 发送请求 / 调试 / 保存"
           icon={<Globe className="h-6 w-6" />}
           badge="Default"
           onClick={handleSelectApiClient}
         />
         <ModuleCard
-          title="Knowledge Base"
-          description="API 文档知识库：集合 / 端点 / 参数表 / 示例 · 复制 · Lark 同步"
-          icon={<BookOpen className="h-6 w-6" />}
-          onClick={props.onSelectDocs}
-        />
-        <ModuleCard
           title="Vault"
-          description="凭据管理：从 Lark 文档同步 · 复制 · CRUD（superadmin）"
+          description="凭据管理：从 Lark 文档同步 · 复制 · CRUD"
           icon={<Lock className="h-6 w-6" />}
           locked={!isVaultUnlocked}
           lockedHint="需要 Developer Mode 已开启 + token 已验证"
           onClick={handleSelectVault}
         />
         <ModuleCard
-          title="More Coming"
-          description="计划：响应提取变量 · 直连 Lark API · 更多 module"
-          icon={<Sparkles className="h-6 w-6" />}
-          locked
-          lockedHint="Coming soon"
-          onClick={() => undefined}
+          title="REST"
+          description="REST API 客户端：collections / 环境 / Postman-style import（super-admin）"
+          icon={<Send className="h-6 w-6" />}
+          locked={!isSuperUnlocked}
+          lockedHint="需要 super-admin token"
+          onClick={handleSelectRest}
+        />
+        <ModuleCard
+          title="Knowledge Base"
+          description="API 文档：集合 / 端点 / 参数表 / 示例 · Lark 同步（super-admin）"
+          icon={<BookOpen className="h-6 w-6" />}
+          locked={!isSuperUnlocked}
+          lockedHint="需要 super-admin token"
+          onClick={handleSelectDocs}
         />
       </div>
     </div>

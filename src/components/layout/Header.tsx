@@ -109,9 +109,10 @@ const PenguinBrand = memo(function PenguinBrand({ onClickHome, canEnterHome }: P
 
 export function Header({ onOpenSettings, onOpenHome, appUpdate }: HeaderProps) {
   const { theme, setTheme } = useAppStore();
-  // Gate on hasValidToken (DEC #56) — enabling Dev Mode alone is not enough;
-  // the user must also validate the token before Vault + Home hub light up.
-  const { hasValidToken } = useDeveloperMode();
+  // Home launcher is super-admin only (post-10D revision): normal admins
+  // get Client + Vault directly via MainSidebar, no module-launcher hop.
+  // Header's penguin avatar — which opens Home — is gated to match.
+  const { isSuperAdmin } = useDeveloperMode();
   const {
     environments,
     activeEnvId,
@@ -161,7 +162,7 @@ export function Header({ onOpenSettings, onOpenHome, appUpdate }: HeaderProps) {
 
   return (
     <header className="relative z-40 flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-4">
-      <PenguinBrand onClickHome={onOpenHome} canEnterHome={hasValidToken} />
+      <PenguinBrand onClickHome={onOpenHome} canEnterHome={isSuperAdmin} />
 
       <div className="flex items-center gap-2">
         {/* Vault button removed (Sprint 8.3) — MainSidebar's Vault icon replaces it. */}

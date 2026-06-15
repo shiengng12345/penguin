@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { invoke } from "@tauri-apps/api/core";
 import {
   clearHistoryInDatabase,
   countHistoryInDatabase,
@@ -21,6 +22,8 @@ import { THEMES, type AppTheme } from "./theme";
 import {
   visibleProtocolForTab,
   type AppState,
+  type BrowserDeeplinkRequest,
+  type BrowserShortcut,
   type MetadataEntry,
   type ProtocolTab,
   type RequestTab,
@@ -34,7 +37,12 @@ import {
   THEME_KEY,
   TUTORIAL_KEY,
   USERNAME_KEY,
+  loadAliyunData,
+  loadBrowserAutoSubmit,
+  loadBrowserAutoSubmitGlobal,
+  loadBrowserShortcuts,
   loadDefaultHeaders,
+  loadJenkinsData,
   loadLegacyHistoryBlob,
   loadMaxHistorySize,
   loadSavedRequests,
@@ -42,6 +50,11 @@ import {
   loadTabs,
   loadTheme,
   loadUserName,
+  persistAliyunData,
+  persistJenkinsData,
+  persistBrowserAutoSubmit,
+  persistBrowserAutoSubmitGlobal,
+  persistBrowserShortcuts,
   saveTabs,
 } from "./store-persistence-helpers";
 
@@ -115,6 +128,21 @@ export function mergeWithDefaultHeaders(
 export { createTab };
 
 export const HISTORY_PAGE_SIZE = 50;
+
+// Initial shape for a fresh RestResponseSlot. Centralized so the four
+// slot writers (setRestResponseResult / setRestSending /
+// setRestResponseSubTab / setRestResponseShowFullBody) can all spread
+// defaults under any partial they're given without duplicating fields.
+function defaultRestSlot(): import("./store-types").RestResponseSlot {
+  return {
+    response: null,
+    sendError: null,
+    sending: false,
+    sendVersion: 0,
+    subTab: "body",
+    showFullBody: false,
+  };
+}
 
 export const useAppStore = create<AppState>((set, get) => {
   const initialTheme = loadTheme();
@@ -304,6 +332,414 @@ export const useAppStore = create<AppState>((set, get) => {
         restActiveEnvId: s.restActiveEnvId === id ? null : s.restActiveEnvId,
       })),
 
+    // -- Session-only REST per-request response slice --
+    // NOT persisted to app_kv (responses can be 10-50 MB; SQLite would
+    // bloat). Lives only for the lifetime of the app process. Survives
+    // RestRequestEditor unmount on module switch — that's the entire
+    // reason this exists. See store-types.ts for shape rationale.
+    restResponses: {},
+    setRestResponseResult: (id, version, response, error) =>
+      set((s) => {
+        const slot = s.restResponses[id];
+        // Stale guard: a send started at version V can only write its
+        // result if no newer send has bumped the version since. Catches
+        // race where user clicks Send twice / cancels / switches module
+        // mid-flight then sends again.
+        if (slot && slot.sendVersion !== version) return s;
+        return {
+          restResponses: {
+            ...s.restResponses,
+            [id]: {
+              ...defaultRestSlot(),
+              ...(slot ?? {}),
+              response,
+              sendError: error,
+              sending: false,
+            },
+          },
+        };
+      }),
+    setRestSending: (id, sending) =>
+      set((s) => ({
+        restResponses: {
+          ...s.restResponses,
+          [id]: { ...defaultRestSlot(), ...(s.restResponses[id] ?? {}), sending },
+        },
+      })),
+    bumpRestSendVersion: (id) => {
+      let next = 1;
+      set((s) => {
+        const slot = s.restResponses[id] ?? defaultRestSlot();
+        next = slot.sendVersion + 1;
+        return {
+          restResponses: {
+            ...s.restResponses,
+            [id]: { ...slot, sendVersion: next },
+          },
+        };
+      });
+      return next;
+    },
+    setRestResponseSubTab: (id, subTab) =>
+      set((s) => ({
+        restResponses: {
+          ...s.restResponses,
+          [id]: { ...defaultRestSlot(), ...(s.restResponses[id] ?? {}), subTab },
+        },
+      })),
+    setRestResponseShowFullBody: (id, showFull) =>
+      set((s) => ({
+        restResponses: {
+          ...s.restResponses,
+          [id]: {
+            ...defaultRestSlot(),
+            ...(s.restResponses[id] ?? {}),
+            showFullBody: showFull,
+          },
+        },
+      })),
+    clearRestResponse: (id) =>
+      set((s) => {
+        if (!(id in s.restResponses)) return s;
+        const next = { ...s.restResponses };
+        delete next[id];
+        return { restResponses: next };
+      }),
+
+    // -- Session-only REST workspace UI state --
+    // Lifted out of RestPage's local useState so it survives module
+    // switch. See store-types.ts RestWorkspaceState comment.
+    restWorkspace: {
+      selectedProjectId: null,
+      selectedEnvId: null,
+      openTabIds: [],
+      activeTabId: null,
+      lastCollectionId: null,
+    },
+    setRestWorkspace: (patch) =>
+      set((s) => ({ restWorkspace: { ...s.restWorkspace, ...patch } })),
+
+    // -- In-app Browser module --
+    // Pinned shortcuts hydrated from app_kv on startup; the rest of
+    // the state (activeShortcutId, pendingDeeplink) is session-only.
+    // See loadBrowserShortcuts below for the hydrate path.
+    browser: {
+      shortcuts: loadBrowserShortcuts(),
+      activeShortcutId: null,
+      pendingDeeplink: null,
+      autoSubmitByShortcutId: loadBrowserAutoSubmit(),
+      autoSubmitGlobalEnabled: loadBrowserAutoSubmitGlobal(),
+    },
+    addOrPromoteBrowserShortcut: (shortcut) => {
+      // De-dupe by URL — if the user already has this URL pinned,
+      // promote it (update label / token / baseKind) and return its
+      // existing id. Avoids 4 "Vault QAT" pins after 4 deeplinks.
+      const existing = get().browser.shortcuts.find((s) => s.url === shortcut.url);
+      if (existing !== undefined) {
+        const merged: BrowserShortcut = {
+          ...existing,
+          label: shortcut.label,
+          prefillToken: shortcut.prefillToken ?? existing.prefillToken,
+          prefillUsername: shortcut.prefillUsername ?? existing.prefillUsername,
+          prefillPassword: shortcut.prefillPassword ?? existing.prefillPassword,
+          baseKind: shortcut.baseKind ?? existing.baseKind,
+          projectId: shortcut.projectId ?? existing.projectId,
+          envId: shortcut.envId ?? existing.envId,
+        };
+        const next = get().browser.shortcuts.map((s) => (s.id === existing.id ? merged : s));
+        set((s) => ({ browser: { ...s.browser, shortcuts: next, activeShortcutId: existing.id } }));
+        persistBrowserShortcuts(next);
+        return existing.id;
+      }
+      const newShortcut: BrowserShortcut = {
+        id: `shortcut-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        label: shortcut.label,
+        url: shortcut.url,
+        prefillToken: shortcut.prefillToken,
+        prefillUsername: shortcut.prefillUsername,
+        prefillPassword: shortcut.prefillPassword,
+        baseKind: shortcut.baseKind,
+        projectId: shortcut.projectId,
+        envId: shortcut.envId,
+        parentId: shortcut.parentId,
+        createdAt: Date.now(),
+      };
+      const next = [...get().browser.shortcuts, newShortcut];
+      set((s) => ({ browser: { ...s.browser, shortcuts: next, activeShortcutId: newShortcut.id } }));
+      persistBrowserShortcuts(next);
+      return newShortcut.id;
+    },
+    duplicateBrowserShortcut: (source) => {
+      // Resolve to the top-level ancestor — duplicating a duplicate
+      // produces another sibling, not a grandchild (depth capped at 1
+      // for visual clarity). For vault-derived sources (synthetic id
+      // starting with "vault-"), use the synthetic id as parent so
+      // refreshes that recreate the parent don't orphan the branch.
+      const all = get().browser.shortcuts;
+      let topLevelId = source.parentId;
+      if (topLevelId === undefined) {
+        topLevelId = source.id;
+      }
+      // Pick the next free suffix among existing siblings sharing this
+      // parent. Existing labels like "QAT", "QAT (2)", "QAT (3)" →
+      // next is "QAT (4)". The base name is the source's current
+      // label minus any " (N)" tail.
+      const baseLabel = source.label.replace(/ \(\d+\)$/, "");
+      const siblings = all.filter((s) => s.parentId === topLevelId);
+      let nextN = 2;
+      while (
+        siblings.some((s) => s.label === `${baseLabel} (${nextN})`) ||
+        baseLabel === `${baseLabel} (${nextN})`
+      ) {
+        nextN += 1;
+      }
+      const newShortcut: BrowserShortcut = {
+        id: `shortcut-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        label: `${baseLabel} (${nextN})`,
+        url: source.url,
+        prefillToken: source.prefillToken,
+        prefillUsername: source.prefillUsername,
+        prefillPassword: source.prefillPassword,
+        baseKind: source.baseKind,
+        projectId: source.projectId,
+        envId: source.envId,
+        parentId: topLevelId,
+        createdAt: Date.now(),
+      };
+      const next = [...all, newShortcut];
+      set((s) => ({
+        browser: { ...s.browser, shortcuts: next, activeShortcutId: newShortcut.id },
+      }));
+      persistBrowserShortcuts(next);
+      return newShortcut.id;
+    },
+    removeBrowserShortcut: (id) => {
+      const next = get().browser.shortcuts.filter((s) => s.id !== id);
+      const wasActive = get().browser.activeShortcutId === id;
+      // Drop any autoSubmit opt-in for the removed id so stale entries
+      // don't accumulate forever in app_kv.
+      const prevMap = get().browser.autoSubmitByShortcutId;
+      let nextMap = prevMap;
+      if (prevMap[id] !== undefined) {
+        nextMap = { ...prevMap };
+        delete nextMap[id];
+      }
+      set((s) => ({
+        browser: {
+          ...s.browser,
+          shortcuts: next,
+          activeShortcutId: wasActive ? null : s.browser.activeShortcutId,
+          autoSubmitByShortcutId: nextMap,
+        },
+      }));
+      persistBrowserShortcuts(next);
+      if (nextMap !== prevMap) persistBrowserAutoSubmit(nextMap);
+      // Close the underlying webview (both old + new prefix variants
+      // in case the user has zombies from a pre-rename run) so we
+      // don't leak processes when the user removes shortcuts.
+      void invoke("inline_webview_close", { label: `inline-browser-${id}` }).catch(() => {});
+      void invoke("inline_webview_close", { label: `browser-${id}` }).catch(() => {});
+    },
+    renameBrowserShortcut: (id, label) => {
+      const trimmed = label.trim();
+      if (trimmed.length === 0) return;
+      const next = get().browser.shortcuts.map((s) =>
+        s.id === id ? { ...s, label: trimmed } : s,
+      );
+      set((s) => ({ browser: { ...s.browser, shortcuts: next } }));
+      persistBrowserShortcuts(next);
+    },
+    reorderBrowserShortcuts: (orderedIds) => {
+      const byId = new Map(get().browser.shortcuts.map((s) => [s.id, s] as const));
+      const reordered: BrowserShortcut[] = [];
+      for (const id of orderedIds) {
+        const s = byId.get(id);
+        if (s !== undefined) {
+          reordered.push(s);
+          byId.delete(id);
+        }
+      }
+      for (const leftover of byId.values()) reordered.push(leftover);
+      set((s) => ({ browser: { ...s.browser, shortcuts: reordered } }));
+      persistBrowserShortcuts(reordered);
+    },
+    setActiveBrowserShortcut: (id) =>
+      set((s) => ({ browser: { ...s.browser, activeShortcutId: id } })),
+    requestBrowserDeeplink: (request: BrowserDeeplinkRequest) =>
+      set((s) => ({ browser: { ...s.browser, pendingDeeplink: request } })),
+    consumeBrowserDeeplink: () => {
+      const current = get().browser.pendingDeeplink;
+      if (current === null) return null;
+      set((s) => ({ browser: { ...s.browser, pendingDeeplink: null } }));
+      return current;
+    },
+    setBrowserAutoSubmitGlobal: (enabled) => {
+      if (get().browser.autoSubmitGlobalEnabled === enabled) return;
+      set((s) => ({ browser: { ...s.browser, autoSubmitGlobalEnabled: enabled } }));
+      persistBrowserAutoSubmitGlobal(enabled);
+    },
+    setBrowserShortcutAutoSubmit: (id, enabled) => {
+      const prev = get().browser.autoSubmitByShortcutId;
+      // BOTH true and false are stored explicitly. The map is now a
+      // user-override layer over the new default (prefill-bearing
+      // shortcuts default ON) — without persisting `false` an opt-out
+      // would silently flip back to ON on next launch.
+      if (prev[id] === enabled) return;
+      const next: Record<string, boolean> = { ...prev, [id]: enabled };
+      set((s) => ({ browser: { ...s.browser, autoSubmitByShortcutId: next } }));
+      persistBrowserAutoSubmit(next);
+    },
+
+    // -- Aliyun tab CRUD --
+    // Independent from Vault. The persistence layer collapses both
+    // arrays into a single app_kv blob, so every action persists the
+    // FULL current aliyun state.
+    aliyun: loadAliyunData(),
+    addAliyunAccount: (payload) => {
+      const newAccount = {
+        id: `aliyun-acc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        label: payload.label,
+        username: payload.username,
+        password: payload.password,
+        totpSecret: payload.totpSecret,
+        createdAt: Date.now(),
+      };
+      const next = { ...get().aliyun, accounts: [...get().aliyun.accounts, newAccount] };
+      set({ aliyun: next });
+      persistAliyunData(next);
+      return newAccount.id;
+    },
+    updateAliyunAccount: (id, patch) => {
+      const accounts = get().aliyun.accounts.map((a) =>
+        a.id === id ? { ...a, ...patch } : a,
+      );
+      const next = { ...get().aliyun, accounts };
+      set({ aliyun: next });
+      persistAliyunData(next);
+    },
+    removeAliyunAccount: (id) => {
+      const accounts = get().aliyun.accounts.filter((a) => a.id !== id);
+      const orphanedLinks = get().aliyun.links.filter((l) => l.accountId === id);
+      const links = get().aliyun.links.filter((l) => l.accountId !== id);
+      // Close any open webview for each orphaned link.
+      for (const link of orphanedLinks) {
+        void invoke("inline_webview_close", {
+          label: `inline-browser-${link.id}`,
+        }).catch(() => {});
+      }
+      // Delete the shared on-disk WKWebsiteDataStore for this account
+      // (cookies + IndexedDB + cache). Without this the directory
+      // accumulates indefinitely under ~/.penguin/inline-webview-data/.
+      // account.id is the dataKey (see AliyunSidebar.aliyunLinkToBrowserShortcut).
+      void invoke("inline_webview_delete_data_dir", { dataKey: id }).catch(() => {});
+      const next = { accounts, links };
+      set({ aliyun: next });
+      persistAliyunData(next);
+    },
+    addAliyunLink: (payload) => {
+      const newLink = {
+        id: `aliyun-link-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        label: payload.label,
+        url: payload.url,
+        accountId: payload.accountId,
+        createdAt: Date.now(),
+      };
+      const next = { ...get().aliyun, links: [...get().aliyun.links, newLink] };
+      set({ aliyun: next });
+      persistAliyunData(next);
+      return newLink.id;
+    },
+    updateAliyunLink: (id, patch) => {
+      const links = get().aliyun.links.map((l) =>
+        l.id === id ? { ...l, ...patch } : l,
+      );
+      const next = { ...get().aliyun, links };
+      set({ aliyun: next });
+      persistAliyunData(next);
+    },
+    removeAliyunLink: (id) => {
+      const links = get().aliyun.links.filter((l) => l.id !== id);
+      const next = { ...get().aliyun, links };
+      set({ aliyun: next });
+      persistAliyunData(next);
+      // Close the inline webview spawned by this link (if any). Same
+      // reasoning as removeAliyunAccount — branches have isolated data
+      // dirs that accumulate on disk; close lets the OS reclaim and
+      // makes a future re-add use a fresh session.
+      void invoke("inline_webview_close", {
+        label: `inline-browser-${id}`,
+      }).catch(() => {});
+    },
+
+    // -- Jenkins tab CRUD (mirror of Aliyun) --
+    jenkins: loadJenkinsData(),
+    addJenkinsAccount: (payload) => {
+      const newAccount = {
+        id: `jenkins-acc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        label: payload.label,
+        username: payload.username,
+        password: payload.password,
+        totpSecret: payload.totpSecret,
+        createdAt: Date.now(),
+      };
+      const next = { ...get().jenkins, accounts: [...get().jenkins.accounts, newAccount] };
+      set({ jenkins: next });
+      persistJenkinsData(next);
+      return newAccount.id;
+    },
+    updateJenkinsAccount: (id, patch) => {
+      const accounts = get().jenkins.accounts.map((a) =>
+        a.id === id ? { ...a, ...patch } : a,
+      );
+      const next = { ...get().jenkins, accounts };
+      set({ jenkins: next });
+      persistJenkinsData(next);
+    },
+    removeJenkinsAccount: (id) => {
+      const accounts = get().jenkins.accounts.filter((a) => a.id !== id);
+      const orphanedLinks = get().jenkins.links.filter((l) => l.accountId === id);
+      const links = get().jenkins.links.filter((l) => l.accountId !== id);
+      for (const link of orphanedLinks) {
+        void invoke("inline_webview_close", {
+          label: `inline-browser-${link.id}`,
+        }).catch(() => {});
+      }
+      void invoke("inline_webview_delete_data_dir", { dataKey: id }).catch(() => {});
+      const next = { accounts, links };
+      set({ jenkins: next });
+      persistJenkinsData(next);
+    },
+    addJenkinsLink: (payload) => {
+      const newLink = {
+        id: `jenkins-link-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        label: payload.label,
+        url: payload.url,
+        accountId: payload.accountId,
+        createdAt: Date.now(),
+      };
+      const next = { ...get().jenkins, links: [...get().jenkins.links, newLink] };
+      set({ jenkins: next });
+      persistJenkinsData(next);
+      return newLink.id;
+    },
+    updateJenkinsLink: (id, patch) => {
+      const links = get().jenkins.links.map((l) =>
+        l.id === id ? { ...l, ...patch } : l,
+      );
+      const next = { ...get().jenkins, links };
+      set({ jenkins: next });
+      persistJenkinsData(next);
+    },
+    removeJenkinsLink: (id) => {
+      const links = get().jenkins.links.filter((l) => l.id !== id);
+      const next = { ...get().jenkins, links };
+      set({ jenkins: next });
+      persistJenkinsData(next);
+      void invoke("inline_webview_close", {
+        label: `inline-browser-${id}`,
+      }).catch(() => {});
+    },
+
     theme: initialTheme,
     setTheme: (theme) => {
       if (typeof window !== "undefined") {
@@ -346,6 +782,8 @@ export const useAppStore = create<AppState>((set, get) => {
     setHasValidToken: (value) => set({ hasValidToken: value }),
     isSuperAdmin: false,
     setIsSuperAdmin: (value) => set({ isSuperAdmin: value }),
+    devModeHydrated: false,
+    setDevModeHydrated: (value) => set({ devModeHydrated: value }),
     vaultProjects: [],
     setVaultProjects: (projects) => set({ vaultProjects: projects }),
     vaultLarkUrl: null,
@@ -354,6 +792,10 @@ export const useAppStore = create<AppState>((set, get) => {
     setVaultLastSyncedAt: (timestamp) => set({ vaultLastSyncedAt: timestamp }),
     vaultIsDirty: false,
     setVaultIsDirty: (value) => set({ vaultIsDirty: value }),
+    vaultSelectedProjectId: null,
+    setVaultSelectedProjectId: (id) => set({ vaultSelectedProjectId: id }),
+    vaultSelectedEnvId: "DEV",
+    setVaultSelectedEnvId: (id) => set({ vaultSelectedEnvId: id }),
     history: [],
     historyTotal: 0,
     addHistory: (entry) => {
@@ -448,12 +890,20 @@ if (typeof window !== "undefined") {
       document.documentElement.setAttribute("data-theme", theme);
 
       const restored = loadTabs();
+      // Re-read devModeEnabled from the now-populated cache. The store's
+      // initial value at line 340 reads at module-eval time and CAN
+      // race ahead of hydrate when something static-imports App (the
+      // race that vanishes the super-admin token after every full
+      // reload). Reading again here is defense-in-depth — even if a
+      // future refactor re-introduces an eager import, the flag self-
+      // heals once hydration lands.
       const update: Partial<AppState> = {
         defaultHeaders: loadDefaultHeaders(),
         maxHistorySize: loadMaxHistorySize(),
         showTutorial: loadShowTutorial(),
         theme,
         userName: loadUserName(),
+        devModeEnabled: getPersistedValue(APP_VALUE_KEYS.devModeEnabled) === "true",
       };
 
       if (restored.tabs.length > 0) {
@@ -473,6 +923,16 @@ if (typeof window !== "undefined") {
       }
 
       useAppStore.setState(update);
+
+      // If devModeEnabled just flipped on via the rehydrate above,
+      // App.tsx's mount effect already fired with the stale `false` and
+      // won't re-run initializeDevModeOnAppStart. Kick loadToken()
+      // ourselves so hasValidToken / isSuperAdmin reflect the on-disk
+      // token without forcing the user to retype it. Dynamic import
+      // breaks the dev-mode-store → store circular dependency.
+      if (update.devModeEnabled) {
+        void import("./dev-mode-store").then((m) => m.loadToken());
+      }
 
       const databaseSavedRequests = await loadSavedRequestsFromDatabase();
       if (databaseSavedRequests.length > 0) {

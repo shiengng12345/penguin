@@ -7,9 +7,14 @@ const SOURCE_URL = new URL(
   import.meta.url,
 );
 
-test("vault-diff source exports computeVaultDiff (DEC #95)", async () => {
+test("vault-diff source exports computeVaultDiff with payload-shaped signature", async () => {
+  // Tightened: bare /export function computeVaultDiff\(/ would pass
+  // even if the signature broke its payload-shape contract. Lock the
+  // payload param type so a refactor that goes back to positional
+  // args breaks this test.
   const source = await readFile(SOURCE_URL, "utf8");
-  assert.match(source, /export function computeVaultDiff\(/);
+  assert.match(source, /export function computeVaultDiff\([\w]+: ComputeVaultDiffPayload\)/);
+  assert.match(source, /export interface ComputeVaultDiffPayload/);
 });
 
 test("vault-diff exports the VaultDiffResult shape (added/modified/deleted)", async () => {

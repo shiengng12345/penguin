@@ -8,6 +8,7 @@ import type {
 } from "@penguin/core";
 import type { AppTheme } from "./theme";
 import type { RestBodyMode, RestMethod } from "./rest";
+import type { RestResponse } from "@/components/rest/rest-types";
 
 // --- Types ---
 
@@ -20,6 +21,166 @@ export type ProtoMethod = CoreProtoMethod;
 export type FieldInfo = CoreFieldInfo;
 export type MetadataEntry = CoreMetadataEntry;
 export type ResponseState = CoreResponseState;
+
+export interface RestWorkspaceState {
+  selectedProjectId: string | null;
+  selectedEnvId: string | null;
+  openTabIds: string[];
+  activeTabId: string | null;
+  // The collection the user last opened a request under or clicked in
+  // the sidebar — used as the New Request dialog's default picker.
+  lastCollectionId: string | null;
+}
+
+// One entry in the Browser module's left rail. Persists across restart
+// (URL + label + optional baseKind icon + optional prefillToken for
+// auto-fill). The actual auth cookies persist independently via Tauri's
+// WKWebSiteDataStore — this slice just holds the user's pinned set.
+export interface BrowserShortcut {
+  id: string;
+  label: string;
+  url: string;
+  // For Vault baseKind: token-string used by the prefill-injection
+  // script the first time a shortcut is opened. Re-injection on reload
+  // also uses this. Stored alongside other secrets — the user's vault
+  // is already on local disk, so this isn't a new exposure surface.
+  prefillToken?: string;
+  // For Argo baseKind: username + password parsed from the paired
+  // "login" credential's value (`username||password` delimited or
+  // a JSON object). Same locality + sensitivity story as prefillToken.
+  prefillUsername?: string;
+  prefillPassword?: string;
+  // Optional icon hint — mirrors VaultBuiltinKindId so the rail can
+  // show the vault / argocd / web brand icon. "web" or undefined gets
+  // the generic globe.
+  baseKind?: string;
+  // Origin context — Vault deeplinks carry the project + env they
+  // came from so the Browser sidebar can group shortcuts by
+  // {project, env}. Both undefined for shortcuts the user paste-added
+  // manually (rendered under an "Unscoped" group).
+  projectId?: string;
+  envId?: string;
+  // Set when this shortcut is a duplicate ("branch") of another. The
+  // parent id is always a top-level shortcut id (duplicates of
+  // duplicates collapse to the same parent — depth is capped at 1).
+  // Branches inherit the parent's URL + baseKind + prefill data at
+  // creation time but get their OWN unique WKWebView with an isolated
+  // data directory so cookies / storage don't bleed between them.
+  parentId?: string;
+  // Persistent data-store key override. Defaults to parentId ?? id at
+  // render time. Aliyun/Jenkins virtual shortcuts override this to
+  // "aliyun-acc-<id>" / "jenkins-acc-<id>" so all links bound to the
+  // same account share login.
+  dataKey?: string;
+  createdAt: number;
+}
+
+// One-shot deeplink set by the Vault module (or anywhere else),
+// consumed by BrowserPage on its next render. After consumption the
+// requester is cleared. Session-only.
+export interface BrowserDeeplinkRequest {
+  url: string;
+  label: string;
+  prefillToken?: string;
+  prefillUsername?: string;
+  prefillPassword?: string;
+  baseKind?: string;
+  projectId?: string;
+  envId?: string;
+}
+
+export interface BrowserState {
+  shortcuts: BrowserShortcut[];
+  activeShortcutId: string | null;
+  pendingDeeplink: BrowserDeeplinkRequest | null;
+  // Per-shortcut opt-in: after a successful prefill, also click the
+  // Sign in / Login button. Keyed by shortcut id (synthetic for
+  // vault-derived virtual shortcuts, real for manually pasted /
+  // promoted ones). Persisted under APP_VALUE_KEYS.browserAutoSubmit.
+  autoSubmitByShortcutId: Record<string, boolean>;
+  // Master switch — when false, no shortcut auto-submits regardless of
+  // its per-shortcut flag. Default true; persisted under
+  // APP_VALUE_KEYS.browserAutoSubmitGlobal.
+  autoSubmitGlobalEnabled: boolean;
+}
+
+// --- Aliyun tab (independent from Vault) ---
+//
+// The Aliyun tab manages its own accounts + SLS link bookmarks rather
+// than mirroring Vault credentials. Each link binds to exactly one
+// account; opening a link prefills the account's username + password
+// (and uses its TOTP secret for 2FA via the existing auto-submit flow).
+
+export interface AliyunAccount {
+  id: string;
+  label: string;             // user-typed nickname, e.g. "shieng-prod"
+  username: string;
+  password: string;
+  // Base32 TOTP secret for the account's 2FA. Optional — accounts
+  // without 2FA leave this blank. When set, the Authenticator popover
+  // surfaces it AND the sign-in auto-submit injects the current code
+  // into the OTP field before clicking the submit button.
+  totpSecret?: string;
+  createdAt: number;
+}
+
+export interface AliyunLink {
+  id: string;
+  label: string;             // e.g. "FPMS-NT QAT logs"
+  url: string;               // full SLS console URL
+  // Required reference to one AliyunAccount.id. UI's add/edit form
+  // forces the user to pick — links without an account would fall back
+  // to manual sign-in which defeats the purpose of this whole feature.
+  accountId: string;
+  createdAt: number;
+}
+
+export interface AliyunState {
+  accounts: AliyunAccount[];
+  links: AliyunLink[];
+}
+
+// --- Jenkins tab (independent from Vault, mirrors Aliyun shape) ---
+// Structurally identical to AliyunAccount / AliyunLink — kept as
+// distinct types so future per-product fields (e.g. Jenkins crumb-issuer
+// override) can land without polluting Aliyun's surface.
+
+export interface JenkinsAccount {
+  id: string;
+  label: string;
+  username: string;
+  password: string;
+  totpSecret?: string;
+  createdAt: number;
+}
+
+export interface JenkinsLink {
+  id: string;
+  label: string;
+  url: string;
+  accountId: string;
+  createdAt: number;
+}
+
+export interface JenkinsState {
+  accounts: JenkinsAccount[];
+  links: JenkinsLink[];
+}
+
+export type RestResponseSubTab = "body" | "headers" | "cookies" | "tests";
+
+export interface RestResponseSlot {
+  response: RestResponse | null;
+  sendError: string | null;
+  sending: boolean;
+  // Monotonic per-request version — handleSend captures this at start,
+  // and the result setter only writes if its captured version still
+  // matches. Lets a Cancel / new Send / module-switch-then-resend
+  // discard the stale result that arrives later.
+  sendVersion: number;
+  subTab: RestResponseSubTab;
+  showFullBody: boolean;
+}
 
 export interface EnvVariable {
   key: string;
@@ -171,6 +332,78 @@ export interface AppState {
   deleteSdkEnvironment: (id: string) => void;
   deleteRestEnvironment: (id: string) => void;
 
+  // Session-only REST per-request response state.
+  //
+  // Why session-only (not persisted to app_kv): response bodies can be
+  // 10-50 MB; persisting them would balloon ~/.penguin/penguin.sqlite3
+  // and slow hydrate. The cookie / history records (small) are still
+  // SQLite-backed; this slice is just the in-memory mirror that
+  // survives RestRequestEditor unmount on module switch.
+  //
+  // Keyed by RestRequestRecord.id. sendVersion is the cancel token
+  // (bumped per send so stale invoke results get discarded).
+  restResponses: Record<string, RestResponseSlot>;
+  setRestResponseResult: (id: string, version: number, response: RestResponse | null, error: string | null) => void;
+  setRestSending: (id: string, sending: boolean) => void;
+  bumpRestSendVersion: (id: string) => number;
+  setRestResponseSubTab: (id: string, subTab: RestResponseSubTab) => void;
+  setRestResponseShowFullBody: (id: string, showFull: boolean) => void;
+  clearRestResponse: (id: string) => void;
+
+  // Session-only REST workspace UI state. Lifted out of RestPage's
+  // useState so it survives RestPage unmount on module switch — the
+  // user's open tabs, active tab, sidebar project/env selection, and
+  // last-collection-used (for the New Request dialog default) all
+  // come back when they re-enter the REST module.
+  //
+  // NOT persisted to app_kv — they're per-session UI state. Restart =
+  // fresh workspace. Could be promoted to persistence later if users
+  // ask, but the immediate complaint was just module-switch loss.
+  restWorkspace: RestWorkspaceState;
+  setRestWorkspace: (patch: Partial<RestWorkspaceState>) => void;
+
+  // In-app Browser module. Pinned shortcuts live here; the active
+  // shortcut + any cross-module deeplink request also live here so the
+  // BrowserPage can survive its own remount on module switch.
+  // - `shortcuts` IS persisted to app_kv (cookies for those URLs already
+  //   persist via Tauri's WKWebSiteDataStore; persisting the URL list
+  //   itself keeps the user's pinned set across restart).
+  // - `activeShortcutId` + `deeplinkRequest` are session-only.
+  browser: BrowserState;
+  addOrPromoteBrowserShortcut: (shortcut: Omit<BrowserShortcut, "id" | "createdAt">) => string;
+  // Always-creates clone of an existing shortcut. The branch gets a
+  // new id, parentId set to the source's top-level ancestor, and an
+  // auto-suffixed label (e.g. "QAT" → "QAT (2)"). Returns the new id;
+  // returns null if `source` is null (caller passes the resolved
+  // shortcut to keep this action ignorant of vault-derived lookup).
+  duplicateBrowserShortcut: (source: BrowserShortcut) => string;
+  removeBrowserShortcut: (id: string) => void;
+  renameBrowserShortcut: (id: string, label: string) => void;
+  reorderBrowserShortcuts: (orderedIds: string[]) => void;
+  setActiveBrowserShortcut: (id: string | null) => void;
+  requestBrowserDeeplink: (request: BrowserDeeplinkRequest) => void;
+  consumeBrowserDeeplink: () => BrowserDeeplinkRequest | null;
+  setBrowserShortcutAutoSubmit: (id: string, enabled: boolean) => void;
+  setBrowserAutoSubmitGlobal: (enabled: boolean) => void;
+
+  // -- Aliyun tab CRUD --
+  aliyun: AliyunState;
+  addAliyunAccount: (payload: Omit<AliyunAccount, "id" | "createdAt">) => string;
+  updateAliyunAccount: (id: string, patch: Partial<Omit<AliyunAccount, "id" | "createdAt">>) => void;
+  removeAliyunAccount: (id: string) => void;
+  addAliyunLink: (payload: Omit<AliyunLink, "id" | "createdAt">) => string;
+  updateAliyunLink: (id: string, patch: Partial<Omit<AliyunLink, "id" | "createdAt">>) => void;
+  removeAliyunLink: (id: string) => void;
+
+  // -- Jenkins tab CRUD (mirror of Aliyun, independent store) --
+  jenkins: JenkinsState;
+  addJenkinsAccount: (payload: Omit<JenkinsAccount, "id" | "createdAt">) => string;
+  updateJenkinsAccount: (id: string, patch: Partial<Omit<JenkinsAccount, "id" | "createdAt">>) => void;
+  removeJenkinsAccount: (id: string) => void;
+  addJenkinsLink: (payload: Omit<JenkinsLink, "id" | "createdAt">) => string;
+  updateJenkinsLink: (id: string, patch: Partial<Omit<JenkinsLink, "id" | "createdAt">>) => void;
+  removeJenkinsLink: (id: string) => void;
+
   theme: AppTheme;
   setTheme: (theme: AppTheme) => void;
 
@@ -200,6 +433,13 @@ export interface AppState {
   // initializeDevModeOnAppStart after the in-memory token is loaded.
   isSuperAdmin: boolean;
   setIsSuperAdmin: (value: boolean) => void;
+  // Set to true once `initializeDevModeOnAppStart` finishes (token load
+  // resolved OR dev mode was off). Consumers that gate UI on
+  // hasValidToken / isSuperAdmin must wait for this — otherwise the
+  // window between mount and token-load looks identical to "user has no
+  // access", and kick-out effects fire on a still-loading state.
+  devModeHydrated: boolean;
+  setDevModeHydrated: (value: boolean) => void;
 
   // Vault — projects state owned here, loaded/persisted via vault-storage.ts
   vaultProjects: VaultProject[];
@@ -212,6 +452,14 @@ export interface AppState {
   // boot starts clean because either Sync or Push must reconcile against Lark.
   vaultIsDirty: boolean;
   setVaultIsDirty: (value: boolean) => void;
+  // Session-only UI selection — keeps the user's spot in the Vault
+  // module across module switches (when VaultPage unmounts and remounts
+  // its local useState would otherwise reset to the first project +
+  // default env). Not persisted to disk; a fresh app boot resets.
+  vaultSelectedProjectId: string | null;
+  setVaultSelectedProjectId: (id: string | null) => void;
+  vaultSelectedEnvId: string;
+  setVaultSelectedEnvId: (id: string) => void;
   // Paginated window over the request_history table — NOT the full archive.
   history: HistoryEntry[];
   historyTotal: number;

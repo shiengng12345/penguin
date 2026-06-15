@@ -153,12 +153,26 @@ export function requireSuperAdmin(): boolean {
 // Safe to call when Dev Mode is off — it no-ops.
 export async function initializeDevModeOnAppStart(): Promise<void> {
   logger.info(LOG_SCOPE, "initializeDevModeOnAppStart — entry");
-  const isEnabled = useAppStore.getState().devModeEnabled;
-  const isDisabled = !isEnabled;
-  if (isDisabled) {
+  // Read disk directly via the hydrated cache instead of trusting the
+  // Zustand snapshot. The store's initial value for devModeEnabled is
+  // computed at module-eval time and can race ahead of hydration; once
+  // the helper trusted a stale `false` here, the token would never get
+  // pulled into memory and Vault/Docs/REST/Home would stay locked even
+  // though disk had a valid super-admin token. Reading the cache (which
+  // by now IS hydrated, since App.tsx's effect runs post-render) is
+  // authoritative.
+  const enabledOnDisk =
+    getPersistedValue(APP_VALUE_KEYS.devModeEnabled) === "true";
+  if (!enabledOnDisk) {
     logger.info(LOG_SCOPE, "initializeDevModeOnAppStart — dev mode off, skipping");
+    useAppStore.getState().setDevModeHydrated(true);
     return;
   }
+  // Self-heal the store boolean if it lost the race at module-eval time.
+  if (!useAppStore.getState().devModeEnabled) {
+    useAppStore.getState().setDevModeEnabled(true);
+  }
   await loadToken();
+  useAppStore.getState().setDevModeHydrated(true);
   logger.info(LOG_SCOPE, "initializeDevModeOnAppStart — exit");
 }

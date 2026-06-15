@@ -152,3 +152,68 @@ export async function clearHistoryInDatabase(): Promise<void> {
     databaseUnavailable = true;
   }
 }
+
+// --- Error log (error_log table) ---
+// Unified FE + BE error sink. The FE logger taps in via recordErrorLog;
+// Rust callers use the in-process `record_be_error_log` helper. UI loads
+// the full set (capped at 1000) and slices in memory.
+
+export interface ErrorLogEntry {
+  id: number;
+  timestamp: number;
+  source: "fe" | "be";
+  severity: "error" | "warn";
+  scope: string | null;
+  message: string;
+  details: string | null;
+}
+
+export async function recordErrorLog(entry: {
+  source: "fe" | "be";
+  severity: "error" | "warn";
+  scope?: string | null;
+  message: string;
+  details?: string | null;
+}): Promise<void> {
+  if (shouldSkipDatabase()) return;
+  try {
+    await invoke("db_record_error_log", {
+      source: entry.source,
+      severity: entry.severity,
+      scope: entry.scope ?? null,
+      message: entry.message,
+      details: entry.details ?? null,
+    });
+  } catch {
+    databaseUnavailable = true;
+  }
+}
+
+export async function listErrorLogFromDatabase(): Promise<ErrorLogEntry[]> {
+  if (shouldSkipDatabase()) return [];
+  try {
+    return await invoke<ErrorLogEntry[]>("db_list_error_log");
+  } catch {
+    databaseUnavailable = true;
+    return [];
+  }
+}
+
+export async function countErrorLogSince(since: number): Promise<number> {
+  if (shouldSkipDatabase()) return 0;
+  try {
+    return await invoke<number>("db_count_error_log_since", { since });
+  } catch {
+    databaseUnavailable = true;
+    return 0;
+  }
+}
+
+export async function clearErrorLogInDatabase(): Promise<void> {
+  if (shouldSkipDatabase()) return;
+  try {
+    await invoke("db_clear_error_log");
+  } catch {
+    databaseUnavailable = true;
+  }
+}

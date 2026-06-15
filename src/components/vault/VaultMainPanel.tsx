@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronRight,
+  Compass,
   RefreshCw,
   Pencil,
   Plus,
@@ -40,7 +41,62 @@ import { syncVaultFromLark } from "./vault-lark";
 import { useAppStore } from "@/lib/store";
 import { matchesSearch, highlightSegments, type HighlightSegment } from "./vault-search";
 import { buildCredentialGroups } from "./vault-grouping";
-import type { VaultCredential, VaultEnvId, VaultProject } from "./types";
+import type { VaultCredential, VaultCredentialKind, VaultEnvId, VaultProject } from "./types";
+import { writeClipboard } from "@/lib/clipboard";
+import {
+  VaultKindRail,
+  type VaultKindSelection,
+  VAULT_KIND_RAIL_DEFAULT_WIDTH,
+  VAULT_KIND_RAIL_MAX_WIDTH,
+  VAULT_KIND_RAIL_MIN_WIDTH,
+  VAULT_KIND_RAIL_PERSIST_KEY,
+} from "./VaultKindRail";
+import { ResizableColumn } from "@/components/ui/resizable-column";
+
+// Per-card hashed accent color. Same credential.name → same hue across
+// renders, so visually distinct cards in a long list (e.g. 18 Redis
+// instances) — the eye locks onto the color before reading the text.
+// Hue spread is uniform; saturation + lightness chosen to work in
+// both light and dark themes without competing with the primary color.
+function hashHue(input: string): number {
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash * 31 + input.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) % 360;
+}
+
+// Longest common prefix / suffix across a set of strings. Used to dim
+// the parts of credential values that ALL credentials of the same
+// kind share (e.g. "uat-bp-fpms-…-redis-sa.…cache.amazonaws.com"
+// boilerplate), so only the distinctive middle segment is bright.
+function longestCommonPrefix(strs: readonly string[]): string {
+  if (strs.length === 0) return "";
+  let prefix = strs[0];
+  for (let i = 1; i < strs.length; i++) {
+    while (!strs[i].startsWith(prefix)) {
+      prefix = prefix.slice(0, -1);
+      if (prefix === "") return "";
+    }
+  }
+  return prefix;
+}
+function longestCommonSuffix(strs: readonly string[]): string {
+  if (strs.length === 0) return "";
+  let suffix = strs[0];
+  for (let i = 1; i < strs.length; i++) {
+    while (!strs[i].endsWith(suffix)) {
+      suffix = suffix.slice(1);
+      if (suffix === "") return "";
+    }
+  }
+  return suffix;
+}
+
+export interface ValueDiffShared {
+  prefix: string;
+  suffix: string;
+}
 
 const LOG_SCOPE = "VaultMainPanel";
 const COPIED_FEEDBACK_MS = 1500;
@@ -54,7 +110,7 @@ interface VaultMainPanelProps {
   onEditUrl: () => void;
   // Sprint 3 — superadmin CRUD hooks. All optional; UI omits the controls
   // when the parent does not wire them.
-  onAddCredential?: () => void;
+  onAddCredential?: (kindHint?: string) => void;
   onEditCredential?: (credentialId: string) => void;
   onDeleteCredential?: (credentialId: string) => void;
   // Sprint 4 — Favorites toggle. Wired unconditionally; non-superadmins can
@@ -65,6 +121,26 @@ interface VaultMainPanelProps {
   // Superadmin drag-to-reorder. Receives the new ordered list of group-head
   // credential ids after a drop completes.
   onReorderCredentials?: (orderedGroupHeadIds: readonly string[]) => void;
+  // Sprint 5 — Kinds CRUD. Forwarded to VaultKindRail; undefined hides
+  // the corresponding affordance (non-super-admin viewer).
+  onAddKind?: (label: string) => void;
+  onRenameKind?: (id: string, label: string) => void;
+  onDeleteKind?: (id: string) => void;
+  onReorderKinds?: (orderedIds: string[]) => void;
+  // Vault → in-app Browser deeplink. Threaded from App.tsx through
+  // VaultPage so credential cards can offer an "Open in Browser"
+  // affordance for vault / argocd / web / monitoring URLs. The card
+  // computes URL + paired token + project + env metadata and calls
+  // this; the parent does the actual store.requestBrowserDeeplink +
+  // module switch.
+  onOpenInBrowser?: (deeplink: {
+    url: string;
+    label: string;
+    prefillToken?: string;
+    baseKind?: string;
+    projectId?: string;
+    envId?: string;
+  }) => void;
 }
 
 // Right pane of the Vault page. Sprint 4 flat list view + All/Favorites tabs
@@ -84,6 +160,11 @@ export function VaultMainPanel(props: VaultMainPanelProps) {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  // Middle-column kind filter — single-select, "all" by default. Lives
+  // local (no Zustand) to match the existing Vault precedent: activeTab
+  // / searchQuery / selectedEnvId / selectedProjectId are all local
+  // useState. Reset on remount is acceptable; users typed in-session.
+  const [selectedKind, setSelectedKind] = useState<VaultKindSelection>("all");
   // Floating "Copied!" toast — rendered at the cursor position so the
   // feedback is impossible to miss (right-side icon was too far from the eye).
   const [copyToast, setCopyToast] = useState<{ x: number; y: number; nonce: number } | null>(null);
@@ -97,7 +178,7 @@ export function VaultMainPanel(props: VaultMainPanelProps) {
 
   const handleCopyAt = useCallback(async (payload: { value: string; x: number; y: number }): Promise<void> => {
     try {
-      await navigator.clipboard.writeText(payload.value);
+      await writeClipboard(payload.value);
     } catch (error) {
       logger.error(LOG_SCOPE, "handleCopyAt — clipboard write failed", error);
       return;
@@ -151,13 +232,64 @@ export function VaultMainPanel(props: VaultMainPanelProps) {
     return allGroups.filter((group) => group.some((cred) => cred.isFavorite === true)).length;
   }, [allGroups]);
 
+  // Per-kind group counts powering the rail's badges. HEAD-kind only —
+  // a paired group (e.g. database+token from the "database" template)
+  // counts ONCE under its primary kind, matching the badge shown on
+  // the card itself (VaultMainPanel renders `primary.kind` verbatim).
+  const countsByKind = useMemo<Partial<Record<VaultCredentialKind, number>>>(() => {
+    const out: Partial<Record<VaultCredentialKind, number>> = {};
+    for (const group of allGroups) {
+      const headKind = group[0]?.kind;
+      if (!headKind) continue;
+      out[headKind] = (out[headKind] ?? 0) + 1;
+    }
+    return out;
+  }, [allGroups]);
+
+  // Per-kind shared prefix / suffix across all credential values in the
+  // active env. Lets each card dim the boilerplate part of its URL /
+  // URI and bold the differentiating middle — vital when the user has
+  // 18+ Redis credentials whose hostnames differ by 1-2 tokens.
+  // Recomputed when credentials or env change. Single-credential kinds
+  // get no entry (nothing to compare).
+  const sharedByKind = useMemo<Map<string, ValueDiffShared>>(() => {
+    const buckets = new Map<string, string[]>();
+    for (const cred of project.credentials) {
+      const v = cred.valueByEnv[selectedEnvId] ?? "";
+      if (!v) continue;
+      const arr = buckets.get(cred.kind) ?? [];
+      arr.push(v);
+      buckets.set(cred.kind, arr);
+    }
+    const out = new Map<string, ValueDiffShared>();
+    for (const [kind, values] of buckets) {
+      if (values.length < 2) continue;
+      const prefix = longestCommonPrefix(values);
+      const suffix = longestCommonSuffix(values);
+      // Avoid degenerate overlap when prefix + suffix together span
+      // the whole shortest value — fall back to prefix-only so the
+      // distinctive segment doesn't disappear.
+      const minLen = Math.min(...values.map((v) => v.length));
+      if (prefix.length + suffix.length >= minLen) {
+        out.set(kind, { prefix, suffix: "" });
+      } else {
+        out.set(kind, { prefix, suffix });
+      }
+    }
+    return out;
+  }, [project.credentials, selectedEnvId]);
+
   // Filter pipeline runs at GROUP level so paired credentials never split —
   // favorites tab shows the whole pair when any member is starred; search
-  // matching any field surfaces the whole pair.
+  // matching any field surfaces the whole pair. Kind filter inserts
+  // BEFORE search so the search box can still narrow within the kind.
   const visibleGroups = useMemo<VaultCredential[][]>(() => {
+    const kindFiltered = selectedKind === "all"
+      ? allGroups
+      : allGroups.filter((group) => group[0]?.kind === selectedKind);
     const tabFiltered = activeTab === "favorites"
-      ? allGroups.filter((group) => group.some((cred) => cred.isFavorite === true))
-      : allGroups;
+      ? kindFiltered.filter((group) => group.some((cred) => cred.isFavorite === true))
+      : kindFiltered;
     const trimmedQuery = searchQuery.trim();
     const hasQuery = trimmedQuery.length > 0;
     if (!hasQuery) return tabFiltered;
@@ -170,9 +302,52 @@ export function VaultMainPanel(props: VaultMainPanelProps) {
         }),
       ),
     );
-  }, [allGroups, activeTab, searchQuery, selectedEnvId]);
+  }, [allGroups, activeTab, searchQuery, selectedEnvId, selectedKind]);
 
   const canReorder = isSuperAdmin && props.onReorderCredentials !== undefined;
+
+  // Per-credential "Open in Browser" dispatcher. Receives a credential
+  // id, resolves its URL + paired-token + kind metadata, then calls
+  // the parent's onOpenInBrowser. The Vault card displays the button
+  // only when this returns a usable URL — we don't surface the action
+  // for credentials whose env-value isn't an http(s) URL.
+  const handleCredentialOpenInBrowser = useCallback(
+    (credentialId: string): void => {
+      if (props.onOpenInBrowser === undefined) return;
+      const cred = project.credentials.find((c) => c.id === credentialId);
+      if (cred === undefined) return;
+      const url = (cred.valueByEnv[selectedEnvId] ?? "").trim();
+      if (!/^https?:\/\//i.test(url)) return;
+      const def = project.kinds?.find((k) => k.id === cred.kind);
+      // Paired-token lookup (both link directions) — same algorithm
+      // we used pre-revert when the webview lived inside Vault. Only
+      // actually attached when baseKind === "vault" so we don't ship
+      // tokens to Argo SSO / generic web shortcuts.
+      let prefillToken: string | undefined;
+      if (def?.baseKind === "vault") {
+        let paired: VaultCredential | undefined;
+        if (cred.pairedWith !== undefined) {
+          paired = project.credentials.find((c) => c.id === cred.pairedWith);
+        }
+        if (paired === undefined) {
+          paired = project.credentials.find((c) => c.pairedWith === cred.id);
+        }
+        const token = paired === undefined ? "" : (paired.valueByEnv[selectedEnvId] ?? "").trim();
+        if (token.length > 0) prefillToken = token;
+      }
+      const env = project.environments.find((e) => e.id === selectedEnvId);
+      const envName = env?.name ?? selectedEnvId;
+      props.onOpenInBrowser({
+        url,
+        label: `${cred.name} · ${project.name} / ${envName}`,
+        prefillToken,
+        baseKind: def?.baseKind,
+        projectId: project.id,
+        envId: selectedEnvId,
+      });
+    },
+    [props.onOpenInBrowser, project, selectedEnvId],
+  );
 
   // dnd-kit sensors — 8px activation distance so casual clicks on the row
   // body / favorite star / value buttons don't kick off a drag.
@@ -198,7 +373,31 @@ export function VaultMainPanel(props: VaultMainPanelProps) {
   };
 
   return (
-    <section className="flex flex-1 min-w-0 flex-col bg-background">
+    // Fragment so VaultKindRail and the existing <section> become two
+    // siblings of VaultPage's flex row — sidebar | rail | section.
+    // Keeping the rail wired inside MainPanel (instead of lifting to
+    // VaultPage) means selectedKind + countsByKind + the kind-aware
+    // visibleGroups memo all stay together; no prop drilling.
+    <>
+      <ResizableColumn
+        defaultWidth={VAULT_KIND_RAIL_DEFAULT_WIDTH}
+        minWidth={VAULT_KIND_RAIL_MIN_WIDTH}
+        maxWidth={VAULT_KIND_RAIL_MAX_WIDTH}
+        persistKey={VAULT_KIND_RAIL_PERSIST_KEY}
+      >
+        <VaultKindRail
+          kinds={project.kinds ?? []}
+          counts={countsByKind}
+          allCount={allCount}
+          selectedKind={selectedKind}
+          onSelectKind={setSelectedKind}
+          onAddKind={props.onAddKind}
+          onRenameKind={props.onRenameKind}
+          onDeleteKind={props.onDeleteKind}
+          onReorderKinds={props.onReorderKinds}
+        />
+      </ResizableColumn>
+      <section className="flex flex-1 min-w-0 flex-col bg-background">
       <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3">
         <div className="flex items-center gap-2 text-sm">
           <span className="font-medium text-foreground">{project.name}</span>
@@ -285,7 +484,14 @@ export function VaultMainPanel(props: VaultMainPanelProps) {
             />
           </div>
           {isSuperAdmin && props.onAddCredential !== undefined ? (
-            <Button size="sm" className="gap-1" onClick={props.onAddCredential}>
+            <Button
+              size="sm"
+              className="gap-1"
+              // Forward the active rail kind so the credential editor
+              // can pre-select the matching template + lock the kind.
+              // "all" → no hint, falls through to the picker grid.
+              onClick={() => props.onAddCredential?.(selectedKind === "all" ? undefined : selectedKind)}
+            >
               <Plus className="h-3.5 w-3.5" />
               Add credential
             </Button>
@@ -319,6 +525,11 @@ export function VaultMainPanel(props: VaultMainPanelProps) {
                     onToggleFavorite={onToggleFavorite}
                     onCopyAt={handleCopyAt}
                     canReorder={canReorder}
+                    sharedByKind={sharedByKind}
+                    onOpenInBrowser={
+                      props.onOpenInBrowser !== undefined ? handleCredentialOpenInBrowser : undefined
+                    }
+                    kindBaseKind={project.kinds?.find((k) => k.id === group[0].kind)?.baseKind}
                   />
                 ))}
               </div>
@@ -336,6 +547,7 @@ export function VaultMainPanel(props: VaultMainPanelProps) {
         </div>
       ) : null}
     </section>
+    </>
   );
 }
 
@@ -436,7 +648,7 @@ function ToolbarOverflowMenu(props: ToolbarOverflowMenuProps) {
 
 interface EmptyStateProps {
   isSuperAdmin: boolean;
-  onAddCredential?: () => void;
+  onAddCredential?: (kindHint?: string) => void;
 }
 
 function EmptyState(props: EmptyStateProps) {
@@ -452,7 +664,12 @@ function EmptyState(props: EmptyStateProps) {
           : "Only superadmins can create credentials. Ask one to set this project up."}
       </p>
       {props.isSuperAdmin && props.onAddCredential !== undefined ? (
-        <Button size="sm" className="mt-4 gap-1" onClick={props.onAddCredential}>
+        // Wrap in an arrow so onClick doesn't pass the MouseEvent as
+        // kindHint. EmptyState has no rail context (it only renders
+        // when project.credentials.length === 0), so no kind to
+        // forward — pass undefined and let the editor fall through
+        // to the picker grid.
+        <Button size="sm" className="mt-4 gap-1" onClick={() => props.onAddCredential?.()}>
           <Plus className="h-3.5 w-3.5" />
           Add credential
         </Button>
@@ -490,6 +707,18 @@ interface CredentialRowProps {
   onDelete?: (credentialId: string) => void;
   onToggleFavorite: (credentialId: string) => void;
   onCopyAt: (payload: { value: string; x: number; y: number }) => void;
+  // Per-kind shared prefix / suffix across the whole project. Used by
+  // FieldInlineRow to dim boilerplate and bold the distinctive middle.
+  sharedByKind: Map<string, ValueDiffShared>;
+  // Open the credential's URL in the in-app Browser module. Only
+  // rendered when the kind's baseKind is one of the web-renderable
+  // built-ins (vault / argocd / monitoring / web) AND the parent has
+  // wired the action.
+  onOpenInBrowser?: (credentialId: string) => void;
+  // baseKind of the credential's kind (looked up by parent) — gates
+  // whether the "Open in Browser" button shows. Vault / Argo /
+  // monitoring / web get the button; database / cache / token don't.
+  kindBaseKind?: string;
 }
 
 interface SortableCredentialRowProps extends CredentialRowProps {
@@ -566,9 +795,21 @@ function CredentialRow(props: CredentialRowFullProps) {
   };
 
   const canDrag = props.dragHandleListeners !== undefined;
+  // Hashed accent color — same credential always paints the same hue,
+  // so 18 Redis cards in a row become visually distinct without
+  // changing layout.
+  const accentHue = hashHue(primary.name);
+  const accentColor = `hsl(${accentHue}, 60%, 55%)`;
 
   return (
-    <div className="group rounded-xl border-2 border-border bg-card shadow-lg ring-1 ring-border/40 transition-colors hover:border-primary/60">
+    <div
+      className="group rounded-xl border-2 border-border bg-card shadow-lg ring-1 ring-border/40 transition-colors hover:border-primary/60"
+      // Solid left border in the credential's hashed color — wide
+      // enough to read at a glance, low enough saturation to not
+      // dominate the card. Falls back invisibly when hue computation
+      // can't run (e.g. SSR snapshot).
+      style={{ borderLeftColor: accentColor, borderLeftWidth: "6px" }}
+    >
       <div className="flex h-11 items-center gap-2 rounded-t-[0.625rem] border-b border-border bg-muted/30 px-3">
         {canDrag ? (
           <button
@@ -606,6 +847,20 @@ function CredentialRow(props: CredentialRowFullProps) {
           {primary.kind}
         </span>
         <div className="flex-1" />
+        {props.onOpenInBrowser !== undefined &&
+        props.kindBaseKind !== undefined &&
+        ["vault", "argocd", "monitoring", "web"].includes(props.kindBaseKind) &&
+        /^https?:\/\//i.test((primary.valueByEnv[selectedEnvId] ?? "").trim()) ? (
+          <button
+            type="button"
+            onClick={() => props.onOpenInBrowser?.(primary.id)}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-primary/10 hover:text-primary"
+            title="Open in Browser (auto-fills token if available)"
+            aria-label="Open in Browser"
+          >
+            <Compass className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
         {showAdminMenu ? (
           <div className="relative" ref={menuRef}>
             <Button
@@ -666,6 +921,7 @@ function CredentialRow(props: CredentialRowFullProps) {
             credential={cred}
             displayValue={cred.valueByEnv[selectedEnvId] ?? ""}
             searchQuery={props.searchQuery}
+            shared={props.sharedByKind.get(cred.kind)}
             onCopy={(event) => handleCopy(cred, event)}
           />
         ))}
@@ -678,9 +934,54 @@ interface FieldInlineRowProps {
   credential: VaultCredential;
   displayValue: string;
   searchQuery: string;
+  // Per-kind shared prefix / suffix across the whole project — used to
+  // dim boilerplate so the distinctive middle of the URL pops. undefined
+  // when this kind has <2 credentials or nothing in common.
+  shared?: ValueDiffShared;
   // Click handler receives the React mouse event so the parent can position
   // the floating "Copied!" toast at the cursor location.
   onCopy: (event: React.MouseEvent) => void;
+}
+
+// Three-segment value renderer: shared-prefix dim, distinctive middle
+// bright, shared-suffix dim. Folds the existing search-highlight on
+// top so an active search still wraps matched chars in <mark>. If
+// `shared` is undefined or the value doesn't actually start/end with
+// the shared bookends, falls back to a plain highlighted line.
+function DiffHighlightedValue(props: {
+  query: string;
+  text: string;
+  shared?: ValueDiffShared;
+}) {
+  const { query, text, shared } = props;
+  if (!shared) return <HighlightedText query={query} text={text} />;
+  const { prefix, suffix } = shared;
+  if (!text.startsWith(prefix) || !text.endsWith(suffix)) {
+    return <HighlightedText query={query} text={text} />;
+  }
+  const middle = text.slice(prefix.length, text.length - suffix.length);
+  // Skip the segment split entirely when there's no actual diff —
+  // dimming the whole string would be misleading.
+  if (middle.length === 0) {
+    return <HighlightedText query={query} text={text} />;
+  }
+  return (
+    <>
+      {prefix && (
+        <span className="text-muted-foreground/50">
+          <HighlightedText query={query} text={prefix} />
+        </span>
+      )}
+      <span className="font-semibold text-foreground">
+        <HighlightedText query={query} text={middle} />
+      </span>
+      {suffix && (
+        <span className="text-muted-foreground/50">
+          <HighlightedText query={query} text={suffix} />
+        </span>
+      )}
+    </>
+  );
 }
 
 // Wraps matched chunks of `text` in <mark> so the user sees exactly which
@@ -745,7 +1046,11 @@ function FieldInlineRow(props: FieldInlineRowProps) {
               className="block w-full truncate text-left text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary"
               title={`Open in browser: ${trimmedValue}`}
             >
-              <HighlightedText query={props.searchQuery} text={props.displayValue} />
+              <DiffHighlightedValue
+                query={props.searchQuery}
+                text={props.displayValue}
+                shared={props.shared}
+              />
             </button>
           ) : (
             <button
@@ -754,7 +1059,11 @@ function FieldInlineRow(props: FieldInlineRowProps) {
               className="block w-full truncate text-left text-foreground/80 transition-colors hover:text-foreground hover:bg-muted/30 rounded px-1 -mx-1"
               title="Click to copy"
             >
-              <HighlightedText query={props.searchQuery} text={props.displayValue} />
+              <DiffHighlightedValue
+                query={props.searchQuery}
+                text={props.displayValue}
+                shared={props.shared}
+              />
             </button>
           )
         ) : (

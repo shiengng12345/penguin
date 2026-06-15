@@ -8,30 +8,20 @@ import { APP_VALUE_KEYS } from "@/lib/persistence-keys";
 import { useAppStore } from "@/lib/store";
 import type {
   VaultCredential,
-  VaultCredentialKind,
+  VaultKindDef,
   VaultProject,
 } from "./types";
+import { defaultKindsForProject } from "./types";
 
 const LOG_SCOPE = "vault-storage";
 
-// Bumped to v2 in Sprint 4 — Sprint 3 shape had `categories: VaultCategory[]`
-// nested on each project; Sprint 4 flattens credentials onto the project.
-// Old persisted blobs are wiped on first load so the user starts clean.
-const VAULT_SCHEMA_VERSION = "2";
-
-const VAULT_KINDS: readonly VaultCredentialKind[] = [
-  "link",
-  "token",
-  "database",
-  "cache",
-  "generic",
-  "vault",
-  "argocd",
-  "monitoring",
-  "web",
-  "api",
-  "login",
-];
+// v3 (Sprint 5): Kinds became user-managed (CRUD + drag) per user
+// direction. `VaultCredentialKind` is now an open string and each
+// project carries a `kinds: VaultKindDef[]` array. v2 → v3 hydrate
+// path auto-seeds `kinds` from defaultKindsForProject() for any
+// project that arrives without the field, so existing data keeps
+// working without forcing the user to redo anything.
+const VAULT_SCHEMA_VERSION = "3";
 export interface VaultLoadResult {
   success: boolean;
   loaded: boolean;
@@ -193,6 +183,36 @@ function validateProject(input: unknown): ValidateProjectResult {
     if (isBad) return { success: false, reason: `credentials[${index}]: ${check.reason ?? "invalid"}` };
   }
 
+  // Sprint 5 — accept and validate optional `kinds`. If missing, seed
+  // with the 11 built-in defaults so v2-shaped data hydrates cleanly.
+  let kinds: VaultKindDef[] | undefined;
+  const rawKinds = record.kinds;
+  if (rawKinds === undefined || rawKinds === null) {
+    kinds = defaultKindsForProject();
+  } else if (Array.isArray(rawKinds)) {
+    const validated: VaultKindDef[] = [];
+    for (let i = 0; i < rawKinds.length; i += 1) {
+      const k = rawKinds[i];
+      const ok = typeof k === "object" && k !== null;
+      if (!ok) return { success: false, reason: `kinds[${i}]: not an object` };
+      const kr = k as Record<string, unknown>;
+      const idOk = typeof kr.id === "string" && (kr.id as string).length > 0;
+      if (!idOk) return { success: false, reason: `kinds[${i}]: missing string id` };
+      const labelOk = typeof kr.label === "string";
+      if (!labelOk) return { success: false, reason: `kinds[${i}]: missing string label` };
+      const baseOk = kr.baseKind === undefined || typeof kr.baseKind === "string";
+      if (!baseOk) return { success: false, reason: `kinds[${i}]: baseKind must be string or omitted` };
+      validated.push({
+        id: kr.id as string,
+        label: kr.label as string,
+        baseKind: kr.baseKind as VaultKindDef["baseKind"],
+      });
+    }
+    kinds = validated.length > 0 ? validated : defaultKindsForProject();
+  } else {
+    return { success: false, reason: "kinds must be array (Sprint 5 shape) or omitted" };
+  }
+
   return {
     success: true,
     project: {
@@ -200,6 +220,7 @@ function validateProject(input: unknown): ValidateProjectResult {
       name: record.name as string,
       environments: environments as VaultProject["environments"],
       credentials: credentials as VaultProject["credentials"],
+      kinds,
     },
   };
 }
@@ -215,9 +236,13 @@ function validateCredential(input: unknown): ValidateCredentialResult {
   const record = input as Record<string, unknown>;
   const hasValidId = typeof record.id === "string" && record.id.length > 0;
   if (!hasValidId) return { success: false, reason: "missing string id" };
-  const isKindString = typeof record.kind === "string";
-  const isKindKnown = isKindString && VAULT_KINDS.includes(record.kind as VaultCredentialKind);
-  if (!isKindKnown) return { success: false, reason: `unknown kind '${String(record.kind)}'` };
+  // Sprint 5 — kind is now an open string identifying a VaultKindDef.id
+  // within the same project. We no longer reject unknown kind values:
+  // user-created kinds use arbitrary ids, and a credential whose kind
+  // doesn't match any project.kinds entry will simply render under the
+  // generic icon (the rail / counts code is tolerant of orphans).
+  const isKindString = typeof record.kind === "string" && (record.kind as string).length > 0;
+  if (!isKindString) return { success: false, reason: "kind must be non-empty string" };
   const hasName = typeof record.name === "string";
   if (!hasName) return { success: false, reason: "missing string name" };
   const valueByEnv = record.valueByEnv;
@@ -228,7 +253,7 @@ function validateCredential(input: unknown): ValidateCredentialResult {
   // Type-only assignment — confirms VaultCredential satisfies the input shape.
   const _credentialUsed: VaultCredential = {
     id: record.id as string,
-    kind: record.kind as VaultCredentialKind,
+    kind: record.kind as string,
     name: record.name as string,
     valueByEnv: valueByEnv as VaultCredential["valueByEnv"],
     isSensitive: record.isSensitive as boolean,

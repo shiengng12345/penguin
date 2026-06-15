@@ -13,11 +13,20 @@ crate-type = ["lib", "cdylib", "staticlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `unstable` unlocks the multi-webview API (Manager::webviews/get_window,
+# WebviewBuilder, Window::add_child). The API itself works in 2.10 — the
+# gate just means Tauri reserves the right to refactor it before 3.0.
+# Used by `inline_webview` to embed Vault / ArgoCD UIs natively.
+tauri = { version = "2", features = ["unstable"] }
 tauri-plugin-shell = "2"
 tauri-plugin-store = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# Clipboard writes via WKWebView's navigator.clipboard fail in async
+# code paths because the user-gesture token is consumed by the first
+# `await`. This plugin bypasses that — writes go through Rust and the
+# OS clipboard API directly, no gesture / permission check.
+tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
@@ -28,3 +37,15 @@ reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
 base64 = "0.22"
 notify = "6.1"
+
+# QR scan: native (Rust-side) decoding via rqrr — far more robust than
+# jsQR for screenshots where the QR is one element among many
+# (cropped imprecisely, surrounded by UI chrome). `image` only needs
+# PNG decode since `screencapture` always writes PNG.
+rqrr = "0.7"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+# (REST module secrets now live in app_kv via SqliteKeychain — see
+# src/rest/keychain.rs. The old `keyring` dependency was removed because
+# the OS-keychain prompt loop in dev was unacceptable UX and Postman /
+# Insomnia / Bruno all store secrets in a local file anyway.)

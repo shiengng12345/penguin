@@ -14,6 +14,7 @@ import { Copy, Check, FileText, X, ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tryFormatJson } from "@/lib/json-utils";
 import { isLightAppTheme } from "@/lib/theme";
+import { writeClipboard } from "@/lib/clipboard";
 
 interface RequestDocDialogProps {
   open: boolean;
@@ -280,7 +281,7 @@ export function RequestDocDialog({ open, onClose }: RequestDocDialogProps) {
   });
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(docText);
+    writeClipboard(docText);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };

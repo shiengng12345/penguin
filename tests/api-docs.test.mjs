@@ -160,7 +160,7 @@ test("push exports readable markdown + machine block; pull round-trips", async (
   assert.equal(docs.loadKnowledgeBase().collections.length, 1);
 });
 
-test("fence-collision: user examples with ```json fences don't shadow the machine block (Sprint 8 B5/B8)", async () => {
+test("fence-collision: user ```json fences inside example bodies must not shadow the sentinel-wrapped machine block", async () => {
   const docs = await loadDocsLarkModule();
   docs.saveDocsLarkUrl("https://team.larksuite.com/docx/Test");
 
@@ -228,14 +228,24 @@ test("parseKnowledgeBase normalizes leniently but rejects wrong top-level shape"
 });
 
 test("Knowledge Base module is wired into Home and App", async () => {
+  // Tightened: bare substring greps would pass even if the wiring
+  // landed in a comment. Lock the actual JSX prop call site +
+  // the conditional render branch so a regression that wires the
+  // string somewhere irrelevant gets caught.
   const home = await readFile(new URL("../src/components/home/HomePage.tsx", import.meta.url), "utf8");
-  assert.match(home, /Knowledge Base/);
-  assert.match(home, /onSelectDocs/);
+  // Knowledge Base appears as a visible label — either JSX text or
+  // a title="" attribute. Either anchor is OK; comment-only is not.
+  assert.match(home, /["']Knowledge Base["']|>\s*Knowledge Base\b/);
+  // The Home tile must invoke the callback prop, not just reference the name.
+  assert.match(home, /\bonSelectDocs\(\)/);
 
   const app = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
-  assert.match(app, /ApiDocsPage/);
-  assert.match(app, /docsOpen \?/);
-  assert.match(app, /selectDocsFromHome/);
+  // Lock the dynamic/lazy import path so a string in a comment can't satisfy this.
+  assert.match(app, /<ApiDocsPage\b/);
+  // Conditional branch — docsOpen ? <ApiDocsPage ...
+  assert.match(app, /docsOpen \? \(\s*<ApiDocsPage/);
+  // Home → Docs handoff prop name is wired into MainSidebar / HomePage tile.
+  assert.match(app, /onSelectDocs=\{selectDocsFromHome\}/);
 });
 
 test("page matches the Knowledge Base design (Sprint 8.2 numbered-section editor)", async () => {
@@ -255,9 +265,12 @@ test("page matches the Knowledge Base design (Sprint 8.2 numbered-section editor
   assert.match(page, /number=\{7\}/);
   // JSON body editors are lazy-loaded (CodeMirror chunk).
   assert.match(page, /LazyJsonEditor/);
-  // Copy-first store.
+  // Copy-first store. Clipboard writes go through the shared
+  // writeClipboard helper (which prefers Tauri's clipboard plugin —
+  // the navigator.clipboard path silently fails when the call lands
+  // after an `await` because the user-gesture token is gone).
   assert.match(page, /CopyButton/);
-  assert.match(page, /navigator\.clipboard\.writeText/);
+  assert.match(page, /writeClipboard\(/);
   // Documentation only — never sends requests.
   assert.doesNotMatch(page, /callGrpcWeb|callGrpcNative|callSdk|callRest|proxyFetch/);
   // Lark sync present, no hardcoded team URL (removed in Sprint 8 B6).
@@ -406,7 +419,7 @@ test("parseEndpoint uses explicit headers array verbatim and ignores legacy auth
   );
 });
 
-test("emptyEndpoint() defaults requestBody and responseBody to '{}' (Sprint 8.2)", async () => {
+test("emptyEndpoint() defaults requestBody and responseBody to '{}'", async () => {
   const docs = await loadDocsLarkModule();
   const ep = docs.emptyEndpoint();
   assert.equal(ep.requestBody, "{}");

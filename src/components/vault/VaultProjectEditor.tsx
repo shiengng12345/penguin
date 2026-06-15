@@ -4,12 +4,13 @@
 // existing project. Saving an Edit replaces the project's name + env list
 // while preserving credentials.
 
-import { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { GripVertical, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { logger } from "@/lib/logger";
 import { requireSuperAdmin } from "@/lib/dev-mode-store";
+import { useDeveloperMode } from "@/hooks/useDeveloperMode";
 import { cn } from "@/lib/utils";
 import { slugify, uniqueSlug } from "./vault-id-slug";
 import type { VaultEnv, VaultProject } from "./types";
@@ -86,6 +87,79 @@ export function VaultProjectEditor(props: VaultProjectEditorProps) {
       : rowsFromEnvs(DEFAULT_ADD_ENVS),
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Drag-to-reorder is super-admin only — normal admins (token-tier) can
+  // edit a project's name + add/remove envs but can't change row order.
+  // Token-tier users don't even see the drag handle.
+  const { isSuperAdmin } = useDeveloperMode();
+  const canReorder = isSuperAdmin;
+  // Index of the row currently being dragged. null when no drag in flight.
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  // Index the user is hovering over while dragging — drives the insertion
+  // indicator. Resets on drop / dragend / mouse leaving the list.
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  // Map from row index → row element. Used to bbox-hit-test the cursor
+  // during drag. Refs are sync — DOM lookup at the moment of the event.
+  const rowElsRef = useRef<Map<number, HTMLDivElement>>(new Map());
+
+  const registerRow = useCallback((index: number, el: HTMLDivElement | null): void => {
+    if (el === null) {
+      rowElsRef.current.delete(index);
+    } else {
+      rowElsRef.current.set(index, el);
+    }
+  }, []);
+
+  // Pointer-event implementation — bypasses HTML5 DnD entirely. HTML5 DnD
+  // is fragile inside the Tauri webview when row children include focusable
+  // <input>/<select> elements: the inputs swallow the drop event before
+  // our handler runs, even in capture phase. Pointer events go to whoever
+  // we attach them to (window), so no child interference.
+  const handlePointerDown = (index: number) => (e: React.PointerEvent): void => {
+    if (!canReorder) return;
+    e.preventDefault();
+    setDragIndex(index);
+    setDragOverIndex(index);
+
+    // Find which row the cursor is currently over via bounding-box hit-test.
+    const findIndexAt = (clientY: number): number | null => {
+      for (const [idx, el] of rowElsRef.current.entries()) {
+        const rect = el.getBoundingClientRect();
+        if (clientY >= rect.top && clientY <= rect.bottom) return idx;
+      }
+      return null;
+    };
+
+    const handleMove = (ev: PointerEvent): void => {
+      const targetIdx = findIndexAt(ev.clientY);
+      if (targetIdx !== null) setDragOverIndex(targetIdx);
+    };
+
+    const handleUp = (ev: PointerEvent): void => {
+      const targetIdx = findIndexAt(ev.clientY) ?? index;
+      if (targetIdx !== index) {
+        setEnvRows((prev) => {
+          const next = prev.slice();
+          const [moved] = next.splice(index, 1);
+          next.splice(targetIdx, 0, moved);
+          return next;
+        });
+      }
+      setDragIndex(null);
+      setDragOverIndex(null);
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
+    document.body.style.cursor = "grabbing";
+    document.body.style.userSelect = "none";
+  };
 
   // The modal stays mounted in the tree (just toggled via `open`), so the
   // useState initializers only run once. Reset on open transitions + when
@@ -245,8 +319,26 @@ export function VaultProjectEditor(props: VaultProjectEditorProps) {
               {envRows.map((row, index) => (
                 <div
                   key={row.rowKey}
-                  className="flex items-center gap-2 rounded-md border border-border bg-muted/10 p-2"
+                  ref={(el) => registerRow(index, el)}
+                  className={cn(
+                    "flex items-center gap-2 rounded-md border bg-muted/10 p-2 transition-colors",
+                    dragIndex === index && "opacity-40",
+                    dragOverIndex === index && dragIndex !== null && dragIndex !== index
+                      ? "border-primary"
+                      : "border-border",
+                  )}
                 >
+                  {canReorder && (
+                    <span
+                      onPointerDown={handlePointerDown(index)}
+                      className="flex shrink-0 touch-none select-none items-center justify-center text-muted-foreground/60 hover:text-foreground"
+                      style={{ cursor: dragIndex === index ? "grabbing" : "grab" }}
+                      title="Drag to reorder"
+                      aria-label="Reorder environment"
+                    >
+                      <GripVertical className="h-3.5 w-3.5" />
+                    </span>
+                  )}
                   <span className={cn("inline-flex h-3 w-3 shrink-0 rounded-full", row.color)} />
                   <Input
                     value={row.name}

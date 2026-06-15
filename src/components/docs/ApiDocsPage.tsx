@@ -45,6 +45,7 @@ import { cn } from "@/lib/utils";
 import { useAppStore } from "@/lib/store";
 import { VaultConfirmModal } from "@/components/vault/VaultConfirmModal";
 import { parseCurl, splitUrlForKb } from "@/lib/curl-parser";
+import { writeClipboard } from "@/lib/clipboard";
 
 const METHOD_COLORS: Record<DocMethod, string> = {
   GET: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
@@ -79,7 +80,7 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
     <button
       type="button"
       onClick={async () => {
-        await navigator.clipboard.writeText(text);
+        await writeClipboard(text);
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
       }}
