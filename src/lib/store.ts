@@ -534,11 +534,12 @@ export const useAppStore = create<AppState>((set, get) => {
       }));
       persistBrowserShortcuts(next);
       if (nextMap !== prevMap) persistBrowserAutoSubmit(nextMap);
-      // Close the underlying webview (both old + new prefix variants
-      // in case the user has zombies from a pre-rename run) so we
-      // don't leak processes when the user removes shortcuts.
+      // Close the underlying webview and delete its on-disk data store
+      // (cookies + IndexedDB + cache). The data dir is keyed by the
+      // shortcut's own id (see BrowserPage dataKey resolution).
       void invoke("inline_webview_close", { label: `inline-browser-${id}` }).catch(() => {});
       void invoke("inline_webview_close", { label: `browser-${id}` }).catch(() => {});
+      void invoke("inline_webview_delete_data_dir", { dataKey: id }).catch(() => {});
     },
     renameBrowserShortcut: (id, label) => {
       const trimmed = label.trim();

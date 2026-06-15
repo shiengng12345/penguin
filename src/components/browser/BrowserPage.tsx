@@ -728,14 +728,19 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
       }
     };
     window.addEventListener("keydown", onKeyDown);
-    const installTimer = window.setTimeout(() => {
-      void installFindInWebview(label).catch(() => {
-        /* page not yet ready / cross-origin guard — host listener still works */
-      });
+    // Two checkpoints: 1500ms catches most SPAs; 4000ms catches slow
+    // Java-rendered pages (Jenkins, some Aliyun consoles) that replace
+    // the document after the first injection window.
+    const t1 = window.setTimeout(() => {
+      void installFindInWebview(label).catch(() => {});
     }, 1500);
+    const t2 = window.setTimeout(() => {
+      void installFindInWebview(label).catch(() => {});
+    }, 4000);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
-      window.clearTimeout(installTimer);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
     };
   }, [webviewLabel]);
 
@@ -1122,6 +1127,7 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
   // The final fallback walks every visible non-password input and picks
   // the first one that isnt a hidden / readonly / search input.
   var userSel=[
+    'input[name="j_username"]',
     'input[name="username"]',
     'input[name="user"]',
     'input[name="login"]',
@@ -1132,6 +1138,7 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
     'input[type="email"]:not([readonly])'
   ];
   var passSel=[
+    'input[name="j_password"]',
     'input[name="password"]',
     'input[formcontrolname="password"]',
     'input[autocomplete="current-password"]',
@@ -1380,16 +1387,21 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
             </button>
           </div>
           {!sidebarExpanded ? (
-            /* Compact rail — vertical list of [dot, short env label].
-               Shows only when sidebar is collapsed AND not hovered. */
+            /* Compact rail — vertical list of [dot/icon, short label].
+               Vault/Argo entries show env color dot + env name (≤4 chars).
+               Aliyun/Jenkins entries show a brand-colored dot + link label
+               (≤5 chars) since they carry no Vault env metadata. */
             <div className="flex-1 overflow-y-auto overflow-x-hidden px-0.5 py-1">
               {displayShortcuts.map((s) => {
                 const isActive = s.id === activeShortcutId;
                 const env = vaultProjects
                   .find((p) => p.id === s.projectId)
                   ?.environments.find((e) => e.id === s.envId);
-                const dotColor = env?.color ?? null;
-                const label = (env?.name ?? s.label).slice(0, 4);
+                const dotColor = env?.color
+                  ?? (s.baseKind === "aliyun" ? "bg-orange-500"
+                    : s.baseKind === "jenkins" ? "bg-rose-400"
+                    : null);
+                const label = (env?.name ?? s.label).slice(0, 5);
                 return (
                   <button
                     key={s.id}
