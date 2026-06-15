@@ -212,8 +212,8 @@ export default function App() {
   // they're not stuck on a "please validate token" gate. Each module checks
   // its own gate so revoking super-admin but keeping dev token leaves the
   // user inside Vault but kicks them out of Docs.
-  // Browser requires a valid dev token — same tier as Vault.
-  const canAccessBrowser = devModeEnabled && hasValidToken;
+  // Browser is super-admin only — same tier as Docs / REST / Home.
+  const canAccessBrowser = devModeEnabled && isSuperAdmin;
   useEffect(() => {
     // Wait for the dev-mode token to finish loading before deciding to
     // revoke access. Pre-hydration, hasValidToken / isSuperAdmin are
