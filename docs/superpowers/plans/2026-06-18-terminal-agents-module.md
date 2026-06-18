@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a new super-admin-only `Terminal` module with local PTY shell sessions, local CLI agent sessions, session rail UI, lightweight run summaries, and guarded persistence.
+**Goal:** Build a new super-admin-only `Terminal` module with a Warp-style tab rail, local PTY shell sessions, local CLI agent sessions, agent block feed, bottom prompt composer, lightweight run summaries, and guarded persistence.
 
 **Architecture:** Add an isolated React module under `src/components/terminal` and a Rust PTY backend under `src-tauri/src/terminal`. Keep terminal execution out of `tauri-plugin-shell` capability JSON, use structured Tauri commands, and persist only metadata plus capped/redacted previews.
 
@@ -12,10 +12,12 @@
 
 ## File Structure
 
-- Create `src/components/terminal/TerminalPage.tsx`: module root, mode selection, selected session state.
-- Create `src/components/terminal/TerminalSessionRail.tsx`: session list and create/kill actions.
+- Create `src/components/terminal/TerminalPage.tsx`: module root, mode selection, selected tab state.
+- Create `src/components/terminal/TerminalTabRail.tsx`: searchable tab list and create/kill actions.
+- Create `src/components/terminal/TerminalTopMetaBar.tsx`: runtime, cwd, branch, change count, elapsed time, and action icons.
 - Create `src/components/terminal/TerminalPane.tsx`: xterm wrapper and Tauri event bridge.
-- Create `src/components/terminal/AgentLauncher.tsx`: local CLI agent starter.
+- Create `src/components/terminal/TerminalBlockFeed.tsx`: agent block transcript surface.
+- Create `src/components/terminal/TerminalPromptComposer.tsx`: pinned prompt input for agent tabs.
 - Create `src/components/terminal/RunHistoryPanel.tsx`: current/recent session summaries.
 - Create `src/lib/terminal-types.ts`: frontend shared types.
 - Create `src/lib/terminal-events.ts`: event names shared by terminal components.
@@ -85,9 +87,11 @@ async function loadSource(relPath) {
 test("Terminal frontend files exist and export expected components", async () => {
   const files = [
     ["../src/components/terminal/TerminalPage.tsx", /export function TerminalPage/],
-    ["../src/components/terminal/TerminalSessionRail.tsx", /export function TerminalSessionRail/],
+    ["../src/components/terminal/TerminalTabRail.tsx", /export function TerminalTabRail/],
+    ["../src/components/terminal/TerminalTopMetaBar.tsx", /export function TerminalTopMetaBar/],
     ["../src/components/terminal/TerminalPane.tsx", /export function TerminalPane/],
-    ["../src/components/terminal/AgentLauncher.tsx", /export function AgentLauncher/],
+    ["../src/components/terminal/TerminalBlockFeed.tsx", /export function TerminalBlockFeed/],
+    ["../src/components/terminal/TerminalPromptComposer.tsx", /export function TerminalPromptComposer/],
     ["../src/components/terminal/RunHistoryPanel.tsx", /export function RunHistoryPanel/],
   ];
 
@@ -121,6 +125,9 @@ test("Terminal backend registers PTY commands without broad shell capability", a
 test("Terminal frontend uses xterm and Tauri invoke/event bridge", async () => {
   const pane = await loadSource("../src/components/terminal/TerminalPane.tsx");
   const page = await loadSource("../src/components/terminal/TerminalPage.tsx");
+  const feed = await loadSource("../src/components/terminal/TerminalBlockFeed.tsx");
+  const composer = await loadSource("../src/components/terminal/TerminalPromptComposer.tsx");
+  const rail = await loadSource("../src/components/terminal/TerminalTabRail.tsx");
 
   assert.match(pane, /@xterm\/xterm/);
   assert.match(pane, /@xterm\/addon-fit/);
@@ -128,6 +135,9 @@ test("Terminal frontend uses xterm and Tauri invoke/event bridge", async () => {
   assert.match(pane, /invoke\("terminal_write"/);
   assert.match(pane, /invoke\("terminal_resize"/);
   assert.match(page, /invoke\("terminal_create_session"/);
+  assert.match(feed, /TerminalRunBlock/);
+  assert.match(composer, /invoke\("terminal_start_agent"/);
+  assert.match(rail, /placeholder="Search tabs/);
 });
 ```
 
@@ -673,13 +683,15 @@ cargo test --manifest-path src-tauri/Cargo.toml terminal
 
 Expected: compile errors only if `portable-pty` trait bounds or method names need small adjustment. Fix the exact compiler errors in `pty.rs` or `session.rs`, then rerun until terminal tests pass.
 
-## Task 4: Build Terminal UI
+## Task 4: Build Warp-Style Terminal UI
 
 **Files:**
 - Create: `src/components/terminal/TerminalPage.tsx`
-- Create: `src/components/terminal/TerminalSessionRail.tsx`
+- Create: `src/components/terminal/TerminalTabRail.tsx`
+- Create: `src/components/terminal/TerminalTopMetaBar.tsx`
 - Create: `src/components/terminal/TerminalPane.tsx`
-- Create: `src/components/terminal/AgentLauncher.tsx`
+- Create: `src/components/terminal/TerminalBlockFeed.tsx`
+- Create: `src/components/terminal/TerminalPromptComposer.tsx`
 - Create: `src/components/terminal/RunHistoryPanel.tsx`
 
 - [ ] **Step 1: Create TerminalPage**
@@ -693,10 +705,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { TerminalMode, TerminalSessionInfo } from "@/lib/terminal-types";
-import { AgentLauncher } from "./AgentLauncher";
+import { TerminalBlockFeed } from "./TerminalBlockFeed";
+import { TerminalPromptComposer } from "./TerminalPromptComposer";
+import { TerminalTabRail } from "./TerminalTabRail";
+import { TerminalTopMetaBar } from "./TerminalTopMetaBar";
 import { RunHistoryPanel } from "./RunHistoryPanel";
 import { TerminalPane } from "./TerminalPane";
-import { TerminalSessionRail } from "./TerminalSessionRail";
 
 const MODES: Array<{ id: TerminalMode; label: string; icon: typeof SquareTerminal }> = [
   { id: "shell", label: "Shell", icon: SquareTerminal },
@@ -705,7 +719,7 @@ const MODES: Array<{ id: TerminalMode; label: string; icon: typeof SquareTermina
 ];
 
 export function TerminalPage(): ReactElement {
-  const [mode, setMode] = useState<TerminalMode>("shell");
+  const [mode, setMode] = useState<TerminalMode>("agents");
   const [sessions, setSessions] = useState<TerminalSessionInfo[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
@@ -735,45 +749,61 @@ export function TerminalPage(): ReactElement {
   }, [refreshSessions]);
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-background">
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-border/60 px-4">
-        <div className="flex items-center gap-1.5">
-          {MODES.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setMode(item.id)}
-                className={cn(
-                  "flex h-8 items-center gap-1.5 rounded border px-3 text-xs font-medium transition-colors",
-                  mode === item.id
-                    ? "border-primary/40 bg-primary/10 text-foreground"
-                    : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
-                )}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {item.label}
-              </button>
-            );
-          })}
-        </div>
-        <Button size="sm" variant="outline" onClick={createShell}>
-          <Plus className="mr-1.5 h-3.5 w-3.5" />
-          New Shell
-        </Button>
-      </header>
+    <section className="flex h-full min-h-0 bg-background">
+      <TerminalTabRail
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onSelect={setActiveSessionId}
+        onRefresh={refreshSessions}
+        onCreateShell={createShell}
+      />
 
-      <div className="flex min-h-0 flex-1">
-        <TerminalSessionRail
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          onSelect={setActiveSessionId}
-          onRefresh={refreshSessions}
-        />
-        <main className="min-w-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-12 shrink-0 items-center justify-between border-b border-border/60 px-4">
+          <div className="flex items-center gap-1.5">
+            {MODES.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setMode(item.id)}
+                  className={cn(
+                    "flex h-8 items-center gap-1.5 rounded border px-3 text-xs font-medium transition-colors",
+                    mode === item.id
+                      ? "border-primary/40 bg-primary/10 text-foreground"
+                      : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+          <Button size="sm" variant="outline" onClick={createShell}>
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            New Shell
+          </Button>
+        </header>
+
+        <TerminalTopMetaBar session={activeSession} />
+
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           {mode === "shell" ? <TerminalPane session={activeSession} /> : null}
-          {mode === "agents" ? <AgentLauncher onCreated={(s) => { setSessions((current) => [s, ...current]); setActiveSessionId(s.id); setMode("shell"); }} /> : null}
+          {mode === "agents" ? (
+            <>
+              <TerminalBlockFeed session={activeSession} />
+              <TerminalPromptComposer
+                session={activeSession}
+                cwd={activeSession?.cwd ?? "/Users/shieng/Desktop/Pengvi"}
+                onCreated={(s) => {
+                  setSessions((current) => [s, ...current]);
+                  setActiveSessionId(s.id);
+                }}
+              />
+            </>
+          ) : null}
           {mode === "runs" ? <RunHistoryPanel sessions={sessions} onSelect={(id) => { setActiveSessionId(id); setMode("shell"); }} /> : null}
         </main>
       </div>
@@ -852,22 +882,62 @@ export function TerminalPane({ session }: { session: TerminalSessionInfo | null 
 }
 ```
 
-- [ ] **Step 3: Create session rail and agent launcher**
+- [ ] **Step 3: Create tab rail, top meta bar, block feed, and composer**
 
-Create `TerminalSessionRail.tsx` with props from `TerminalPage`, rendering session buttons and a kill button that calls:
+Create `TerminalTabRail.tsx` with props from `TerminalPage`, rendering:
+
+- a search input with placeholder `Search tabs...`
+- a filter/settings icon button
+- a plus icon button
+- compact tab cards with title, cwd, git branch, kind, and status
+- a kill button that calls:
 
 ```ts
 await invoke("terminal_kill", { sessionId: session.id });
 await onRefresh();
 ```
 
-Create `AgentLauncher.tsx` with provider buttons for `codex`, `claude`, `gemini`, `opencode`. The launch action calls:
+Create `TerminalTopMetaBar.tsx` showing:
+
+- runtime/model label with default value `local`
+- cwd
+- git branch
+- tab status
+- elapsed time
+- action icon buttons for attach, export, filter, and more
+
+Create `TerminalBlockFeed.tsx` around a `TerminalRunBlock` type. V1 may keep blocks in frontend state while backend persistence stores only metadata and capped previews:
+
+```ts
+interface TerminalRunBlock {
+  id: string;
+  kind: "prompt" | "command" | "output" | "assistant";
+  text: string;
+  status: "running" | "done" | "failed";
+  created_at: string;
+}
+```
+
+Create `TerminalPromptComposer.tsx` as a pinned bottom input. If there is no active agent session, submit starts one:
 
 ```ts
 const session = await invoke<TerminalSessionInfo>("terminal_start_agent", {
-  payload: { cwd: "/Users/shieng/Desktop/Pengvi", provider, cols: 100, rows: 30 },
+  payload: { cwd, provider: "codex", cols: 100, rows: 30 },
 });
 onCreated(session);
+await invoke("terminal_write", {
+  sessionId: session.id,
+  data: `${prompt}\n`,
+});
+```
+
+If there is an active agent session, submit sends the prompt as terminal input:
+
+```ts
+await invoke("terminal_write", {
+  sessionId: session.id,
+  data: `${prompt}\n`,
+});
 ```
 
 Create `RunHistoryPanel.tsx` as a table/list over `TerminalSessionInfo[]` with `title`, `kind`, `cwd`, `status`, and `updated_at`.

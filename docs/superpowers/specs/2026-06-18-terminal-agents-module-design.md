@@ -17,13 +17,16 @@ Add a new first-class Penguin module named `Terminal` that gives the app a local
 Users can:
 
 - Open `Terminal` from the main module rail.
+- Search, filter, create, and switch tabs from a Warp-style left tab rail.
+- See each tab as a compact card with title, cwd, git branch, kind, and status.
 - Start a shell session in a chosen working directory.
-- See local sessions in a vertical session rail with status, cwd, and created time.
 - Interact with a real terminal pane.
 - Resize terminal panes without breaking the PTY.
 - Kill a running session.
 - Start a local CLI agent session using a configured command such as `codex`, `claude`, `gemini`, or `opencode`.
-- View a lightweight `Runs` list that summarizes current and recent sessions.
+- See agent work as a block feed: command/run block, output block, assistant response, and elapsed-time divider.
+- Submit the next prompt from a bottom composer that stays pinned under the block feed.
+- View current and recent runs from a lightweight `Runs` surface.
 
 The module should use top-level mode buttons, matching the pattern used by `Browser` and `Database`:
 
@@ -36,7 +39,7 @@ The module should use top-level mode buttons, matching the pattern used by `Brow
 - Cloud agent orchestration.
 - Slack, Linear, GitHub, or webhook triggers.
 - Team sharing.
-- Full Warp-style shell integration blocks for every command.
+- Full Warp-style shell integration blocks for every shell command.
 - Interactive code review panels.
 - Automatic Vault secret injection.
 - Remote SSH sessions.
@@ -45,13 +48,13 @@ The module should use top-level mode buttons, matching the pattern used by `Brow
 
 ## UX Model
 
-The V1 layout is a dense workbench, not a marketing page:
+The V1 layout should follow the actual Warp-like UI reference:
 
-- Left: session rail, similar in density to existing Penguin sidebars.
-- Top: mode buttons and session actions.
-- Center: xterm terminal pane.
-- Right: collapsible inspector with session metadata and agent launch controls.
-- Bottom/status area: reuse existing app status language where practical.
+- Left: tab rail with search input, filter/settings icon, plus button, and compact tab cards.
+- Main top: a meta bar showing runtime/model, cwd, git branch, change count, and elapsed time.
+- Main center: block feed for agent tabs; xterm pane for raw shell tabs.
+- Main right/top actions: attach context, export/download, filter, and overflow menu as icon buttons with tooltips.
+- Main bottom: prompt composer for agent tabs, pinned to the bottom.
 
 No nested card layout is needed. The terminal should occupy the main work surface.
 
@@ -60,9 +63,11 @@ No nested card layout is needed. The terminal should occupy the main work surfac
 Frontend:
 
 - `src/components/terminal/TerminalPage.tsx` owns module state and mode selection.
-- `TerminalSessionRail.tsx` lists sessions.
+- `TerminalTabRail.tsx` lists, filters, and creates tabs.
+- `TerminalTopMetaBar.tsx` renders runtime, cwd, branch, change count, and elapsed time.
 - `TerminalPane.tsx` wraps xterm.
-- `AgentLauncher.tsx` starts local CLI agent sessions.
+- `TerminalBlockFeed.tsx` renders agent transcript blocks.
+- `TerminalPromptComposer.tsx` submits the next agent prompt.
 - `RunHistoryPanel.tsx` shows current/recent session summaries.
 - `src/lib/terminal-types.ts` carries shared frontend types.
 - `src/lib/terminal-events.ts` carries Tauri event names.
@@ -83,14 +88,26 @@ Persistence:
 
 ## Data Flow
 
+Shell session flow:
+
 1. User clicks `Terminal`.
-2. React calls `terminal_create_session`.
-3. Rust creates a PTY session and returns `TerminalSessionInfo`.
-4. Rust streams PTY output to the frontend with Tauri events.
-5. `TerminalPane` writes output into xterm.
-6. User input is sent through `terminal_write`.
-7. Resize calls `terminal_resize`.
-8. Kill calls `terminal_kill`, then the session rail updates.
+2. User creates a shell tab from the left rail plus button.
+3. React calls `terminal_create_session`.
+4. Rust creates a PTY session and returns `TerminalSessionInfo`.
+5. Rust streams PTY output to the frontend with Tauri events.
+6. `TerminalPane` writes output into xterm.
+7. User input is sent through `terminal_write`.
+8. Resize calls `terminal_resize`.
+9. Kill calls `terminal_kill`, then the tab rail updates.
+
+Agent tab flow:
+
+1. User opens the `Agents` mode, which is the default first view for the Terminal module.
+2. `TerminalBlockFeed` shows the existing transcript for the tab.
+3. `TerminalPromptComposer` starts a new agent with `terminal_start_agent` when no agent session exists, then writes the submitted prompt to that session.
+4. For an existing agent session, `TerminalPromptComposer` sends follow-up prompt text through `terminal_write`.
+5. PTY output is appended to the active run block.
+6. The run block records status, duration, cwd, and capped/redacted output preview.
 
 Agent sessions use the same PTY flow, but the spawn command is a named local CLI command instead of a shell.
 
@@ -145,7 +162,7 @@ Minimum V1 verification:
 
 After V1 is stable:
 
-- Add command blocks for structured command/output grouping.
+- Add shell command blocks for structured command/output grouping.
 - Add git diff review after agent runs.
 - Add context picker from Browser, Database, REST, Vault, and Docs.
 - Add safe secret handles from Vault.
