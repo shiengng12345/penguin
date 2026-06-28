@@ -21,7 +21,7 @@ const LOG_SCOPE = "AuthenticatorContent";
 export interface TotpSnapshotEntry {
   id: string;
   // Top-of-card title — the service / app name the user identifies this
-  // entry by (e.g. "Aliyun", "Argo Username", "Lark Auth System").
+  // entry by (e.g. "Jenkins", "Argo Username", "Lark Auth System").
   title: string;
   // Below-code identity line — email / username / context string.
   account: string;
@@ -29,12 +29,12 @@ export interface TotpSnapshotEntry {
   secret: string;
   // Stable origin tag — drives sort order, edit-permissions, and the
   // small context line. "vault" entries are managed via Vault module;
-  // "aliyun" come from Aliyun account TOTPs; "standalone" are added
+  // "jenkins" come from Jenkins account TOTPs; "standalone" are added
   // directly inside the Authenticator popover (Phase 2).
-  source: "vault" | "aliyun" | "jenkins" | "standalone";
+  source: "vault" | "jenkins" | "standalone";
   // Vault-only — kept so the popover can show "This shortcut" header
   // when the active Browser shortcut shares project + env with the
-  // entry. Aliyun / standalone entries leave these undefined.
+  // entry. Jenkins / standalone entries leave these undefined.
   projectId?: string;
   envId?: string;
   contextLabel?: string;
@@ -48,7 +48,7 @@ export interface AuthenticatorContentProps {
   // is then disabled (there's nothing to inject into).
   activeWebviewLabel: string | null;
   // Edit mode flag — when true, standalone-source cards show a small
-  // trash button. Vault/Aliyun entries can't be deleted from the
+  // trash button. Vault/Jenkins entries can't be deleted from the
   // popover (manage them in their respective tab).
   editing?: boolean;
   onDeleteEntry?: (entryId: string) => void;
@@ -64,8 +64,8 @@ export function AuthenticatorContent({
     return (
       <p className="px-4 py-12 text-center text-xs text-muted-foreground/70">
         No TOTP entries yet. Add one via Vault → Authenticator (TOTP)
-        template, or add an Aliyun account with a 2FA secret in the
-        Browser → Aliyun tab.
+        template, or add a Jenkins account with a 2FA secret in the
+        Browser → Jenkins tab.
       </p>
     );
   }
@@ -239,7 +239,7 @@ function TotpCard({ entry, activeWebviewLabel, editing, onDelete }: TotpCardProp
       title={error === null ? "Click to copy code" : `Invalid secret: ${error}`}
     >
       {/* Top row — title + Fill icon (on hover) + Delete (when editing
-          standalone). Vault/Aliyun entries can't be deleted here. */}
+          standalone). Vault/Jenkins entries can't be deleted here. */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
           {entry.title}

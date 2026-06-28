@@ -54,10 +54,26 @@ fn clamp_size(v: f64) -> f64 {
     }
 }
 
+fn clamp_zoom(v: f64) -> f64 {
+    if v.is_finite() {
+        v.clamp(0.5, 1.5)
+    } else {
+        1.0
+    }
+}
+
 fn logical_rect(bounds: &Bounds) -> Rect {
     Rect {
         position: LogicalPosition::new(bounds.x, bounds.y).into(),
         size: LogicalSize::new(clamp_size(bounds.width), clamp_size(bounds.height)).into(),
+    }
+}
+
+fn parse_http_webview_url(url: &str) -> Result<Url, String> {
+    let parsed = Url::parse(url).map_err(|e| format!("invalid url: {e}"))?;
+    match parsed.scheme() {
+        "http" | "https" => Ok(parsed),
+        scheme => Err(format!("unsupported inline webview URL scheme: {scheme}")),
     }
 }
 
@@ -75,8 +91,8 @@ pub fn inline_webview_open<R: Runtime>(
     // Frontend convention (see openInlineWebview in inline-webview.ts):
     //   - "<shortcut-id>": per-shortcut isolation (default for roots)
     //   - "<parent-shortcut-id>": branch sharing its parent's session
-    //   - "aliyun-acc-<id>" / "jenkins-acc-<id>": all links bound to
-    //     the same account share login
+    //   - "jenkins-acc-<id>": all links bound to the same account
+    //     share login
     //
     // None / empty → fall back to the shared default WKWebsiteDataStore
     // (legacy behavior; new code should always pass a key).
@@ -108,7 +124,7 @@ pub fn inline_webview_open<R: Runtime>(
     let main = app
         .get_window("main")
         .ok_or_else(|| "no main window".to_string())?;
-    let parsed = Url::parse(&url).map_err(|e| format!("invalid url: {e}"))?;
+    let parsed = parse_http_webview_url(&url)?;
     // Capture for the page-load callback closure. The handler runs on
     // wry's event loop thread; capturing the AppHandle lets us emit
     // back to the frontend.
@@ -206,10 +222,24 @@ pub fn inline_webview_set_visible<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn inline_webview_reload<R: Runtime>(
+pub fn inline_webview_set_zoom<R: Runtime>(
     app: AppHandle<R>,
     label: String,
+    scale_factor: f64,
 ) -> Result<(), String> {
+    let webview = app
+        .webviews()
+        .get(&label)
+        .cloned()
+        .ok_or_else(|| format!("inline webview not found: {label}"))?;
+    webview
+        .set_zoom(clamp_zoom(scale_factor))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn inline_webview_reload<R: Runtime>(app: AppHandle<R>, label: String) -> Result<(), String> {
     let webview = app
         .webviews()
         .get(&label)
@@ -230,16 +260,13 @@ pub fn inline_webview_navigate<R: Runtime>(
         .get(&label)
         .cloned()
         .ok_or_else(|| format!("inline webview not found: {label}"))?;
-    let parsed = Url::parse(&url).map_err(|e| format!("invalid url: {e}"))?;
+    let parsed = parse_http_webview_url(&url)?;
     webview.navigate(parsed).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-pub fn inline_webview_back<R: Runtime>(
-    app: AppHandle<R>,
-    label: String,
-) -> Result<(), String> {
+pub fn inline_webview_back<R: Runtime>(app: AppHandle<R>, label: String) -> Result<(), String> {
     let webview = app
         .webviews()
         .get(&label)
@@ -252,10 +279,7 @@ pub fn inline_webview_back<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn inline_webview_forward<R: Runtime>(
-    app: AppHandle<R>,
-    label: String,
-) -> Result<(), String> {
+pub fn inline_webview_forward<R: Runtime>(app: AppHandle<R>, label: String) -> Result<(), String> {
     let webview = app
         .webviews()
         .get(&label)
@@ -292,10 +316,7 @@ pub fn inline_webview_eval<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn inline_webview_close<R: Runtime>(
-    app: AppHandle<R>,
-    label: String,
-) -> Result<(), String> {
+pub fn inline_webview_close<R: Runtime>(app: AppHandle<R>, label: String) -> Result<(), String> {
     let webview = app
         .webviews()
         .get(&label)
@@ -371,7 +392,7 @@ pub fn inline_webview_purge_all_data<R: Runtime>(app: AppHandle<R>) -> Vec<Strin
 }
 
 /// Delete the on-disk WKWebsiteDataStore for a specific data key.
-/// Used when an Aliyun / Jenkins account is deleted — without this the
+/// Used when a Jenkins account is deleted — without this the
 /// directory (cookies + IndexedDB + cache) accumulates indefinitely.
 /// Best-effort: failures are logged but never bubble to the caller.
 #[tauri::command]

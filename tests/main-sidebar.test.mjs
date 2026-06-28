@@ -20,12 +20,12 @@ test("MainSidebar exports MainModule + MainSidebar component", async () => {
   assert.match(src, /export interface MainSidebarProps/);
 });
 
-test("MainSidebar declares the 5 modules: home / client / rest / vault / docs (Sprint 10 added rest)", async () => {
+test("MainSidebar declares the modules: client / vault / browser / rest / docs / database", async () => {
   const src = await loadSource("../src/components/layout/MainSidebar.tsx");
-  // The union members are written into MainModule = "home" | "client" | "rest" | "vault" | "docs"
-  assert.match(src, /"home"\s*\|\s*"client"\s*\|\s*"rest"\s*\|\s*"vault"\s*\|\s*"docs"/);
+  // The union members are written into MainModule.
+  assert.match(src, /"client"\s*\|\s*"rest"\s*\|\s*"vault"\s*\|\s*"docs"\s*\|\s*"browser"\s*\|\s*"database"/);
   // ITEMS array contains each kind.
-  for (const kind of ["home", "client", "rest", "vault", "docs"]) {
+  for (const kind of ["client", "vault", "browser", "rest", "docs", "database"]) {
     assert.match(src, new RegExp(`kind:\\s*"${kind}"`));
   }
 });
@@ -52,7 +52,6 @@ test("MainSidebar filter handles all three gating tiers", async () => {
 test("MainSidebar items include English label + bilingual tooltip", async () => {
   const src = await loadSource("../src/components/layout/MainSidebar.tsx");
   // Short labels under icon.
-  assert.match(src, /label:\s*"Home"/);
   assert.match(src, /label:\s*"Client"/);
   assert.match(src, /label:\s*"Vault"/);
   assert.match(src, /label:\s*"REST"/);
@@ -62,11 +61,12 @@ test("MainSidebar items include English label + bilingual tooltip", async () => 
   // ALL FIVE so a sidebar refactor that drops one tooltip is caught.
   // Literal substring match (CJK + regex special chars don't mix well).
   for (const literal of [
-    'longLabel: "Home / 首页"',
     'longLabel: "API Client / 客户端"',
     'longLabel: "Vault / 凭据库"',
+    'longLabel: "In-App Browser / 内嵌浏览器 (Super Admin)"',
     'longLabel: "REST API / 接口客户端 (Super Admin)"',
     'longLabel: "Knowledge Base / 知识库 (Super Admin)"',
+    'longLabel: "Database / 数据库 (Super Admin)"',
   ]) {
     assert.ok(src.includes(literal), `MainSidebar should declare: ${literal}`);
   }
@@ -107,23 +107,14 @@ test("MainSidebar — REST module locked to super-admin tier (regression guard)"
     /kind:\s*"rest"[^}]*?requires:\s*"token"/,
     "REST must NOT be token tier (regression check)",
   );
-  // Home is also super-admin (the launcher for REST + Docs); same guard.
-  assert.match(
-    src,
-    /kind:\s*"home"[^}]*?requires:\s*"super-admin"/,
-  );
-  assert.doesNotMatch(
-    src,
-    /kind:\s*"home"[^}]*?requires:\s*"none"/,
-  );
 });
 
 test("App.tsx wires MainSidebar gate props from per-tier access flags", async () => {
   const src = await loadSource("../src/App.tsx");
-  // REST sits in the super-admin tier alongside Docs. Normal admins
-  // see only Home + Client + Vault. Token tier = Vault only.
+  // Token tier = Vault only. Browser joins REST / Docs / Database under
+  // super-admin.
   assert.match(src, /hasValidToken=\{canAccessVault\}/);
-  assert.match(src, /isSuperAdmin=\{canAccessDocs\s*\|\|\s*canAccessRest\}/);
+  assert.match(src, /isSuperAdmin=\{canAccessDocs\s*\|\|\s*canAccessRest\s*\|\|\s*canAccessDatabase\s*\|\|\s*canAccessBrowser\}/);
 });
 
 test("App.tsx redirects out of Vault when dev token revoked (regression)", async () => {
@@ -144,19 +135,18 @@ test("App.tsx redirects out of Docs when super-admin revoked (regression)", asyn
   );
 });
 
-test("Dev token holder (token=true, super=false) sees Home + Client + Vault, NOT Docs", async () => {
+test("Dev token holder (token=true, super=false) sees Client + Vault only", async () => {
   const src = await loadSource("../src/components/layout/MainSidebar.tsx");
-  // The filter implements: none always; token if hasValidToken; super-admin if isSuperAdmin.
-  // Build the gating table from the items + run filter mentally — assert the
-  // four declarations carry the exact tier we expect.
   const expected = {
-    home: "none",
     client: "none",
     vault: "token",
+    browser: "super-admin",
+    rest: "super-admin",
     docs: "super-admin",
+    database: "super-admin",
   };
   for (const [kind, tier] of Object.entries(expected)) {
-    const re = new RegExp(`kind:\\s*"${kind}"[\\s\\S]*?requires:\\s*"${tier}"`);
+    const re = new RegExp(`kind:\\s*"${kind}"[^}]*?requires:\\s*"${tier}"`);
     assert.match(src, re, `${kind} should require ${tier}`);
   }
 });

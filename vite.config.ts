@@ -22,7 +22,16 @@ export default defineConfig(async () => ({
     },
   },
   clearScreen: false,
+  esbuild: {
+    target: "es2022",
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      target: "es2022",
+    },
+  },
   build: {
+    target: "es2022",
     // manualChunks splits heavy non-first-paint vendors out of the main App
     // chunk so cold start can paint earlier. Each chunk is cached separately,
     // so version bumps that touch only app code don't force a re-download

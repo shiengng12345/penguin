@@ -37,7 +37,6 @@ import {
   THEME_KEY,
   TUTORIAL_KEY,
   USERNAME_KEY,
-  loadAliyunData,
   loadBrowserAutoSubmit,
   loadBrowserAutoSubmitGlobal,
   loadBrowserShortcuts,
@@ -50,7 +49,6 @@ import {
   loadTabs,
   loadTheme,
   loadUserName,
-  persistAliyunData,
   persistJenkinsData,
   persistBrowserAutoSubmit,
   persistBrowserAutoSubmitGlobal,
@@ -254,6 +252,7 @@ export const useAppStore = create<AppState>((set, get) => {
         sdkPackages: s.sdkPackages.filter((p) => p.name !== name),
       })),
 
+    configSynced: false,
     grpcWebEnvironments: [],
     grpcEnvironments: [],
     sdkEnvironments: [],
@@ -591,88 +590,10 @@ export const useAppStore = create<AppState>((set, get) => {
       persistBrowserAutoSubmit(next);
     },
 
-    // -- Aliyun tab CRUD --
+    // -- Jenkins tab CRUD --
     // Independent from Vault. The persistence layer collapses both
     // arrays into a single app_kv blob, so every action persists the
-    // FULL current aliyun state.
-    aliyun: loadAliyunData(),
-    addAliyunAccount: (payload) => {
-      const newAccount = {
-        id: `aliyun-acc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-        label: payload.label,
-        username: payload.username,
-        password: payload.password,
-        totpSecret: payload.totpSecret,
-        createdAt: Date.now(),
-      };
-      const next = { ...get().aliyun, accounts: [...get().aliyun.accounts, newAccount] };
-      set({ aliyun: next });
-      persistAliyunData(next);
-      return newAccount.id;
-    },
-    updateAliyunAccount: (id, patch) => {
-      const accounts = get().aliyun.accounts.map((a) =>
-        a.id === id ? { ...a, ...patch } : a,
-      );
-      const next = { ...get().aliyun, accounts };
-      set({ aliyun: next });
-      persistAliyunData(next);
-    },
-    removeAliyunAccount: (id) => {
-      const accounts = get().aliyun.accounts.filter((a) => a.id !== id);
-      const orphanedLinks = get().aliyun.links.filter((l) => l.accountId === id);
-      const links = get().aliyun.links.filter((l) => l.accountId !== id);
-      // Close any open webview for each orphaned link.
-      for (const link of orphanedLinks) {
-        void invoke("inline_webview_close", {
-          label: `inline-browser-${link.id}`,
-        }).catch(() => {});
-      }
-      // Delete the shared on-disk WKWebsiteDataStore for this account
-      // (cookies + IndexedDB + cache). Without this the directory
-      // accumulates indefinitely under ~/.penguin/inline-webview-data/.
-      // account.id is the dataKey (see AliyunSidebar.aliyunLinkToBrowserShortcut).
-      void invoke("inline_webview_delete_data_dir", { dataKey: id }).catch(() => {});
-      const next = { accounts, links };
-      set({ aliyun: next });
-      persistAliyunData(next);
-    },
-    addAliyunLink: (payload) => {
-      const newLink = {
-        id: `aliyun-link-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-        label: payload.label,
-        url: payload.url,
-        accountId: payload.accountId,
-        createdAt: Date.now(),
-      };
-      const next = { ...get().aliyun, links: [...get().aliyun.links, newLink] };
-      set({ aliyun: next });
-      persistAliyunData(next);
-      return newLink.id;
-    },
-    updateAliyunLink: (id, patch) => {
-      const links = get().aliyun.links.map((l) =>
-        l.id === id ? { ...l, ...patch } : l,
-      );
-      const next = { ...get().aliyun, links };
-      set({ aliyun: next });
-      persistAliyunData(next);
-    },
-    removeAliyunLink: (id) => {
-      const links = get().aliyun.links.filter((l) => l.id !== id);
-      const next = { ...get().aliyun, links };
-      set({ aliyun: next });
-      persistAliyunData(next);
-      // Close the inline webview spawned by this link (if any). Same
-      // reasoning as removeAliyunAccount — branches have isolated data
-      // dirs that accumulate on disk; close lets the OS reclaim and
-      // makes a future re-add use a fresh session.
-      void invoke("inline_webview_close", {
-        label: `inline-browser-${id}`,
-      }).catch(() => {});
-    },
-
-    // -- Jenkins tab CRUD (mirror of Aliyun) --
+    // FULL current jenkins state.
     jenkins: loadJenkinsData(),
     addJenkinsAccount: (payload) => {
       const newAccount = {

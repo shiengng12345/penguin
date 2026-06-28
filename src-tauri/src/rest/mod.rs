@@ -101,8 +101,8 @@ pub struct SecretRef {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretHandle {
-    pub kind: String, // "keychain"
-    pub id: String,   // opaque ID for the keychain item
+    pub kind: String,   // "keychain"
+    pub id: String,     // opaque ID for the keychain item
     pub masked: String, // e.g. "••••1234"
 }
 

@@ -11,7 +11,7 @@
 // WKWebSiteDataStore — we just keep the user's pinned URL list in
 // app_kv via the store's browser slice.
 
-import { ArrowLeft, Cloud, Compass, Copy, CornerDownRight, Eraser, Globe, KeyRound, LogIn, Plus, Search, ShieldCheck, Star, Trash2, Wrench, Zap } from "lucide-react";
+import { ArrowLeft, Compass, Copy, CornerDownRight, Eraser, KeyRound, LogIn, Minus, Plus, Search, ShieldCheck, Star, Trash2, Wrench, Zap } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -21,14 +21,14 @@ import {
   evalInlineWebview,
   hideAllInlineWebviews,
   purgeAllInlineWebviewData,
+  setInlineWebviewZoom,
 } from "@/lib/inline-webview";
 import { getPersistedValue, setPersistedValue } from "@/lib/app-persistence";
 import { APP_VALUE_KEYS } from "@/lib/persistence-keys";
 import type { TotpSnapshotEntry } from "@/components/browser/AuthenticatorContent";
 import { JenkinsSidebar, jenkinsLinkToBrowserShortcut } from "./JenkinsSidebar";
-import { AliyunSidebar, aliyunLinkToBrowserShortcut } from "@/components/browser/AliyunSidebar";
 
-type BrowserTab = "web" | "vault" | "argocd" | "aliyun" | "jenkins";
+type BrowserTab = "vault" | "argocd" | "jenkins";
 
 // Resolve the effective auto-submit state for a shortcut. New default:
 // any shortcut carrying prefill data (token / username+password) gets
@@ -47,12 +47,12 @@ function effectiveAutoSubmit(
   if (override !== undefined) return override;
   return hasAnyPrefill(s);
 }
-const VALID_TABS: ReadonlySet<BrowserTab> = new Set(["web", "vault", "argocd", "aliyun", "jenkins"]);
+const VALID_TABS: ReadonlySet<BrowserTab> = new Set(["vault", "argocd", "jenkins"]);
 function loadInitialTab(): BrowserTab {
   const raw = getPersistedValue(APP_VALUE_KEYS.browserActiveTab);
   if (raw !== null && VALID_TABS.has(raw as BrowserTab)) return raw as BrowserTab;
-  // New users land on Web — Chrome-like manual URL / search mode.
-  return "web";
+  // New users land on Vault — also the catch-all for manual / search shortcuts.
+  return "vault";
 }
 
 import { Button } from "@/components/ui/button";
@@ -313,6 +313,30 @@ interface ShortcutGroup {
 }
 
 const LOG_SCOPE = "BrowserPage";
+// 85% by default — a balance between Chrome-like readability and
+// fitting more content on screen. The old 0.7 default felt too
+// cramped / hard to operate. Adjustable via the toolbar.
+const DEFAULT_BROWSER_ZOOM = 0.85;
+const MIN_BROWSER_ZOOM = 0.6;
+const MAX_BROWSER_ZOOM = 1.25;
+const BROWSER_ZOOM_STEP = 0.05;
+const BROWSER_ZOOM_PRESETS = [0.7, 0.85, 1] as const;
+
+function clampBrowserZoom(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_BROWSER_ZOOM;
+  return Math.min(MAX_BROWSER_ZOOM, Math.max(MIN_BROWSER_ZOOM, Math.round(value * 100) / 100));
+}
+
+function loadBrowserZoom(): number {
+  const raw = getPersistedValue(APP_VALUE_KEYS.browserZoomScale);
+  if (raw === null) return DEFAULT_BROWSER_ZOOM;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? clampBrowserZoom(parsed) : DEFAULT_BROWSER_ZOOM;
+}
+
+function formatBrowserZoom(zoom: number): string {
+  return `${Math.round(zoom * 100)}%`;
+}
 
 export interface BrowserPageProps {
   onClose: () => void;
@@ -339,6 +363,19 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
 
   const [draftUrl, setDraftUrl] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [browserZoom, setBrowserZoomState] = useState<number>(() => loadBrowserZoom());
+  const setBrowserZoom = useCallback((next: number | ((current: number) => number)) => {
+    setBrowserZoomState((current) => {
+      const raw = typeof next === "function" ? next(current) : next;
+      const clamped = clampBrowserZoom(raw);
+      try {
+        setPersistedValue(APP_VALUE_KEYS.browserZoomScale, String(clamped));
+      } catch {
+        /* best-effort */
+      }
+      return clamped;
+    });
+  }, []);
   // Brief shake / red-border flash when the user clicks "+" with an
   // empty input — gives the visual feedback that was missing before.
   const [inputFlash, setInputFlash] = useState<"ok" | "empty">("ok");
@@ -442,8 +479,10 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
       /* best-effort */
     }
   }, []);
-  const [sidebarHovered, setSidebarHovered] = useState(false);
-  const sidebarExpanded = sidebarPinned || sidebarHovered;
+  // Expand is an explicit toggle only — no hover-to-expand (the user
+  // found the rail popping open on mouse-over disruptive). The pin
+  // button is the single control.
+  const sidebarExpanded = sidebarPinned;
 
   // Top-bar tab selector — partitions the sidebar by baseKind. Persisted
   // in app_kv so reloads land on the same view.
@@ -479,26 +518,8 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
   // duplicate a Vault URL get hidden — Vault is the source of truth.
   // Then filter by the active top-bar tab so each tab acts like a
   // dedicated view onto its slice of shortcuts.
-  // Aliyun tab manages its own state outside Vault. Each link becomes a
-  // virtual BrowserShortcut so the right-panel webview pipeline works
-  // unchanged — the id encodes the underlying AliyunLink id and the
-  // prefill data comes from the bound account.
-  const aliyunAccounts = useAppStore((s) => s.aliyun.accounts);
-  const aliyunLinks = useAppStore((s) => s.aliyun.links);
-  const addAliyunLink = useAppStore((s) => s.addAliyunLink);
-  const aliyunDerivedShortcuts = useMemo<BrowserShortcut[]>(() => {
-    const accountById = new Map(aliyunAccounts.map((a) => [a.id, a] as const));
-    const out: BrowserShortcut[] = [];
-    for (const link of aliyunLinks) {
-      const account = accountById.get(link.accountId);
-      if (account === undefined) continue;
-      out.push(aliyunLinkToBrowserShortcut(link, account));
-    }
-    return out;
-  }, [aliyunAccounts, aliyunLinks]);
-
-  // Same shape as aliyun — virtual shortcuts from Jenkins (link, account)
-  // pairs. dataKey=`jenkins-acc-{id}` so all links of one account share login.
+  // Virtual shortcuts from Jenkins (link, account) pairs.
+  // dataKey=`jenkins-acc-{id}` so all links of one account share login.
   const jenkinsAccounts = useAppStore((s) => s.jenkins.accounts);
   const jenkinsLinks = useAppStore((s) => s.jenkins.links);
   const addJenkinsLink = useAppStore((s) => s.addJenkinsLink);
@@ -527,20 +548,19 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
     });
     const all = [
       ...vaultDerivedShortcuts,
-      ...aliyunDerivedShortcuts,
       ...jenkinsDerivedShortcuts,
       ...manualKept,
     ];
     return all.filter((s) => {
-      // Web tab is the "general manual entries" bucket — anything the
-      // user paste-added without a Vault auto-match (baseKind=undefined)
-      // OR explicitly tagged web (the new tagging scheme).
-      if (activeTab === "web") {
-        return s.baseKind === "web" || s.baseKind === undefined;
+      if (activeTab === "vault") {
+        // Vault tab is the catch-all: vault creds + manual / Google-search
+        // shortcuts (baseKind "web" or untagged) that used to live under
+        // the removed Web tab.
+        return s.baseKind === "vault" || s.baseKind === "web" || s.baseKind === undefined;
       }
       return s.baseKind === activeTab;
     });
-  }, [vaultDerivedShortcuts, aliyunDerivedShortcuts, jenkinsDerivedShortcuts, shortcuts, activeTab]);
+  }, [vaultDerivedShortcuts, jenkinsDerivedShortcuts, shortcuts, activeTab]);
 
   const active = useMemo(
     () => displayShortcuts.find((s) => s.id === activeShortcutId) ?? null,
@@ -633,16 +653,16 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
           return trimmed.slice(0, 32);
         }
       })(),
-      // Tag as "web" so the new Web tab shows the manual entry. Vault
-      // auto-matches keep their own baseKind (vault / argocd) so they
-      // appear under those tabs instead.
+      // Tag as "web" so the Vault tab (the catch-all) shows the manual
+      // entry. Vault auto-matches keep their own baseKind (vault / argocd)
+      // so they appear under those tabs instead.
       baseKind: "web",
     };
     const id = addShortcut(payload);
-    // If the user pasted into the sidebar while on a non-web tab, jump
-    // to the Web tab so they actually see what they just added.
-    if (vaultMatch === null && activeTab !== "web") {
-      setActiveTab("web");
+    // If the user pasted into the sidebar while on another tab, jump to
+    // the Vault tab so they actually see what they just added.
+    if (vaultMatch === null && activeTab !== "vault") {
+      setActiveTab("vault");
     }
     setActiveShortcut(id);
     setDraftUrl("");
@@ -684,8 +704,8 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
       baseKind: "web",
     };
     const id = addShortcut(payload);
-    if (vaultMatch === null && activeTab !== "web") {
-      setActiveTab("web");
+    if (vaultMatch === null && activeTab !== "vault") {
+      setActiveTab("vault");
     }
     setActiveShortcut(id);
     setSearchDraft("");
@@ -700,12 +720,34 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
     }
   }, []);
 
+  const [forceReloadNonce, setForceReloadNonce] = useState(0);
+
   // Each shortcut gets its own webview label so cookies + nav stack
   // per shortcut are independent. MUST start with "inline-" so the
   // App-level `closeAllInlineWebviews` guard (which filters by that
   // prefix) catches it when the user leaves the Browser module —
   // otherwise the webview persists and bleeds into Client / REST etc.
   const webviewLabel = active === null ? null : `inline-browser-${active.id}`;
+
+  useEffect(() => {
+    if (webviewLabel === null) return;
+    let cancelled = false;
+    const applyZoom = (warnOnFailure: boolean): void => {
+      setInlineWebviewZoom(webviewLabel, browserZoom).catch((err) => {
+        if (!cancelled && warnOnFailure) {
+          logger.warn(LOG_SCOPE, "setInlineWebviewZoom failed", err);
+        }
+      });
+    };
+    applyZoom(false);
+    const retryId = window.setTimeout(() => applyZoom(false), 350);
+    const finalId = window.setTimeout(() => applyZoom(true), 1200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(retryId);
+      window.clearTimeout(finalId);
+    };
+  }, [webviewLabel, browserZoom, forceReloadNonce]);
 
   // Cmd+F / Ctrl+F → open the in-page Find bar. Two coverage paths:
   //   (1) host-window keydown — fires when Penguin chrome has focus
@@ -729,8 +771,8 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
     };
     window.addEventListener("keydown", onKeyDown);
     // Two checkpoints: 1500ms catches most SPAs; 4000ms catches slow
-    // Java-rendered pages (Jenkins, some Aliyun consoles) that replace
-    // the document after the first injection window.
+    // Java-rendered pages (e.g. Jenkins) that replace the document
+    // after the first injection window.
     const t1 = window.setTimeout(() => {
       void installFindInWebview(label).catch(() => {});
     }, 1500);
@@ -777,7 +819,6 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
       });
   }, [confirmingPurge]);
 
-  const [forceReloadNonce, setForceReloadNonce] = useState(0);
   const handleForceReload = useCallback(() => {
     if (webviewLabel === null) return;
     void closeInlineWebview(webviewLabel).catch(() => {
@@ -906,24 +947,10 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
         }
       }
     }
-    // Source 2 — Aliyun accounts with a 2FA secret. Independent from
-    // Vault; lives in the Aliyun tab store. Title is "Aliyun" so the
+    // Source 2 — Jenkins accounts with a 2FA secret. Independent from
+    // Vault; lives in the Jenkins tab store. Title is "Jenkins" so the
     // popover groups them visually under one service name (matches the
     // reference Chrome Authenticator style).
-    for (const account of aliyunAccounts) {
-      const secret = (account.totpSecret ?? "").trim();
-      if (secret.length === 0) continue;
-      out.push({
-        id: `aliyun-${account.id}`,
-        source: "aliyun",
-        title: "Aliyun",
-        account: account.label.length > 0 ? account.label : account.username,
-        secret,
-        contextLabel: "Aliyun",
-        matchesActiveScope: false,
-      });
-    }
-    // Source 3 — Jenkins accounts with a 2FA secret. Mirrors Aliyun.
     for (const account of jenkinsAccounts) {
       const secret = (account.totpSecret ?? "").trim();
       if (secret.length === 0) continue;
@@ -944,7 +971,7 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
       return a.account.localeCompare(b.account);
     });
     return out;
-  }, [vaultProjects, aliyunAccounts, jenkinsAccounts, active]);
+  }, [vaultProjects, jenkinsAccounts, active]);
 
   const toggleAuth = useCallback(async () => {
     if (authOpen) {
@@ -1039,6 +1066,22 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
   // opted in for this specific shortcut.
   const prefillScript = useMemo<string | undefined>(() => {
     if (active === null) return undefined;
+    // F4 — bind credential prefill to the shortcut's intended host. If the
+    // embedded page has navigated/redirected to a different origin (SSO, an
+    // interstitial, or manual navigation), never type the saved credential
+    // into that foreign origin's input. The script is re-injected at each
+    // checkpoint, so this guard re-runs against the live document host every
+    // time — a fresh document on a different host bails before filling.
+    let expectedHost = "";
+    try {
+      expectedHost = new URL(active.url).hostname;
+    } catch {
+      expectedHost = "";
+    }
+    const safeHost = JSON.stringify(expectedHost);
+    const hostGuardJs = `
+  var __penguinExpectedHost=${safeHost};
+  if(__penguinExpectedHost && location.hostname!==__penguinExpectedHost){console.log('[penguin] prefill: host mismatch ('+location.hostname+' != '+__penguinExpectedHost+'), skipping credential fill');return;}`;
     const wantsAutoSubmit =
       autoSubmitGlobal && effectiveAutoSubmit(active, autoSubmitMap);
     // 200ms after the prefill apply gives React / Redux Form / Ember a
@@ -1106,7 +1149,6 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
     // auto-click "Sign in".
     if (
       (active.baseKind === "argocd" ||
-        active.baseKind === "aliyun" ||
         active.baseKind === "jenkins") &&
       active.prefillUsername !== undefined &&
       active.prefillPassword !== undefined
@@ -1114,7 +1156,7 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
       const safeUsername = JSON.stringify(active.prefillUsername);
       const safePassword = JSON.stringify(active.prefillPassword);
       return `(function(u,p){
-  console.log('[penguin] argo prefill script loaded');
+  console.log('[penguin] argo prefill script loaded');${hostGuardJs}
   // Idempotence guard — InlineWebviewPanel injects this script at
   // 200ms / 1500ms / 4000ms checkpoints to catch slow-mounting SPAs.
   // Once we've successfully filled the form (and possibly auto-clicked
@@ -1231,7 +1273,7 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
     //   DevTools can see whether the script ran. Logs are visible only in
     //   the child webview's own console, not Penguin's main devtools.
     return `(function(t){
-  console.log('[penguin] token prefill script loaded');
+  console.log('[penguin] token prefill script loaded');${hostGuardJs}
   // Idempotence guard — see argo prefill comment for the same.
   if(window.__penguinPrefillDone){console.log('[penguin] token prefill: skip (already done)');return;}
   var tries=0, max=150;
@@ -1275,15 +1317,9 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
     <section className="flex flex-1 min-h-0 min-w-0 flex-col bg-background">
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border/60 px-6 py-3">
         {/* Top-bar tabs — each filters the sidebar to shortcuts whose
-            baseKind matches. Aliyun has no shortcuts yet (URLs come
-            later); selecting it just shows an empty list. */}
+            baseKind matches. Vault is also the catch-all for manual /
+            Google-search shortcuts. */}
         <div className="flex items-center gap-1.5">
-          <TabButton
-            active={activeTab === "web"}
-            onClick={() => setActiveTab("web")}
-            icon={<Globe className="h-3.5 w-3.5 text-emerald-400" />}
-            label="Web"
-          />
           <TabButton
             active={activeTab === "vault"}
             onClick={() => setActiveTab("vault")}
@@ -1295,12 +1331,6 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
             onClick={() => setActiveTab("argocd")}
             icon={<LogIn className="h-3.5 w-3.5 text-sky-400" />}
             label="Argo"
-          />
-          <TabButton
-            active={activeTab === "aliyun"}
-            onClick={() => setActiveTab("aliyun")}
-            icon={<Cloud className="h-3.5 w-3.5 text-orange-500" />}
-            label="Aliyun"
           />
           <TabButton
             active={activeTab === "jenkins"}
@@ -1359,21 +1389,19 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
 
       <div className="flex min-h-0 flex-1">
         <aside
-          onMouseEnter={() => setSidebarHovered(true)}
-          onMouseLeave={() => setSidebarHovered(false)}
           className={cn(
             "flex shrink-0 flex-col border-r border-border/60 bg-muted/20 transition-[width] duration-200 ease-out",
             sidebarExpanded ? "w-44" : "w-16",
           )}
         >
-          {/* Pin toggle — when pinned, sidebar stays expanded even after
-              the mouse leaves. Visible in both states; the icon flips. */}
+          {/* Expand/collapse toggle — the only control now that hover-
+              to-expand is gone. Icon flips with state. */}
           <div className="flex shrink-0 items-center justify-end border-b border-border/60 px-1.5 py-1">
             <button
               type="button"
               onClick={() => setSidebarPinned(!sidebarPinned)}
-              title={sidebarPinned ? "Unpin sidebar — collapse on mouse leave" : "Pin sidebar — keep expanded"}
-              aria-label={sidebarPinned ? "Unpin sidebar" : "Pin sidebar"}
+              title={sidebarPinned ? "Collapse sidebar" : "Expand sidebar"}
+              aria-label={sidebarPinned ? "Collapse sidebar" : "Expand sidebar"}
               className={cn(
                 "flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
                 sidebarPinned ? "bg-primary/15 text-foreground" : "",
@@ -1389,19 +1417,24 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
           {!sidebarExpanded ? (
             /* Compact rail — vertical list of [dot/icon, short label].
                Vault/Argo entries show env color dot + env name (≤4 chars).
-               Aliyun/Jenkins entries show a brand-colored dot + link label
+               Jenkins entries show a brand-colored dot + link label
                (≤5 chars) since they carry no Vault env metadata. */
             <div className="flex-1 overflow-y-auto overflow-x-hidden px-0.5 py-1">
               {displayShortcuts.map((s) => {
                 const isActive = s.id === activeShortcutId;
-                const env = vaultProjects
-                  .find((p) => p.id === s.projectId)
-                  ?.environments.find((e) => e.id === s.envId);
+                const project = vaultProjects.find((p) => p.id === s.projectId);
+                const env = project?.environments.find((e) => e.id === s.envId);
                 const dotColor = env?.color
-                  ?? (s.baseKind === "aliyun" ? "bg-orange-500"
-                    : s.baseKind === "jenkins" ? "bg-rose-400"
-                    : null);
-                const label = (env?.name ?? s.label).slice(0, 5);
+                  ?? (s.baseKind === "jenkins" ? "bg-rose-400" : null);
+                // Label priority mirrors the expanded group header
+                // (groupHeaderLabel): project name when the project still
+                // exists, else the raw projectId (which is the human code
+                // like "CP" / "BP" the user keyed in). Every vault
+                // shortcut's s.label starts with the same cred name
+                // ("Vault · …"), so falling back to it made the whole
+                // rail read "Vault". Jenkins carries no project, so it
+                // falls through to env name / its link label.
+                const label = (project?.name ?? s.projectId ?? env?.name ?? s.label).slice(0, 5);
                 return (
                   <button
                     key={s.id}
@@ -1420,7 +1453,7 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
                     ) : (
                       <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30" />
                     )}
-                    <span className="truncate font-medium">{label}</span>
+                    <span className="truncate font-medium uppercase">{label}</span>
                   </button>
                 );
               })}
@@ -1463,34 +1496,7 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
               />
             </button>
           </div>
-          {activeTab === "aliyun" ? (
-            <AliyunSidebar
-              activeLinkId={activeShortcutId}
-              onSelectLink={(linkId) => setActiveShortcut(linkId)}
-              autoSubmitGlobal={autoSubmitGlobal}
-              autoSubmitByLinkId={autoSubmitMap}
-              isAutoSubmitEffective={(linkId) => {
-                const s = aliyunDerivedShortcuts.find((x) => x.id === linkId);
-                return s === undefined ? false : effectiveAutoSubmit(s, autoSubmitMap);
-              }}
-              onToggleAutoSubmit={(linkId) => {
-                const s = aliyunDerivedShortcuts.find((x) => x.id === linkId);
-                if (s === undefined) return;
-                setAutoSubmit(s.id, !effectiveAutoSubmit(s, autoSubmitMap));
-              }}
-              onClearCache={(linkId) => handleClearCache(linkId)}
-              onDuplicate={(linkId) => {
-                const src = aliyunLinks.find((l) => l.id === linkId);
-                if (src === undefined) return;
-                addAliyunLink({
-                  label: `${src.label} (copy)`,
-                  url: src.url,
-                  accountId: src.accountId,
-                });
-              }}
-              pendingClearLinkId={pendingClearShortcutId}
-            />
-          ) : activeTab === "jenkins" ? (
+          {activeTab === "jenkins" ? (
             <JenkinsSidebar
               activeLinkId={activeShortcutId}
               onSelectLink={(linkId) => setActiveShortcut(linkId)}
@@ -1745,7 +1751,17 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
                             }}
                             disabled={pendingClearShortcutId === s.id}
                             className={cn(
-                              "flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors",
+                              // Secondary actions stay collapsed so the
+                              // label keeps the full row width at rest
+                              // (w-44 sidebar can't fit 4 buttons + a
+                              // readable name) — revealed on hover, or
+                              // when the row is the active shortcut. The
+                              // pending-clear pulse forces it visible so
+                              // an in-flight clear isn't hidden.
+                              isActive || pendingClearShortcutId === s.id
+                                ? "flex"
+                                : "hidden group-hover:flex",
+                              "h-5 w-5 shrink-0 items-center justify-center rounded transition-colors",
                               pendingClearShortcutId === s.id
                                 ? "text-amber-500 animate-pulse"
                                 : "text-muted-foreground/50 hover:bg-muted hover:text-foreground",
@@ -1765,7 +1781,10 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
                               e.stopPropagation();
                               duplicateShortcut(s);
                             }}
-                            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground"
+                            className={cn(
+                              isActive ? "flex" : "hidden group-hover:flex",
+                              "h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground",
+                            )}
                             title="Duplicate this shortcut as an isolated branch (its own cookies / session)"
                             aria-label="Duplicate shortcut"
                           >
@@ -1778,7 +1797,10 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
                                 e.stopPropagation();
                                 removeShortcut(s.id);
                               }}
-                              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:bg-destructive/10 hover:text-destructive"
+                              className={cn(
+                                isActive ? "flex" : "hidden group-hover:flex",
+                                "h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:bg-destructive/10 hover:text-destructive",
+                              )}
                               title="Remove shortcut"
                               aria-label="Remove shortcut"
                             >
@@ -1848,9 +1870,9 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
               url={active.url}
               prefillScript={prefillScript}
               // dataKey resolution:
-              //   - explicit override (aliyun/jenkins virtual shortcuts
-              //     set this to "aliyun-acc-X" / "jenkins-acc-X" so all
-              //     links of one account share login)
+              //   - explicit override (Jenkins virtual shortcuts set this
+              //     to "jenkins-acc-X" so all links of one account share
+              //     login)
               //   - else parent's id for branches (duplicate window of
               //     the same account)
               //   - else this shortcut's own id (every root shortcut
@@ -1863,6 +1885,12 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
                   url={active.url}
                   onOpenExternal={handleOpenExternal}
                   onRequestClose={() => setActiveShortcut(null)}
+                  rightSlot={
+                    <BrowserZoomControl
+                      zoom={browserZoom}
+                      onChange={setBrowserZoom}
+                    />
+                  }
                   prefillScript={prefillScript}
                   onForceReload={handleForceReload}
                 />
@@ -1872,6 +1900,71 @@ export function BrowserPage(props: BrowserPageProps): ReactElement {
         )}
       </div>
     </section>
+  );
+}
+
+type BrowserZoomChange = number | ((current: number) => number);
+
+interface BrowserZoomControlProps {
+  zoom: number;
+  onChange: (next: BrowserZoomChange) => void;
+}
+
+function BrowserZoomControl({ zoom, onChange }: BrowserZoomControlProps): ReactElement {
+  return (
+    <div
+      className="flex h-7 shrink-0 items-center overflow-hidden rounded-md border border-slate-600/70 bg-slate-950/45 p-0.5 text-[11px] text-slate-200 shadow-inner"
+      title="Page zoom"
+    >
+      <span className="px-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        Zoom
+      </span>
+      <button
+        type="button"
+        onClick={() => onChange((current) => current - BROWSER_ZOOM_STEP)}
+        disabled={zoom <= MIN_BROWSER_ZOOM}
+        className="flex h-6 w-6 items-center justify-center rounded text-slate-300 transition-colors hover:bg-slate-700/80 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+        title="Zoom out"
+        aria-label="Zoom out"
+      >
+        <Minus className="h-3.5 w-3.5" />
+      </button>
+      <span className="mx-0.5 min-w-[42px] rounded bg-slate-700/65 px-1.5 py-1 text-center font-mono text-[11px] font-semibold text-white">
+        {formatBrowserZoom(zoom)}
+      </span>
+      <button
+        type="button"
+        onClick={() => onChange((current) => current + BROWSER_ZOOM_STEP)}
+        disabled={zoom >= MAX_BROWSER_ZOOM}
+        className="flex h-6 w-6 items-center justify-center rounded text-slate-300 transition-colors hover:bg-slate-700/80 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+        title="Zoom in"
+        aria-label="Zoom in"
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+      <div className="ml-1 flex items-center gap-0.5 border-l border-slate-600/60 pl-1">
+        {BROWSER_ZOOM_PRESETS.map((preset) => {
+          const active = Math.round(preset * 100) === Math.round(zoom * 100);
+          return (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => onChange(preset)}
+              className={cn(
+                "h-6 rounded px-1.5 font-mono text-[10px] font-medium transition-colors",
+                active
+                  ? "bg-sky-500/20 text-sky-100 ring-1 ring-sky-400/35"
+                  : "text-slate-400 hover:bg-slate-700/70 hover:text-slate-100",
+              )}
+              title={`Set zoom to ${formatBrowserZoom(preset)}`}
+              aria-label={`Set zoom to ${formatBrowserZoom(preset)}`}
+            >
+              {Math.round(preset * 100)}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -1904,4 +1997,3 @@ function TabButton({ active, onClick, icon, label }: TabButtonProps): ReactEleme
     </button>
   );
 }
-

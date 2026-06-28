@@ -97,7 +97,11 @@ fn nvm_latest_node(home: &Path) -> Option<PathBuf> {
 // homebrew / nvm / volta / fnm / asdf / system locations explicitly, then fall
 // back to asking a login shell.
 fn detect_node_path() -> Option<PathBuf> {
-    let candidates = ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"];
+    let candidates = [
+        "/opt/homebrew/bin/node",
+        "/usr/local/bin/node",
+        "/usr/bin/node",
+    ];
     for c in candidates {
         let p = PathBuf::from(c);
         if p.exists() {

@@ -2,6 +2,7 @@ import { logger } from "@/lib/logger";
 import {
   deletePersistedValue,
   getPersistedValue,
+  hydratePersistedValues,
   setPersistedValue,
 } from "@/lib/app-persistence";
 import { APP_VALUE_KEYS } from "@/lib/persistence-keys";
@@ -42,6 +43,27 @@ function ensureSchemaCurrent(): void {
   const isCurrent = stored === VAULT_SCHEMA_VERSION;
   // Already on the current schema — no-op.
   if (isCurrent) return;
+
+  // CRITICAL data-loss guard. A `null` schema version is AMBIGUOUS: it can
+  // mean "genuine first-run / pre-Sprint-4 legacy" OR "the persistence cache
+  // wasn't hydrated yet when this ran." Treating the latter as legacy and
+  // wiping destroyed users' synced vault data on a cold-start race (the view
+  // went empty while 8834 bytes still sat on disk). So: if the version is
+  // missing/null BUT vault data is actually present, do NOT wipe — just stamp
+  // the current version. parseVaultJson is the real gatekeeper for bad shapes;
+  // it safely rejects genuinely-legacy blobs without us destroying anything.
+  const hasVaultDataPresent =
+    getPersistedValue(APP_VALUE_KEYS.vaultData) !== null;
+  if (stored === null && hasVaultDataPresent) {
+    logger.warn(
+      LOG_SCOPE,
+      "ensureSchemaCurrent — null schema version but vault data present; " +
+        "NOT wiping (cache-not-ready race or unstamped current data). Stamping version.",
+    );
+    setPersistedValue(APP_VALUE_KEYS.vaultSchemaVersion, VAULT_SCHEMA_VERSION);
+    return;
+  }
+
   logger.warn(
     LOG_SCOPE,
     `ensureSchemaCurrent — wiping legacy vault data (stored=${stored ?? "none"} target=${VAULT_SCHEMA_VERSION})`,
@@ -51,6 +73,7 @@ function ensureSchemaCurrent(): void {
   deletePersistedValue(APP_VALUE_KEYS.vaultLastSyncedAt);
   deletePersistedValue(APP_VALUE_KEYS.vaultLarkUrlLocked);
   deletePersistedValue(APP_VALUE_KEYS.vaultLastSyncedHash);
+  deletePersistedValue(APP_VALUE_KEYS.vaultLastSyncedContentHash);
   setPersistedValue(APP_VALUE_KEYS.vaultSchemaVersion, VAULT_SCHEMA_VERSION);
 }
 
@@ -59,6 +82,13 @@ function ensureSchemaCurrent(): void {
 export async function loadVaultFromDisk(): Promise<VaultLoadResult> {
   logger.info(LOG_SCOPE, "loadVaultFromDisk — entry");
   try {
+    // Guarantee the SQLite-backed persistence cache is fully populated
+    // before we read ANY vault key. Doing this at the source means every
+    // caller (App-level mount, VaultPage mount, X-button restore) is
+    // immune to the cold-start race that previously let ensureSchemaCurrent
+    // read a null schema version and wipe live data. hydratePromise is
+    // memoized so repeat awaits are effectively free.
+    await hydratePersistedValues();
     ensureSchemaCurrent();
     const raw = getPersistedValue(APP_VALUE_KEYS.vaultData);
     const isMissing = raw === null;

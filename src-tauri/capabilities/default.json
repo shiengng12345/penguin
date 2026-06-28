@@ -14,17 +14,129 @@
     {
       "identifier": "shell:allow-execute",
       "allow": [
-        { "name": "npm", "cmd": "npm", "args": true },
-        { "name": "node", "cmd": "node", "args": true },
-        { "name": "zsh-login", "cmd": "/bin/zsh", "args": true }
+        {
+          "name": "node-path",
+          "cmd": "/bin/zsh",
+          "args": [
+            "-l",
+            "-c",
+            {
+              "validator": "^export NVM_DIR=\"\\$HOME/\\.nvm\"; \\[ -s \"\\$NVM_DIR/nvm\\.sh\" \\] && \\. \"\\$NVM_DIR/nvm\\.sh\"; command -v nvm >/dev/null 2>&1 && \\(nvm use default >/dev/null 2>&1 \\|\\| nvm use node >/dev/null 2>&1\\) \\|\\| true; export VOLTA_HOME=\"\\$HOME/\\.volta\"; export PATH=\"\\$VOLTA_HOME/bin:\\$HOME/\\.fnm:/opt/homebrew/bin:/usr/local/bin:\\$PATH\"; command -v fnm >/dev/null 2>&1 && eval \"\\$\\(fnm env 2>/dev/null\\)\"; command -v node$",
+              "raw": true
+            }
+          ]
+        },
+        {
+          "name": "node-eval",
+          "cmd": "/bin/zsh",
+          "args": [
+            "-c",
+            {
+              "validator": "^exec \\\"/[^\\\"]+\\\" -e \\\"\\$\\(printf %s '[A-Za-z0-9+/=]+' \\| base64 -d\\)\\\"$",
+              "raw": true
+            }
+          ]
+        },
+        {
+          "name": "node-eval-login",
+          "cmd": "/bin/zsh",
+          "args": [
+            "-l",
+            "-c",
+            {
+              "validator": "^export NVM_DIR=\"\\$HOME/\\.nvm\"; \\[ -s \"\\$NVM_DIR/nvm\\.sh\" \\] && \\. \"\\$NVM_DIR/nvm\\.sh\"; command -v nvm >/dev/null 2>&1 && \\(nvm use default >/dev/null 2>&1 \\|\\| nvm use node >/dev/null 2>&1\\) \\|\\| true; export VOLTA_HOME=\"\\$HOME/\\.volta\"; export PATH=\"\\$VOLTA_HOME/bin:\\$HOME/\\.fnm:/opt/homebrew/bin:/usr/local/bin:\\$PATH\"; command -v fnm >/dev/null 2>&1 && eval \"\\$\\(fnm env 2>/dev/null\\)\"; exec node -e \\\"\\$\\(printf %s '[A-Za-z0-9+/=]+' \\| base64 -d\\)\\\"$",
+              "raw": true
+            }
+          ]
+        },
+        {
+          "name": "npm-package",
+          "cmd": "/bin/zsh",
+          "args": [
+            "-l",
+            "-c",
+            {
+              "validator": "^export NVM_DIR=\"\\$HOME/\\.nvm\"; \\[ -s \"\\$NVM_DIR/nvm\\.sh\" \\] && \\. \"\\$NVM_DIR/nvm\\.sh\"; command -v nvm >/dev/null 2>&1 && \\(nvm use default >/dev/null 2>&1 \\|\\| nvm use node >/dev/null 2>&1\\) \\|\\| true; export VOLTA_HOME=\"\\$HOME/\\.volta\"; export PATH=\"\\$VOLTA_HOME/bin:\\$HOME/\\.fnm:/opt/homebrew/bin:/usr/local/bin:\\$PATH\"; command -v fnm >/dev/null 2>&1 && eval \"\\$\\(fnm env 2>/dev/null\\)\"; cd \"[^\"\\n]+\" && npm (install --save --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=1 (--prefer-offline )?\"@snsoft/[^\"\\n]+\"|uninstall --no-audit --no-fund \"@snsoft/[^\"\\n]+\")$",
+              "raw": true
+            }
+          ]
+        },
+        {
+          "name": "grpc-deps",
+          "cmd": "/bin/zsh",
+          "args": [
+            "-l",
+            "-c",
+            {
+              "validator": "^export NVM_DIR=\"\\$HOME/\\.nvm\"; \\[ -s \"\\$NVM_DIR/nvm\\.sh\" \\] && \\. \"\\$NVM_DIR/nvm\\.sh\"; command -v nvm >/dev/null 2>&1 && \\(nvm use default >/dev/null 2>&1 \\|\\| nvm use node >/dev/null 2>&1\\) \\|\\| true; export VOLTA_HOME=\"\\$HOME/\\.volta\"; export PATH=\"\\$VOLTA_HOME/bin:\\$HOME/\\.fnm:/opt/homebrew/bin:/usr/local/bin:\\$PATH\"; command -v fnm >/dev/null 2>&1 && eval \"\\$\\(fnm env 2>/dev/null\\)\"; cd \"[^\"\\n]+\" && npm (ls @grpc/grpc-js @grpc/proto-loader --json|install --save --prefer-offline --no-audit --no-fund @grpc/grpc-js @grpc/proto-loader)$",
+              "raw": true
+            }
+          ]
+        },
+        {
+          "name": "lark-fetch",
+          "cmd": "/bin/zsh",
+          "args": [
+            "-l",
+            "-c",
+            {
+              "validator": "^export NVM_DIR=\"\\$HOME/\\.nvm\"; \\[ -s \"\\$NVM_DIR/nvm\\.sh\" \\] && \\. \"\\$NVM_DIR/nvm\\.sh\"; command -v nvm >/dev/null 2>&1 && \\(nvm use default >/dev/null 2>&1 \\|\\| nvm use node >/dev/null 2>&1\\) \\|\\| true; export VOLTA_HOME=\"\\$HOME/\\.volta\"; export PATH=\"\\$VOLTA_HOME/bin:\\$HOME/\\.fnm:/opt/homebrew/bin:/usr/local/bin:\\$PATH\"; command -v fnm >/dev/null 2>&1 && eval \"\\$\\(fnm env 2>/dev/null\\)\"; lark-cli docs \\+fetch --doc \"https://[a-z0-9.-]+\\.(larksuite\\.com|feishu\\.cn)/[^\"\\n]*\" --format pretty$",
+              "raw": true
+            }
+          ]
+        },
+        {
+          "name": "lark-update",
+          "cmd": "/bin/zsh",
+          "args": [
+            "-l",
+            "-c",
+            {
+              "validator": "^export NVM_DIR=\"\\$HOME/\\.nvm\"; \\[ -s \"\\$NVM_DIR/nvm\\.sh\" \\] && \\. \"\\$NVM_DIR/nvm\\.sh\"; command -v nvm >/dev/null 2>&1 && \\(nvm use default >/dev/null 2>&1 \\|\\| nvm use node >/dev/null 2>&1\\) \\|\\| true; export VOLTA_HOME=\"\\$HOME/\\.volta\"; export PATH=\"\\$VOLTA_HOME/bin:\\$HOME/\\.fnm:/opt/homebrew/bin:/usr/local/bin:\\$PATH\"; command -v fnm >/dev/null 2>&1 && eval \"\\$\\(fnm env 2>/dev/null\\)\"; lark-cli docs \\+update --doc \"https://[a-z0-9.-]+\\.(larksuite\\.com|feishu\\.cn)/[^\"\\n]*\" --mode overwrite --markdown - <<'PENGUIN_VAULT_[A-Z0-9]+_EOF'[\\s\\S]*PENGUIN_VAULT_[A-Z0-9]+_EOF$",
+              "raw": true
+            }
+          ]
+        }
       ]
     },
     {
       "identifier": "shell:allow-spawn",
       "allow": [
-        { "name": "npm", "cmd": "npm", "args": true },
-        { "name": "node", "cmd": "node", "args": true },
-        { "name": "zsh-login", "cmd": "/bin/zsh", "args": true }
+        {
+          "name": "node-eval",
+          "cmd": "/bin/zsh",
+          "args": [
+            "-c",
+            {
+              "validator": "^exec \\\"/[^\\\"]+\\\" -e \\\"\\$\\(printf %s '[A-Za-z0-9+/=]+' \\| base64 -d\\)\\\"$",
+              "raw": true
+            }
+          ]
+        },
+        {
+          "name": "node-eval-login",
+          "cmd": "/bin/zsh",
+          "args": [
+            "-l",
+            "-c",
+            {
+              "validator": "^export NVM_DIR=\"\\$HOME/\\.nvm\"; \\[ -s \"\\$NVM_DIR/nvm\\.sh\" \\] && \\. \"\\$NVM_DIR/nvm\\.sh\"; command -v nvm >/dev/null 2>&1 && \\(nvm use default >/dev/null 2>&1 \\|\\| nvm use node >/dev/null 2>&1\\) \\|\\| true; export VOLTA_HOME=\"\\$HOME/\\.volta\"; export PATH=\"\\$VOLTA_HOME/bin:\\$HOME/\\.fnm:/opt/homebrew/bin:/usr/local/bin:\\$PATH\"; command -v fnm >/dev/null 2>&1 && eval \"\\$\\(fnm env 2>/dev/null\\)\"; exec node -e \\\"\\$\\(printf %s '[A-Za-z0-9+/=]+' \\| base64 -d\\)\\\"$",
+              "raw": true
+            }
+          ]
+        },
+        {
+          "name": "npm-package",
+          "cmd": "/bin/zsh",
+          "args": [
+            "-l",
+            "-c",
+            {
+              "validator": "^export NVM_DIR=\"\\$HOME/\\.nvm\"; \\[ -s \"\\$NVM_DIR/nvm\\.sh\" \\] && \\. \"\\$NVM_DIR/nvm\\.sh\"; command -v nvm >/dev/null 2>&1 && \\(nvm use default >/dev/null 2>&1 \\|\\| nvm use node >/dev/null 2>&1\\) \\|\\| true; export VOLTA_HOME=\"\\$HOME/\\.volta\"; export PATH=\"\\$VOLTA_HOME/bin:\\$HOME/\\.fnm:/opt/homebrew/bin:/usr/local/bin:\\$PATH\"; command -v fnm >/dev/null 2>&1 && eval \"\\$\\(fnm env 2>/dev/null\\)\"; cd \"[^\"\\n]+\" && npm (install --save --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=1 (--prefer-offline )?\"@snsoft/[^\"\\n]+\"|uninstall --no-audit --no-fund \"@snsoft/[^\"\\n]+\")$",
+              "raw": true
+            }
+          ]
+        }
       ]
     }
   ]

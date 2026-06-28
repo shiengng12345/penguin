@@ -30,6 +30,15 @@ export function isJenkinsLinkShortcutId(id: string): boolean {
   return id.startsWith(JENKINS_LINK_PREFIX);
 }
 
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 // Build the virtual BrowserShortcut feeding the right-pane InlineWebview
 // when the user picks an Jenkins link. Account is required: the whole
 // point of the tab is one-click logged-in access.
@@ -331,7 +340,12 @@ function LinkRow({
         }}
         disabled={pendingClear}
         className={cn(
-          "flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors",
+          // Collapse secondary actions at rest so the link name keeps the
+          // full row width (the narrow sidebar can't fit 4 buttons + a
+          // readable label) — revealed on hover / when active. Pending
+          // clear forces it visible so the in-flight pulse isn't hidden.
+          isActive || pendingClear ? "flex" : "hidden group-hover:flex",
+          "h-5 w-5 shrink-0 items-center justify-center rounded transition-colors",
           pendingClear
             ? "text-amber-500 animate-pulse"
             : "text-muted-foreground/50 hover:bg-muted hover:text-foreground",
@@ -351,7 +365,10 @@ function LinkRow({
           e.stopPropagation();
           onDuplicate();
         }}
-        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground"
+        className={cn(
+          isActive ? "flex" : "hidden group-hover:flex",
+          "h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground",
+        )}
         title="Duplicate this link (same URL + account, new row — shares session via the account's data store)"
         aria-label="Duplicate link"
       >
@@ -363,7 +380,10 @@ function LinkRow({
           e.stopPropagation();
           onDelete();
         }}
-        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:bg-destructive/10 hover:text-destructive"
+        className={cn(
+          isActive ? "flex" : "hidden group-hover:flex",
+          "h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:bg-destructive/10 hover:text-destructive",
+        )}
         title="Remove link"
         aria-label="Remove link"
       >
@@ -470,7 +490,7 @@ function InlineAddLinkForm({ accounts, onCancel, onSave }: InlineAddLinkFormProp
     e.preventDefault();
     const l = label.trim();
     const u = url.trim();
-    if (l.length === 0 || u.length === 0 || accountId.length === 0) return;
+    if (l.length === 0 || u.length === 0 || accountId.length === 0 || !isHttpUrl(u)) return;
     onSave({ label: l, url: u, accountId });
   };
 

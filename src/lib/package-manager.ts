@@ -51,7 +51,7 @@ const INSTALL_TIMEOUT_MS = 300_000;
 
 async function shellCmd(script: string, cwd: string) {
   const { Command } = await import("@tauri-apps/plugin-shell");
-  return Command.create("zsh-login", ["-l", "-c", `${NODE_PATH_SETUP}; cd ${JSON.stringify(cwd)} && ${script}`]);
+  return Command.create("npm-package", ["-l", "-c", `${NODE_PATH_SETUP}; cd ${JSON.stringify(cwd)} && ${script}`]);
 }
 
 interface CommandRunResult {
@@ -124,6 +124,17 @@ function isLikelyStalePackument(result: CommandRunResult): boolean {
   );
 }
 
+// A publish race — the requested package is live but a transitive @snsoft
+// dependency it pins hasn't landed on the registry yet — surfaces as a
+// lingering ETARGET even after a fresh-metadata fetch. These multi-package
+// publishes self-heal within minutes, so back off and retry a couple of times
+// before giving up. Delays are in ms; the array length is the retry count.
+const ETARGET_RETRY_DELAYS_MS = [30_000, 60_000];
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function npmInstallScript(packageSpec: string, preferOffline: boolean): string {
   const args = [
     "npm",
@@ -177,6 +188,28 @@ export async function installPackage(
       onLog,
       "Retry timed out (5 min). Killing process..."
     );
+
+    // Still ETARGET after a fresh-metadata fetch → likely a publish race (a
+    // pinned @snsoft dependency hasn't landed on the registry yet). Back off
+    // and retry; these clear within a few minutes.
+    for (
+      let attempt = 0;
+      !result.ok && isLikelyStalePackument(result) && attempt < ETARGET_RETRY_DELAYS_MS.length;
+      attempt++
+    ) {
+      const waitMs = ETARGET_RETRY_DELAYS_MS[attempt];
+      onLog(
+        `A pinned dependency isn't on the registry yet (likely a publish still in progress). ` +
+          `Waiting ${waitMs / 1000}s, then retry ${attempt + 1}/${ETARGET_RETRY_DELAYS_MS.length}...`
+      );
+      await delay(waitMs);
+      result = await runLoggedCommand(
+        npmInstallScript(packageSpec, false),
+        dir,
+        onLog,
+        "Retry timed out (5 min). Killing process..."
+      );
+    }
   }
 
   if (result.ok) {
@@ -187,6 +220,7 @@ export async function installPackage(
   onLog(`Installation failed (exit code ${result.exitCode ?? "unknown"})`);
   onLog("");
   onLog("Common causes:");
+  onLog("  • Just published? A pinned dependency may still be landing on the registry — wait a minute and retry");
   onLog("  • Network / VPN — check connectivity to your registry");
   onLog("  • Auth expired — update token in Settings → Package Registry");
   onLog("  • Registry URL wrong — verify scope (@snsoft) points to correct URL");

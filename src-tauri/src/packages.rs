@@ -144,7 +144,7 @@ pub(crate) fn list_installed_packages(protocol: String) -> Result<Vec<InstalledP
 
     let mut packages = Vec::new();
 
-    for (dep_name, _dep_version) in &direct_deps {
+    for dep_name in direct_deps.keys() {
         if !dep_name.starts_with("@snsoft/") {
             continue;
         }
@@ -185,7 +185,10 @@ pub(crate) fn list_installed_packages(protocol: String) -> Result<Vec<InstalledP
     Ok(packages)
 }
 
-fn discover_package_files(pkg_path: &std::path::Path, protocol: &str) -> Result<Vec<ProtoFile>, String> {
+fn discover_package_files(
+    pkg_path: &std::path::Path,
+    protocol: &str,
+) -> Result<Vec<ProtoFile>, String> {
     let mut files = Vec::new();
     let dist = pkg_path.join("dist");
 
@@ -199,30 +202,46 @@ fn discover_package_files(pkg_path: &std::path::Path, protocol: &str) -> Result<
         // .proto files in dist/protos/
         let protos_dir = dist.join("protos");
         if protos_dir.exists() {
-            for entry in glob::glob(protos_dir.join("**/*.proto").to_str().unwrap())
-                .map_err(|e| e.to_string())?
+            for p in (glob::glob(protos_dir.join("**/*.proto").to_str().unwrap())
+                .map_err(|e| e.to_string())?)
+            .flatten()
             {
-                if let Ok(p) = entry {
-                    if p.is_file() {
-                        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
-                        let path_str = p.to_string_lossy().to_string();
-                        let content = read_file_content(&p).unwrap_or_default();
-                        files.push(ProtoFile { name, path: path_str, content });
-                    }
+                if p.is_file() {
+                    let name = p
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let path_str = p.to_string_lossy().to_string();
+                    let content = read_file_content(&p).unwrap_or_default();
+                    files.push(ProtoFile {
+                        name,
+                        path: path_str,
+                        content,
+                    });
                 }
             }
         }
 
         // *_connect.d.ts and *_pb.d.ts in dist/
         for pattern in &["**/*_connect.d.ts", "**/*_pb.d.ts"] {
-            for entry in glob::glob(dist.join(pattern).to_str().unwrap()).map_err(|e| e.to_string())? {
-                if let Ok(p) = entry {
-                    if p.is_file() {
-                        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
-                        let path_str = p.to_string_lossy().to_string();
-                        let content = read_file_content(&p).unwrap_or_default();
-                        files.push(ProtoFile { name, path: path_str, content });
-                    }
+            for p in
+                (glob::glob(dist.join(pattern).to_str().unwrap()).map_err(|e| e.to_string())?)
+                    .flatten()
+            {
+                if p.is_file() {
+                    let name = p
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let path_str = p.to_string_lossy().to_string();
+                    let content = read_file_content(&p).unwrap_or_default();
+                    files.push(ProtoFile {
+                        name,
+                        path: path_str,
+                        content,
+                    });
                 }
             }
         }
@@ -232,33 +251,38 @@ fn discover_package_files(pkg_path: &std::path::Path, protocol: &str) -> Result<
         // those files to populate requestFields, so keep them in the payload.
         // Send the relative path from dist/ as `name` so the parser can apply
         // its own "is this a class file or an interface file?" filter.
-        for entry in glob::glob(dist.join("**/*.d.ts").to_str().unwrap()).map_err(|e| e.to_string())? {
-            if let Ok(p) = entry {
-                if !p.is_file() {
-                    continue;
-                }
-                let path_str = p.to_string_lossy().to_string();
-                let rel = p.strip_prefix(&dist).unwrap_or(&p);
-                let components: Vec<_> = rel.components().collect();
-
-                // Exclude index.d.ts
-                if components.last().map(|c| c.as_os_str().to_str()) == Some(Some("index.d.ts")) {
-                    continue;
-                }
-                // Exclude utils/, enum/ subdirectories (still pure helpers).
-                if components.iter().any(|c| {
-                    c.as_os_str()
-                        .to_str()
-                        .map(|s| ["utils", "enum"].contains(&s))
-                        .unwrap_or(false)
-                }) {
-                    continue;
-                }
-
-                let rel_name = rel.to_string_lossy().to_string();
-                let content = read_file_content(&p).unwrap_or_default();
-                files.push(ProtoFile { name: rel_name, path: path_str, content });
+        for p in
+            (glob::glob(dist.join("**/*.d.ts").to_str().unwrap()).map_err(|e| e.to_string())?)
+                .flatten()
+        {
+            if !p.is_file() {
+                continue;
             }
+            let path_str = p.to_string_lossy().to_string();
+            let rel = p.strip_prefix(&dist).unwrap_or(&p);
+            let components: Vec<_> = rel.components().collect();
+
+            // Exclude index.d.ts
+            if components.last().map(|c| c.as_os_str().to_str()) == Some(Some("index.d.ts")) {
+                continue;
+            }
+            // Exclude utils/, enum/ subdirectories (still pure helpers).
+            if components.iter().any(|c| {
+                c.as_os_str()
+                    .to_str()
+                    .map(|s| ["utils", "enum"].contains(&s))
+                    .unwrap_or(false)
+            }) {
+                continue;
+            }
+
+            let rel_name = rel.to_string_lossy().to_string();
+            let content = read_file_content(&p).unwrap_or_default();
+            files.push(ProtoFile {
+                name: rel_name,
+                path: path_str,
+                content,
+            });
         }
     }
 
@@ -266,7 +290,10 @@ fn discover_package_files(pkg_path: &std::path::Path, protocol: &str) -> Result<
 }
 
 #[tauri::command]
-pub(crate) fn read_package_bundle(protocol: String, package_name: String) -> Result<String, String> {
+pub(crate) fn read_package_bundle(
+    protocol: String,
+    package_name: String,
+) -> Result<String, String> {
     let base_dir = penguin_packages_dir(&protocol)?;
     let pkg_path = if package_name.starts_with('@') {
         let parts: Vec<&str> = package_name.splitn(2, '/').collect();
@@ -376,9 +403,10 @@ pub(crate) fn start_package_watcher<R: tauri::Runtime>(app: tauri::AppHandle<R>)
                     if matches!(event.kind, EventKind::Access(_)) {
                         continue;
                     }
-                    let touched_node_modules = event.paths.iter().any(|p| {
-                        p.components().any(|c| c.as_os_str() == "node_modules")
-                    });
+                    let touched_node_modules = event
+                        .paths
+                        .iter()
+                        .any(|p| p.components().any(|c| c.as_os_str() == "node_modules"));
                     if touched_node_modules {
                         pending = true;
                         last_event = Instant::now();
@@ -441,7 +469,11 @@ mod tests {
         fs::write(&local, b"OLD_TOKEN=abc\n").unwrap();
 
         // Simulate user rotating credentials in ~/.npmrc.
-        fs::write(&global, b"NEW_TOKEN=xyz\nregistry=https://new.example.com/\n").unwrap();
+        fs::write(
+            &global,
+            b"NEW_TOKEN=xyz\nregistry=https://new.example.com/\n",
+        )
+        .unwrap();
 
         mirror_npmrc(&global, &local);
 

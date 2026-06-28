@@ -5,7 +5,7 @@
 // caused the webview to paint over the toolbar on first mount.)
 
 import { ArrowLeft, ArrowRight, ExternalLink, RotateCcw, X } from "lucide-react";
-import { useCallback, useState, type CSSProperties, type ReactElement } from "react";
+import { useCallback, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 
 import {
   closeInlineWebview,
@@ -42,6 +42,7 @@ export interface InlineWebviewToolbarProps {
   url: string;
   onRequestClose?: () => void;
   onOpenExternal?: (url: string) => void;
+  rightSlot?: ReactNode;
   // Re-injected after every reload (Vault sign-in form resets). Never logged.
   prefillScript?: string;
   // Shift+click on Reload — destroys + re-creates the webview so a
@@ -206,6 +207,7 @@ export function InlineWebviewToolbar(props: InlineWebviewToolbarProps): ReactEle
       >
         {props.url}
       </div>
+      {props.rightSlot}
       {props.onOpenExternal !== undefined && (
         <button
           type="button"

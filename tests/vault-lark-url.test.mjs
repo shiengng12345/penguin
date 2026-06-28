@@ -19,15 +19,18 @@ async function loadVaultLarkModule() {
     "@/lib/app-persistence": `
       export function getPersistedValue() { return null; }
       export function setPersistedValue() {}
+      export function deletePersistedValue() {}
     `,
     "@/lib/persistence-keys": `
       export const APP_VALUE_KEYS = {
+        devModeToken: "dev-mode-token",
         vaultLarkUrl: "vault-lark-url",
         vaultLastSyncedAt: "vault-last-synced-at",
         vaultLarkUrlLocked: "vault-lark-url-locked",
         vaultLastSyncedHash: "vault-last-synced-hash",
       };
     `,
+    "@/lib/dev-mode-store": "export function getInMemoryDevToken() { return null; }",
     "@/lib/store": `
       const state = {
         setVaultLarkUrl: () => {},
@@ -41,6 +44,11 @@ async function loadVaultLarkModule() {
     "./vault-storage": `
       export function parseVaultJson() { return { success: true, projects: [] }; }
       export function persistVaultToDisk() { return { success: true }; }
+    `,
+    "./vault-crypto": `
+      export async function decryptVaultJson() { return { success: false, reason: "mock" }; }
+      export function getVaultCryptoTokensFromToken() { return {}; }
+      export function isVaultEncryptedEnvelope() { return false; }
     `,
     "@tauri-apps/plugin-shell": `
       export const Command = { create: () => ({ execute: async () => ({ code: 0, stdout: "", stderr: "" }) }) };

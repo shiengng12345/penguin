@@ -115,8 +115,6 @@ function moduleSections(module: MainModule | undefined): ShortcutCategory[] {
       return VAULT_SHORTCUTS;
     case "docs":
       return DOCS_SHORTCUTS;
-    case "home":
-      return [];
     case "client":
     default:
       return CLIENT_SHORTCUTS;
@@ -156,7 +154,7 @@ export function ShortcutCheatSheet({ open, onClose, activeModule }: ShortcutChea
           >
             <Keyboard className="h-4 w-4 shrink-0 text-muted-foreground" />
             Keyboard Shortcuts
-            {activeModule && activeModule !== "home" && (
+            {activeModule && (
               <span className="text-[10px] font-normal uppercase tracking-wider text-muted-foreground">
                 · {activeModule}
               </span>

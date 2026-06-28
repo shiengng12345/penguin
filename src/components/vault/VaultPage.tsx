@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { logger } from "@/lib/logger";
 import { requireSuperAdmin } from "@/lib/dev-mode-store";
-import { getPersistedValue } from "@/lib/app-persistence";
+import { getPersistedValue, hydratePersistedValues } from "@/lib/app-persistence";
 import { APP_VALUE_KEYS } from "@/lib/persistence-keys";
 import { VaultEmptyGate, PENGUIN_GO_HOME_EVENT } from "./VaultEmptyGate";
 import {
@@ -83,6 +83,11 @@ export function VaultPage({ onClose, onOpenInBrowser }: VaultPageProps) {
   const setSelectedEnvId = useAppStore((s) => s.setVaultSelectedEnvId);
 
   const [credentialModal, setCredentialModal] = useState<CredentialModalState>({ open: false });
+  // When the user presses ✕ on the first-run Lark setup card without
+  // having any data, we dismiss the card and show the empty-state view
+  // (Add project / secondary Sync from Lark). Previously we dispatched
+  // PENGUIN_GO_HOME_EVENT which sent the user away from Vault — confusing.
+  const [setupCardDismissed, setSetupCardDismissed] = useState(false);
   const [projectModal, setProjectModal] = useState<{ open: boolean; editingProjectId: string | null }>({
     open: false,
     editingProjectId: null,
@@ -152,13 +157,19 @@ export function VaultPage({ onClose, onOpenInBrowser }: VaultPageProps) {
   }, [undoSnapshot, setVaultProjects, setVaultIsDirty]);
 
   useEffect(() => {
-    const storedUrl = loadLarkUrlFromDisk();
-    const isUrlPresent = storedUrl !== null;
-    if (isUrlPresent) setVaultLarkUrl(storedUrl);
-    const storedSyncedAt = loadLastSyncedAtFromDisk();
-    const isTimestampPresent = storedSyncedAt !== null;
-    if (isTimestampPresent) useAppStore.getState().setVaultLastSyncedAt(storedSyncedAt);
-    void loadVaultFromDisk();
+    // Always wait for the full persistence hydration before reading any
+    // cached value. If hydratePersistedValues() hasn't resolved yet,
+    // getPersistedValue() returns null — causing Vault to look empty even
+    // when data exists. Awaiting here guarantees the cache is populated.
+    void hydratePersistedValues().then(() => {
+      const storedUrl = loadLarkUrlFromDisk();
+      const isUrlPresent = storedUrl !== null;
+      if (isUrlPresent) setVaultLarkUrl(storedUrl);
+      const storedSyncedAt = loadLastSyncedAtFromDisk();
+      const isTimestampPresent = storedSyncedAt !== null;
+      if (isTimestampPresent) useAppStore.getState().setVaultLastSyncedAt(storedSyncedAt);
+      void loadVaultFromDisk();
+    });
   }, [setVaultLarkUrl]);
 
   // Recompute vaultIsDirty whenever vault data changes by comparing the
@@ -168,15 +179,19 @@ export function VaultPage({ onClose, onOpenInBrowser }: VaultPageProps) {
   // semantic is durable because both sides are persisted.
   useEffect(() => {
     let cancelled = false;
-    const storedHash = getPersistedValue(APP_VALUE_KEYS.vaultLastSyncedHash);
+    const storedContentHash = getPersistedValue(APP_VALUE_KEYS.vaultLastSyncedContentHash);
+    const storedHash = storedContentHash ?? getPersistedValue(APP_VALUE_KEYS.vaultLastSyncedHash);
     if (storedHash === null || storedHash === undefined) {
       // No prior sync/push. If the user has projects locally, they're
       // unsynced → dirty. Empty vault → not dirty.
       setVaultIsDirty(vaultProjects.length > 0);
       return;
     }
-    const markdown = serializeVaultMarkdown({ projects: vaultProjects });
-    void sha256Hex({ text: markdown }).then((currentHash) => {
+    const hashInput =
+      storedContentHash !== null
+        ? JSON.stringify(vaultProjects)
+        : serializeVaultMarkdown({ projects: vaultProjects });
+    void sha256Hex({ text: hashInput }).then((currentHash) => {
       if (cancelled) return;
       setVaultIsDirty(currentHash !== storedHash);
     });
@@ -644,12 +659,11 @@ export function VaultPage({ onClose, onOpenInBrowser }: VaultPageProps) {
     const diff = computeVaultDiff({ local: vaultProjects, remote: remoteSnapshot });
     const changeCount = diff.added.length + diff.modified.length + diff.deleted.length;
     setIsPushing(true);
-    // expectedHash=null — always force overwrite. User opted out of the
-    // "Lark has external changes" guard for a direct push experience.
+    const expectedHash = getPersistedValue(APP_VALUE_KEYS.vaultLastSyncedHash);
     const result = await pushToLark({
       url,
       projects: vaultProjects,
-      expectedHash: null,
+      expectedHash,
     });
     setIsPushing(false);
     if (result.success) {
@@ -695,13 +709,14 @@ export function VaultPage({ onClose, onOpenInBrowser }: VaultPageProps) {
   //       Add project + secondary Sync from Lark actions.
   if (vaultProjects.length === 0) {
     const hasUsedVaultBefore = vaultLarkUrl !== null || vaultLastSyncedAt !== null;
-    const showFirstRunSetup = !hasUsedVaultBefore;
+    const showFirstRunSetup = !hasUsedVaultBefore && !setupCardDismissed;
     if (showFirstRunSetup) {
       return (
         <div className="flex flex-1 min-h-0 bg-background">
           <VaultLarkSetupCard
             existingUrl={vaultLarkUrl}
             lastSyncedAt={vaultLastSyncedAt}
+            onDismiss={() => setSetupCardDismissed(true)}
           />
         </div>
       );
@@ -986,10 +1001,11 @@ function VaultEmptyAfterDelete(props: VaultEmptyAfterDeleteProps) {
 interface VaultLarkSetupCardProps {
   existingUrl: string | null;
   lastSyncedAt: number | null;
+  onDismiss?: () => void;
 }
 
 // Empty-state setup card: paste Lark URL → save → sync.
-function VaultLarkSetupCard(props: VaultLarkSetupCardProps) {
+function VaultLarkSetupCard(props: VaultLarkSetupCardProps & { onDismiss?: () => void }) {
   const [urlInput, setUrlInput] = useState<string>(props.existingUrl ?? "");
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -1020,14 +1036,15 @@ function VaultLarkSetupCard(props: VaultLarkSetupCardProps) {
         <button
           type="button"
           onClick={async () => {
-            // Cancel URL edit — try to restore the previous vault from disk.
-            // If the disk has no data (e.g. legacy destructive Edit URL or
-            // a fresh first-time install), fall back to the Home hub so the
-            // user is not stuck on the setup card.
+            // Wait for the persistence cache to be fully hydrated before
+            // loading from disk. On first render the hydratePersistedValues()
+            // promise may still be in flight — reading from the in-memory
+            // cache before it settles returns null even when data exists,
+            // which incorrectly shows "no data" and triggers onDismiss.
+            await hydratePersistedValues();
             const result = await loadVaultFromDisk();
-            const noDataOnDisk = !result.loaded;
-            if (noDataOnDisk) {
-              document.dispatchEvent(new CustomEvent(PENGUIN_GO_HOME_EVENT));
+            if (!result.loaded) {
+              props.onDismiss?.();
             }
           }}
           className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"

@@ -46,11 +46,28 @@ test("RegistryAuthSection 状态类型包含 registry_url 字段", async () => {
   );
 });
 
-test("SettingsDialog 在 DeveloperModeSection 后挂载 RegistryAuthSection", async () => {
+test("SettingsDialog mounts RegistryAuthSection", async () => {
   const source = await readFile(SETTINGS_DIALOG_URL, "utf8");
   assert.match(source, /import\s*\{\s*RegistryAuthSection\s*\}/);
-  assert.match(
-    source,
-    /<DeveloperModeSection\s*\/>\s*\n\s*<RegistryAuthSection\s*\/>/,
+  assert.match(source, /<RegistryAuthSection\s*\/>/);
+});
+
+test("SettingsDialog no longer hosts Developer Mode (moved to hidden Cmd+A+D modal)", async () => {
+  const source = await readFile(SETTINGS_DIALOG_URL, "utf8");
+  // Developer Mode is now a standalone modal opened only by the hold
+  // gesture in App.tsx — Settings must not import or render it.
+  assert.doesNotMatch(source, /DeveloperModeSection/);
+  assert.doesNotMatch(source, /DeveloperModeModal/);
+});
+
+test("App wires the Cmd+G hold gesture to the Developer Mode modal", async () => {
+  const app = await readFile(
+    new URL("../src/App.tsx", import.meta.url),
+    "utf8",
   );
+  assert.match(app, /DeveloperModeModal/);
+  // 3-second hold timer + the combo (g while ⌘ held).
+  assert.match(app, /setDevModalOpen\(true\)/);
+  assert.match(app, /down\.has\("g"\)/);
+  assert.match(app, /3000/);
 });

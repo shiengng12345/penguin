@@ -18,6 +18,7 @@ const LazyJsonEditor = lazy(() => import("@/components/ui/json-editor").then(m =
 
 export function RequestPanel() {
   const { updateActiveTab, addHistory, saveRequest } = useAppStore();
+  const configSynced = useAppStore((s) => s.configSynced);
   const tab = useActiveTab();
   const { activeEnv } = useEnvironments();
   const sendRef = useRef<() => void>(() => {});
@@ -70,6 +71,7 @@ export function RequestPanel() {
 
   const handleSend = async () => {
     if (!tab.targetUrl.trim() || (!isRest && !tab.selectedMethod)) return;
+    if (!configSynced) return;
 
     if (!navigator.onLine) {
       setOfflineFlash(true);
@@ -539,12 +541,13 @@ export function RequestPanel() {
         ) : (
           <Button
             onClick={handleSend}
-            disabled={!isRest && !tab.selectedMethod}
+            disabled={(!isRest && !tab.selectedMethod) || !configSynced}
+            title={!configSynced ? "Loading environment variables…" : undefined}
             className="flex-1 h-8"
             size="sm"
           >
             <Send className="mr-1.5 h-3.5 w-3.5" />
-            Send
+            {configSynced ? "Send" : "Loading…"}
           </Button>
         )}
         <Button

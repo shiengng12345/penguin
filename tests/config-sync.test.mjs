@@ -198,6 +198,29 @@ test("startup environment sync uses safe merge instead of replacing local config
   assert.doesNotMatch(source, /variables:\s*Object\.entries\(cfg\.variables/);
 });
 
+test("startup environment sync always releases the initial send gate", async () => {
+  const source = await readFile(new URL("../src/hooks/useEnvironments.ts", import.meta.url), "utf8");
+  const start = source.indexOf("syncAllProtocolEnvs");
+  assert.ok(start >= 0, "syncAllProtocolEnvs function not found");
+  const body = source.slice(start, start + 5000);
+
+  assert.match(
+    body,
+    /finally\s*\{[\s\S]*configSynced:\s*true/,
+    "configSynced must be set even when config is empty, missing, or invalid",
+  );
+});
+
+test("RequestPanel send handler gates keyboard sends on config sync too", async () => {
+  const source = await readFile(new URL("../src/components/request/RequestPanel.tsx", import.meta.url), "utf8");
+  const start = source.indexOf("const handleSend = async");
+  assert.ok(start >= 0, "handleSend function not found");
+  const body = source.slice(start, start + 1000);
+
+  assert.match(body, /if\s*\(!configSynced\)\s*return;/);
+  assert.match(source, /disabled=\{\(!isRest && !tab\.selectedMethod\) \|\| !configSynced\}/);
+});
+
 test("environment manager exposes Pull Latest Config safe merge action", async () => {
   const source = await readFile(new URL("../src/components/environment/EnvManager.tsx", import.meta.url), "utf8");
 

@@ -33,7 +33,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 toml_edit = "0.25"
 glob = "0.3"
 dirs = "6"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 tokio = { version = "1", features = ["full"] }
 base64 = "0.22"
 notify = "6.1"
@@ -44,6 +44,13 @@ notify = "6.1"
 # PNG decode since `screencapture` always writes PNG.
 rqrr = "0.7"
 image = { version = "0.25", default-features = false, features = ["png"] }
+
+# Redis module — fred is a fully-async Redis client built on tokio.
+# tokio-util provides CancellationToken for graceful background-task
+# shutdown (Stats auto-refresh, future pub/sub).
+fred = { version = "9", features = ["enable-rustls-ring", "i-memory"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+futures = "0.3"
 
 # (REST module secrets now live in app_kv via SqliteKeychain — see
 # src/rest/keychain.rs. The old `keyring` dependency was removed because

@@ -6,9 +6,6 @@ import {
 import { APP_VALUE_KEYS } from "./persistence-keys";
 import { isAppTheme, type AppTheme } from "./theme";
 import type {
-  AliyunAccount,
-  AliyunLink,
-  AliyunState,
   BrowserShortcut,
   HistoryEntry,
   JenkinsAccount,
@@ -35,7 +32,6 @@ export const DEFAULT_HEADERS_KEY = APP_VALUE_KEYS.defaultHeaders;
 export const BROWSER_SHORTCUTS_KEY = APP_VALUE_KEYS.browserShortcuts;
 export const BROWSER_AUTO_SUBMIT_KEY = APP_VALUE_KEYS.browserAutoSubmit;
 export const BROWSER_AUTO_SUBMIT_GLOBAL_KEY = APP_VALUE_KEYS.browserAutoSubmitGlobal;
-export const ALIYUN_DATA_KEY = APP_VALUE_KEYS.aliyunData;
 export const JENKINS_DATA_KEY = APP_VALUE_KEYS.jenkinsData;
 
 // --- Load/save helpers ---
@@ -290,66 +286,7 @@ export function persistBrowserAutoSubmitGlobal(enabled: boolean): void {
   }
 }
 
-// --- Aliyun tab data ---
-//
-// Single JSON blob — `{accounts, links}` — so a load + persist hit
-// touches one row in app_kv rather than two. Validation tolerates
-// partial data (missing accounts or links key) without crashing.
-
-function isAliyunAccount(value: unknown): value is AliyunAccount {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  return (
-    typeof v.id === "string" &&
-    typeof v.label === "string" &&
-    typeof v.username === "string" &&
-    typeof v.password === "string" &&
-    typeof v.createdAt === "number"
-  );
-}
-
-function isAliyunLink(value: unknown): value is AliyunLink {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  return (
-    typeof v.id === "string" &&
-    typeof v.label === "string" &&
-    typeof v.url === "string" &&
-    typeof v.accountId === "string" &&
-    typeof v.createdAt === "number"
-  );
-}
-
-export function loadAliyunData(): AliyunState {
-  try {
-    const raw = getPersistedValue(ALIYUN_DATA_KEY);
-    if (raw === null || raw === undefined || raw === "") return { accounts: [], links: [] };
-    const parsed = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return { accounts: [], links: [] };
-    const rawAccounts = Array.isArray((parsed as { accounts?: unknown }).accounts)
-      ? ((parsed as { accounts: unknown[] }).accounts as unknown[])
-      : [];
-    const rawLinks = Array.isArray((parsed as { links?: unknown }).links)
-      ? ((parsed as { links: unknown[] }).links as unknown[])
-      : [];
-    return {
-      accounts: rawAccounts.filter(isAliyunAccount),
-      links: rawLinks.filter(isAliyunLink),
-    };
-  } catch {
-    return { accounts: [], links: [] };
-  }
-}
-
-export function persistAliyunData(state: AliyunState): void {
-  try {
-    setPersistedValue(ALIYUN_DATA_KEY, JSON.stringify(state));
-  } catch {
-    /* best effort — local fs / SQLite write; loss tolerated */
-  }
-}
-
-// --- Jenkins tab data (structural twin of Aliyun) ---
+// --- Jenkins tab data ---
 
 function isJenkinsAccount(value: unknown): value is JenkinsAccount {
   if (typeof value !== "object" || value === null) return false;

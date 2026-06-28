@@ -14,13 +14,12 @@ import { syncRemoteConfigForProtocol } from "@/lib/environment-sync";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Palette, Settings, Clock, RefreshCw } from "lucide-react";
-import { useDeveloperMode } from "@/hooks/useDeveloperMode";
 import { cn } from "@/lib/utils";
 
 interface HeaderProps {
   onOpenSettings: () => void;
-  onOpenHome: () => void;
   appUpdate: AppUpdateController;
+  showClientControls: boolean;
 }
 
 const PROTOCOL_LABELS: Record<string, string> = {
@@ -52,42 +51,18 @@ function setActiveEnvForProtocolState(
   else state.setRestActiveEnvId(activeEnvId);
 }
 
-interface PenguinBrandProps {
-  onClickHome: () => void;
-  // Home hub is a Dev-Mode-only surface (DEC #99). Normal users only see the
-  // API client, so the logo is non-interactive for them.
-  canEnterHome: boolean;
-}
-
-const PenguinBrand = memo(function PenguinBrand({ onClickHome, canEnterHome }: PenguinBrandProps) {
+const PenguinBrand = memo(function PenguinBrand() {
   const greeting = useGreeting();
   const { time, isLunch, lunchMsg } = useClock();
 
   return (
     <div className="flex items-center gap-2 min-w-0">
-      {canEnterHome ? (
-        <button
-          type="button"
-          onClick={onClickHome}
-          title="Home / 主页"
-          aria-label="Open home"
-          className="flex shrink-0 items-center rounded-md transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-primary/40"
-        >
-          <img
-            src="/penguin.png"
-            alt="Penguin"
-            className={cn("h-6 object-contain", isLunch && "animate-bounce")}
-            draggable={false}
-          />
-        </button>
-      ) : (
-        <img
-          src="/penguin.png"
-          alt="Penguin"
-          className={cn("h-6 shrink-0 object-contain", isLunch && "animate-bounce")}
-          draggable={false}
-        />
-      )}
+      <img
+        src="/penguin.png"
+        alt="Penguin"
+        className={cn("h-6 shrink-0 object-contain", isLunch && "animate-bounce")}
+        draggable={false}
+      />
       <span
         className={cn(
           "text-sm font-medium truncate max-w-[280px]",
@@ -107,12 +82,8 @@ const PenguinBrand = memo(function PenguinBrand({ onClickHome, canEnterHome }: P
   );
 });
 
-export function Header({ onOpenSettings, onOpenHome, appUpdate }: HeaderProps) {
+export function Header({ onOpenSettings, appUpdate, showClientControls }: HeaderProps) {
   const { theme, setTheme } = useAppStore();
-  // Home launcher is super-admin only (post-10D revision): normal admins
-  // get Client + Vault directly via MainSidebar, no module-launcher hop.
-  // Header's penguin avatar — which opens Home — is gated to match.
-  const { isSuperAdmin } = useDeveloperMode();
   const {
     environments,
     activeEnvId,
@@ -161,34 +132,37 @@ export function Header({ onOpenSettings, onOpenHome, appUpdate }: HeaderProps) {
   }, [activeEnvId, environments, protocol]);
 
   return (
-    <header className="relative z-40 flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-4">
-      <PenguinBrand onClickHome={onOpenHome} canEnterHome={isSuperAdmin} />
+    <header className="relative z-40 flex h-10 shrink-0 items-center justify-between border-b border-border bg-card px-4">
+      <PenguinBrand />
 
       <div className="flex items-center gap-2">
-        {/* Vault button removed (Sprint 8.3) — MainSidebar's Vault icon replaces it. */}
-        <span className="rounded-md border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-          {protocolName}
-        </span>
+        {showClientControls ? (
+          <>
+            <span className="rounded-md border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {protocolName}
+            </span>
 
-        <Select
-          value={activeEnvId ?? ""}
-          onChange={(e) => setActiveEnvId(e.target.value || null)}
-          options={envOptions}
-          placeholder="Environment / 环境"
-          className="w-36"
-        />
+            <Select
+              value={activeEnvId ?? ""}
+              onChange={(e) => setActiveEnvId(e.target.value || null)}
+              options={envOptions}
+              placeholder="Environment / 环境"
+              className="w-36"
+            />
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 shrink-0"
-          onClick={syncEnvironmentConfig}
-          disabled={isSyncingEnvConfig}
-          title={envSyncTitle}
-          aria-label="Sync Environment Config"
-        >
-          <RefreshCw className={cn("h-4 w-4", isSyncingEnvConfig && "animate-spin")} />
-        </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={syncEnvironmentConfig}
+              disabled={isSyncingEnvConfig}
+              title={envSyncTitle}
+              aria-label="Sync Environment Config"
+            >
+              <RefreshCw className={cn("h-4 w-4", isSyncingEnvConfig && "animate-spin")} />
+            </Button>
+          </>
+        ) : null}
 
         <div className="relative">
           <Button

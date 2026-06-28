@@ -22,11 +22,14 @@ export const APP_VALUE_KEYS = {
   autoCheckForUpdates: "penguin-auto-check-for-updates",
   devModeEnabled: "penguin-dev-mode-enabled",
   devModeToken: "penguin-dev-mode-token",
+  devModeAdminToken: "penguin-dev-mode-admin-token",
+  devModeSuperAdminToken: "penguin-dev-mode-super-admin-token",
   vaultData: "penguin-vault-data",
   vaultLarkUrl: "penguin-vault-lark-url",
   vaultLastSyncedAt: "penguin-vault-last-synced-at",
   vaultLarkUrlLocked: "penguin-vault-lark-url-locked",
   vaultLastSyncedHash: "penguin-vault-last-synced-hash",
+  vaultLastSyncedContentHash: "penguin-vault-last-synced-content-hash",
   vaultSchemaVersion: "penguin-vault-schema-version",
   docsLarkUrl: "penguin-docs-lark-url",
   docsKnowledgeBase: "penguin-docs-knowledge-base",
@@ -54,21 +57,23 @@ export const APP_VALUE_KEYS = {
   // "unread" entries (errors with timestamp > this value) for the
   // StatusBar badge.
   errorLogLastSeenAt: "penguin-error-log-last-seen-at",
-  // Currently-selected Browser top-bar tab ("vault" | "argocd" | "aliyun").
+  // Currently-selected Browser top-bar tab ("vault" | "argocd" | "jenkins").
   // Persists across reloads so the user lands on the same view they
   // left.
   browserActiveTab: "penguin-browser-active-tab",
-  // Aliyun tab's independent CRUD store. JSON shape:
-  //   { accounts: AliyunAccount[], links: AliyunLink[] }
-  // Lives outside Vault on purpose — Aliyun SLS bookmarks + RAM-user
-  // creds don't fit Vault's project/env model and the user wanted to
-  // manage them in-place inside the Aliyun tab.
-  aliyunData: "penguin-aliyun-data",
-  // Jenkins tab — same shape as aliyunData, independent blob.
+  // Jenkins tab's independent CRUD store. JSON shape:
+  //   { accounts: JenkinsAccount[], links: JenkinsLink[] }
+  // Lives outside Vault on purpose — Jenkins bookmarks + account creds
+  // don't fit Vault's project/env model and the user wanted to manage
+  // them in-place inside the Jenkins tab.
   jenkinsData: "penguin-jenkins-data",
   // Browser sidebar "pinned-expanded" preference. When true the sidebar
   // stays at full width even without hover; when false it auto-collapses.
   browserSidebarPinned: "penguin-browser-sidebar-pinned",
+  // Browser embedded-page zoom. Native child webviews default to full
+  // page scale, which makes dense admin tools feel oversized inside
+  // Penguin's narrower shell.
+  browserZoomScale: "penguin-browser-zoom-scale",
 } as const;
 
 export const ENVIRONMENT_VALUE_KEYS: Record<PersistedProtocol, string> = {

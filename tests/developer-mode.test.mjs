@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 const HOOK_URL = new URL("../src/hooks/useDeveloperMode.ts", import.meta.url);
 const SECTION_URL = new URL(
-  "../src/components/settings/DeveloperModeSection.tsx",
+  "../src/components/settings/DeveloperModeModal.tsx",
   import.meta.url,
 );
 const HEADER_URL = new URL("../src/components/layout/Header.tsx", import.meta.url);
@@ -24,16 +24,25 @@ test("useDeveloperMode return shape is contract-locked (incl. isSuperAdmin)", as
   );
 });
 
-test("useDeveloperMode is self-consumed at DeveloperModeSection, Header, and VaultPage", async () => {
+test("useDeveloperMode is self-consumed at DeveloperModeModal and VaultPage", async () => {
   const section = await readFile(SECTION_URL, "utf8");
-  const header = await readFile(HEADER_URL, "utf8");
   const vault = await readFile(VAULT_URL, "utf8");
   assert.match(section, /import\s*\{[^}]*useDeveloperMode[^}]*\}/);
-  assert.match(header, /import\s*\{[^}]*useDeveloperMode[^}]*\}/);
   assert.match(vault, /import\s*\{[^}]*useDeveloperMode[^}]*\}/);
 });
 
 test("dev-mode-store exports requireSuperAdmin (Sprint 3 DEC #75)", async () => {
   const source = await readFile(STORE_URL, "utf8");
   assert.match(source, /export function requireSuperAdmin\(\)\s*:\s*boolean/);
+});
+
+test("dev-mode-store caches tier-specific raw tokens for dual-recipient Vault encryption", async () => {
+  const keys = await readFile(new URL("../src/lib/persistence-keys.ts", import.meta.url), "utf8");
+  const source = await readFile(STORE_URL, "utf8");
+
+  assert.match(keys, /devModeAdminToken:\s*"penguin-dev-mode-admin-token"/);
+  assert.match(keys, /devModeSuperAdminToken:\s*"penguin-dev-mode-super-admin-token"/);
+  assert.match(source, /APP_VALUE_KEYS\.devModeAdminToken/);
+  assert.match(source, /APP_VALUE_KEYS\.devModeSuperAdminToken/);
+  assert.match(source, /export async function getStoredDeveloperModeTokens/);
 });

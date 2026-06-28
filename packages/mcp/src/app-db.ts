@@ -32,6 +32,11 @@ const APP_VALUE_KEYS = {
   defaultHeaders: "penguin-default-headers",
   history: "penguin-history",
 } as const;
+const SENSITIVE_APP_VALUE_PREFIXES = ["rest:secret:", "redis:secret:"] as const;
+
+function isSensitiveAppValueKey(key: string): boolean {
+  return SENSITIVE_APP_VALUE_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
 
 const REQUEST_BODY_LIMIT = 4000;
 const MAX_LIST_LIMIT = 100;
@@ -221,7 +226,7 @@ export function readAppValues(dbPath = penguinDbPath()): Record<string, string> 
   for (const row of rows) {
     const key = asString(row.key);
     const value = asString(row.value);
-    if (key) values[key] = value;
+    if (key && !isSensitiveAppValueKey(key)) values[key] = value;
   }
   return values;
 }

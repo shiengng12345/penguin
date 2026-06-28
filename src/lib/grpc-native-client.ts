@@ -18,7 +18,7 @@ async function ensureGrpcDeps(): Promise<void> {
   // NODE_PATH_SETUP so npm resolves even when launched from the Dock with a
   // .zshrc-only nvm setup (same fix as package-manager.ts, v1.8.0).
   const checkDeps = () =>
-    Command.create("zsh-login", [
+    Command.create("grpc-deps", [
       "-l", "-c",
       `${NODE_PATH_SETUP}; cd ${JSON.stringify(dir)} && npm ls @grpc/grpc-js @grpc/proto-loader --json`,
     ]).execute();
@@ -30,7 +30,7 @@ async function ensureGrpcDeps(): Promise<void> {
     !out.stdout.includes("@grpc/proto-loader");
 
   if (needsInstall) {
-    const install = Command.create("zsh-login", [
+    const install = Command.create("grpc-deps", [
       "-l", "-c",
       `${NODE_PATH_SETUP}; cd ${JSON.stringify(dir)} && npm install --save --prefer-offline --no-audit --no-fund @grpc/grpc-js @grpc/proto-loader`,
     ]);

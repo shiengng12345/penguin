@@ -145,8 +145,22 @@ fn unix_millis() -> i64 {
         .as_millis() as i64
 }
 
-#[tauri::command]
-pub(crate) fn db_set_app_value(key: String, value: String) -> Result<(), String> {
+const SENSITIVE_APP_VALUE_PREFIXES: &[&str] = &["rest:secret:", "redis:secret:"];
+
+fn is_sensitive_app_value_key(key: &str) -> bool {
+    SENSITIVE_APP_VALUE_PREFIXES
+        .iter()
+        .any(|prefix| key.starts_with(prefix))
+}
+
+fn reject_sensitive_app_value_key(key: &str) -> Result<(), String> {
+    if is_sensitive_app_value_key(key) {
+        return Err("reserved app value key".to_string());
+    }
+    Ok(())
+}
+
+pub(crate) fn app_value_set_internal(key: String, value: String) -> Result<(), String> {
     if key.trim().is_empty() {
         return Err("app value key is required".to_string());
     }
@@ -165,8 +179,7 @@ pub(crate) fn db_set_app_value(key: String, value: String) -> Result<(), String>
     Ok(())
 }
 
-#[tauri::command]
-pub(crate) fn db_get_app_value(key: String) -> Result<Option<String>, String> {
+pub(crate) fn app_value_get_internal(key: String) -> Result<Option<String>, String> {
     let conn = open_product_db()?;
     conn.query_row(
         "SELECT value FROM app_kv WHERE key = ?1",
@@ -177,14 +190,39 @@ pub(crate) fn db_get_app_value(key: String) -> Result<Option<String>, String> {
     .map_err(|e| e.to_string())
 }
 
+pub(crate) fn app_value_delete_internal(key: String) -> Result<(), String> {
+    let conn = open_product_db()?;
+    conn.execute("DELETE FROM app_kv WHERE key = ?1", params![key])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn db_set_app_value(key: String, value: String) -> Result<(), String> {
+    reject_sensitive_app_value_key(&key)?;
+    app_value_set_internal(key, value)
+}
+
+#[tauri::command]
+pub(crate) fn db_get_app_value(key: String) -> Result<Option<String>, String> {
+    reject_sensitive_app_value_key(&key)?;
+    app_value_get_internal(key)
+}
+
 #[tauri::command]
 pub(crate) fn db_list_app_values() -> Result<HashMap<String, String>, String> {
     let conn = open_product_db()?;
     let mut stmt = conn
-        .prepare("SELECT key, value FROM app_kv")
+        .prepare(
+            "SELECT key, value FROM app_kv \
+             WHERE key NOT LIKE 'rest:secret:%' \
+             AND key NOT LIKE 'redis:secret:%'",
+        )
         .map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(|e| e.to_string())?;
 
     let mut values = HashMap::new();
@@ -197,10 +235,8 @@ pub(crate) fn db_list_app_values() -> Result<HashMap<String, String>, String> {
 
 #[tauri::command]
 pub(crate) fn db_delete_app_value(key: String) -> Result<(), String> {
-    let conn = open_product_db()?;
-    conn.execute("DELETE FROM app_kv WHERE key = ?1", params![key])
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    reject_sensitive_app_value_key(&key)?;
+    app_value_delete_internal(key)
 }
 
 fn json_text(entry: &serde_json::Value, key: &str) -> String {
@@ -298,8 +334,7 @@ pub(crate) fn db_rename_saved_request(id: String, name: String) -> Result<(), St
             |row| row.get(0),
         )
         .map_err(|e| e.to_string())?;
-    let mut entry: serde_json::Value =
-        serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let mut entry: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
     if let Some(obj) = entry.as_object_mut() {
         obj.insert("name".to_string(), serde_json::Value::String(name.clone()));
     }
@@ -683,6 +718,16 @@ mod product_db_tests {
         assert_eq!(value, "dark");
 
         let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn app_kv_sensitive_prefix_guard_covers_rest_and_redis_secrets() {
+        assert!(is_sensitive_app_value_key("rest:secret:penguin-rest::req-1"));
+        assert!(is_sensitive_app_value_key("redis:secret:redis-123"));
+        assert!(!is_sensitive_app_value_key("penguin-theme"));
+        assert!(reject_sensitive_app_value_key("rest:secret:x").is_err());
+        assert!(reject_sensitive_app_value_key("redis:secret:x").is_err());
+        assert!(reject_sensitive_app_value_key("penguin-history").is_ok());
     }
 
     #[test]

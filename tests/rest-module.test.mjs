@@ -193,7 +193,7 @@ test("REST FE — RestRequestEditor wires Send button to Tauri command", async (
 test("MainSidebar — REST registered as super-admin module (post-10D tier change)", async () => {
   const sidebar = await loadSource("../src/components/layout/MainSidebar.tsx");
   // MainModule type union still includes "rest".
-  assert.match(sidebar, /"home"\s*\|\s*"client"\s*\|\s*"rest"\s*\|\s*"vault"\s*\|\s*"docs"/);
+  assert.match(sidebar, /"client"\s*\|\s*"rest"\s*\|\s*"vault"\s*\|\s*"docs"/);
   // Item entry — REST is super-admin gated (was token-gated before; normal
   // admins now only see Home + Client + Vault, like the user wanted).
   assert.match(sidebar, /kind:\s*"rest"[\s\S]*?icon:\s*Globe[\s\S]*?requires:\s*"super-admin"/);
@@ -220,46 +220,13 @@ test("App.tsx — REST module routed + super-admin gated + redirect on revoke", 
   assert.match(app, /restOpen[\s\S]*?\?\s*"rest"/);
 });
 
-test("HomePage + Header — Home tier escalated to super-admin (normal admin skips launcher)", async () => {
-  // Normal admin (token but not super) should NOT see the Home launcher —
-  // it's the entry to REST + Docs which are both super-admin only.
-  // MainSidebar Home icon gated to super-admin.
-  const sidebar = await loadSource("../src/components/layout/MainSidebar.tsx");
-  assert.match(
-    sidebar,
-    /kind:\s*"home"[\s\S]{0,200}?requires:\s*"super-admin"/,
-  );
-
-  // App.tsx derives canAccessHome and redirects out of Home on revoke.
-  const app = await loadSource("../src/App.tsx");
-  assert.match(app, /canAccessHome\s*=\s*devModeEnabled\s*&&\s*isSuperAdmin/);
-  assert.match(app, /if \(homeOpen && !canAccessHome\) setHomeOpen\(false\)/);
-
-  // Header's penguin-avatar click is gated by isSuperAdmin (not hasValidToken
-  // any more), so normal admins can't click into Home from there.
-  const header = await loadSource("../src/components/layout/Header.tsx");
-  assert.match(header, /const \{ isSuperAdmin \} = useDeveloperMode\(\)/);
-  assert.match(header, /canEnterHome=\{isSuperAdmin\}/);
-
-  // HomePage itself gates Docs + REST tiles behind isSuperAdmin so even if
-  // a non-super somehow lands on Home, they can't click through.
-  const home = await loadSource("../src/components/home/HomePage.tsx");
-  assert.match(home, /const \{ enabled, hasValidToken, isSuperAdmin \} = useDeveloperMode\(\)/);
-  assert.match(home, /isSuperUnlocked = enabled && isSuperAdmin/);
-  // REST tile exists, has onSelectRest, gated by isSuperUnlocked.
-  assert.match(home, /onSelectRest/);
-  assert.match(home, /title="REST"[\s\S]{0,400}?locked=\{!isSuperUnlocked\}/);
-  // Knowledge Base tile now gated (pre-revision it was unconditionally clickable).
-  assert.match(home, /title="Knowledge Base"[\s\S]{0,400}?locked=\{!isSuperUnlocked\}/);
-});
-
-test("MainSidebar props — REST joins Docs under isSuperAdmin (token tier = Vault only)", async () => {
-  // Pre-revision: REST shared the token tier with Vault. Now REST is
-  // super-admin alongside Docs. Lock both props so a refactor that drops
-  // canAccessRest from the isSuperAdmin OR will fail loudly.
+test("MainSidebar props — REST / Docs / Database / Browser under isSuperAdmin (token tier = Vault only)", async () => {
+  // REST / Docs / Database / Browser are all super-admin now; only Vault
+  // stays at the token tier. Lock props so a refactor that drops one
+  // super-admin module from the isSuperAdmin OR fails loudly.
   const app = await loadSource("../src/App.tsx");
   assert.match(app, /hasValidToken=\{canAccessVault\}/);
-  assert.match(app, /isSuperAdmin=\{canAccessDocs\s*\|\|\s*canAccessRest\}/);
+  assert.match(app, /isSuperAdmin=\{canAccessDocs\s*\|\|\s*canAccessRest\s*\|\|\s*canAccessDatabase\s*\|\|\s*canAccessBrowser\}/);
 });
 
 test("REST module — context-aware keyboard shortcuts wired (shortcut audit fix)", async () => {
@@ -486,7 +453,7 @@ test("ShortcutCheatSheet — module-aware sections (UNIVERSAL + REST + CLIENT)",
   // through to gRPC defaults).
   assert.match(cheat, /case "rest":[\s\S]{0,200}?return REST_SHORTCUTS/);
   // Visible chip identifies which module's shortcuts are shown.
-  assert.match(cheat, /activeModule && activeModule !== "home"/);
+  assert.match(cheat, /activeModule &&/);
 });
 
 test("ShortcutCheatSheet — REST shortcut entries document Cmd+N cascade / Cmd+T alias / Cmd+L", async () => {
@@ -1144,11 +1111,12 @@ test("keychain.rs — active_adapter defaults to SqliteKeychain to avoid macOS p
   assert.match(src, /pub struct SqliteKeychain;/);
   assert.match(src, /impl KeychainAdapter for SqliteKeychain/);
 
-  // SqliteKeychain routes through the existing app_kv helpers under
-  // a stable key prefix that won't collide with other persisted values.
-  assert.match(src, /crate::db::db_set_app_value\(/);
-  assert.match(src, /crate::db::db_get_app_value\(/);
-  assert.match(src, /crate::db::db_delete_app_value\(/);
+  // SqliteKeychain routes through internal app_kv helpers under a stable
+  // key prefix. The renderer-facing db_* IPC helpers reject this prefix so
+  // secrets are not returned by generic app-state hydration.
+  assert.match(src, /crate::db::app_value_set_internal\(/);
+  assert.match(src, /crate::db::app_value_get_internal\(/);
+  assert.match(src, /crate::db::app_value_delete_internal\(/);
   assert.match(src, /"rest:secret:\{\}::\{\}"/);
 
   // active_adapter() defaults to SqliteKeychain.
@@ -1164,6 +1132,22 @@ test("keychain.rs — active_adapter defaults to SqliteKeychain to avoid macOS p
   // Cargo manifest no longer pulls the keyring crate.
   const cargo = await loadSource("../src-tauri/Cargo.toml");
   assert.doesNotMatch(cargo, /^keyring\s*=/m);
+});
+
+test("Rust dev build hygiene — test-only helpers do not leak into normal builds", async () => {
+  const authPopover = await loadSource("../src-tauri/src/auth_popover.rs");
+  assert.doesNotMatch(authPopover, /fn\s+base64_encode\(/);
+
+  const keychain = await loadSource("../src-tauri/src/rest/keychain.rs");
+  assert.match(keychain, /#\[cfg\(test\)\]\s*pub struct MockKeychain\b/);
+  assert.match(
+    keychain,
+    /pub trait KeychainAdapter[\s\S]*?#\[cfg\(test\)\]\s*fn delete\(/,
+  );
+  assert.match(
+    keychain,
+    /impl KeychainAdapter for SqliteKeychain[\s\S]*?#\[cfg\(test\)\]\s*fn delete\(/,
+  );
 });
 
 test("jsonpath-mini — whole-body path pretty-prints instead of returning the server's minified blob", async () => {

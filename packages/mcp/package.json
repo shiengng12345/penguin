@@ -11,12 +11,12 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@penguin/core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "esbuild": "^0.25.12",
+    "esbuild": "^0.28.1",
     "typescript": "^5.9.0"
   }
 }

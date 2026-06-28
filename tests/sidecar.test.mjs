@@ -77,6 +77,7 @@ test("getNodePath resolves via login shell once and caches", async () => {
   assert.equal(first, "/opt/homebrew/bin/node");
   assert.equal(second, "/opt/homebrew/bin/node");
   assert.equal(calls.length, 1, "second call must hit the cache, not spawn another login shell");
+  assert.equal(calls[0].name, "node-path", "node resolution must use the dedicated capability command");
   assert.equal(calls[0].args[0], "-l", "resolution must run in a login shell");
 });
 
@@ -103,6 +104,7 @@ test("runNodeScript uses fast non-login shell once node path is known", async ()
   assert.equal(result.code, 0);
   assert.equal(result.stdout, '{"ok":true}');
   const runCall = calls[calls.length - 1];
+  assert.equal(runCall.name, "node-eval", "fast sidecar runs must use the scoped node-eval command");
   assert.equal(runCall.args[0], "-c", "script run must avoid the login shell");
   assert.ok(
     runCall.script.includes('exec "/opt/homebrew/bin/node" -e'),
@@ -129,6 +131,7 @@ test("runNodeScript falls back to login shell when cached path is stale (exit 12
   assert.equal(result.stdout, '{"recovered":true}');
   assert.equal(calls.length, 3, "resolve + fast attempt + login fallback");
   const fallback = calls[calls.length - 1];
+  assert.equal(fallback.name, "node-eval-login", "fallback must use the scoped login sidecar command");
   assert.equal(fallback.args[0], "-l", "stale path must fall back to a login shell run");
   assert.ok(fallback.script.includes("exec node -e"), "fallback resolves node from PATH");
 });

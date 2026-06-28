@@ -227,25 +227,15 @@ test("parseKnowledgeBase normalizes leniently but rejects wrong top-level shape"
   assert.equal(kb.collections[0].endpoints[1].method, "GET");
 });
 
-test("Knowledge Base module is wired into Home and App", async () => {
-  // Tightened: bare substring greps would pass even if the wiring
-  // landed in a comment. Lock the actual JSX prop call site +
-  // the conditional render branch so a regression that wires the
-  // string somewhere irrelevant gets caught.
-  const home = await readFile(new URL("../src/components/home/HomePage.tsx", import.meta.url), "utf8");
-  // Knowledge Base appears as a visible label — either JSX text or
-  // a title="" attribute. Either anchor is OK; comment-only is not.
-  assert.match(home, /["']Knowledge Base["']|>\s*Knowledge Base\b/);
-  // The Home tile must invoke the callback prop, not just reference the name.
-  assert.match(home, /\bonSelectDocs\(\)/);
-
+test("Knowledge Base module (ApiDocsPage) is wired into App", async () => {
+  // The Home hub was removed; Docs is reached via the MainSidebar rail.
+  // Lock the App-side render branch + the rail dispatcher.
   const app = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
-  // Lock the dynamic/lazy import path so a string in a comment can't satisfy this.
   assert.match(app, /<ApiDocsPage\b/);
   // Conditional branch — docsOpen ? <ApiDocsPage ...
   assert.match(app, /docsOpen \? \(\s*<ApiDocsPage/);
-  // Home → Docs handoff prop name is wired into MainSidebar / HomePage tile.
-  assert.match(app, /onSelectDocs=\{selectDocsFromHome\}/);
+  // The Docs selector is wired into the rail's module dispatcher.
+  assert.match(app, /else if \(m === "docs"\) selectDocsFromHome\(\)/);
 });
 
 test("page matches the Knowledge Base design (Sprint 8.2 numbered-section editor)", async () => {

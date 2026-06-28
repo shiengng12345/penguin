@@ -18,22 +18,28 @@
 // inline editing (per user request), so the at-rest threat model is
 // already "anyone with file access to your home folder can read them".
 
+#[cfg(test)]
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+#[cfg(test)]
+use std::sync::Mutex;
+use std::sync::OnceLock;
 
 /// Adapter trait — every secret operation goes through this so tests can
 /// inject a deterministic backend.
 pub trait KeychainAdapter: Send + Sync {
     fn save(&self, service: &str, account: &str, plaintext: &str) -> Result<(), String>;
     fn get(&self, service: &str, account: &str) -> Result<Option<String>, String>;
+    #[cfg(test)]
     fn delete(&self, service: &str, account: &str) -> Result<(), String>;
 }
 
 /// In-memory mock for unit tests. Production never sees this.
+#[cfg(test)]
 pub struct MockKeychain {
     items: Mutex<HashMap<String, String>>,
 }
 
+#[cfg(test)]
 impl MockKeychain {
     pub fn new() -> Self {
         Self {
@@ -46,12 +52,14 @@ impl MockKeychain {
     }
 }
 
+#[cfg(test)]
 impl Default for MockKeychain {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(test)]
 impl KeychainAdapter for MockKeychain {
     fn save(&self, service: &str, account: &str, plaintext: &str) -> Result<(), String> {
         let mut items = self.items.lock().map_err(|e| e.to_string())?;
@@ -64,6 +72,7 @@ impl KeychainAdapter for MockKeychain {
         Ok(items.get(&Self::key(service, account)).cloned())
     }
 
+    #[cfg(test)]
     fn delete(&self, service: &str, account: &str) -> Result<(), String> {
         let mut items = self.items.lock().map_err(|e| e.to_string())?;
         items.remove(&Self::key(service, account));
@@ -94,18 +103,16 @@ impl Default for SqliteKeychain {
 
 impl KeychainAdapter for SqliteKeychain {
     fn save(&self, service: &str, account: &str, plaintext: &str) -> Result<(), String> {
-        crate::db::db_set_app_value(
-            Self::kv_key(service, account),
-            plaintext.to_string(),
-        )
+        crate::db::app_value_set_internal(Self::kv_key(service, account), plaintext.to_string())
     }
 
     fn get(&self, service: &str, account: &str) -> Result<Option<String>, String> {
-        crate::db::db_get_app_value(Self::kv_key(service, account))
+        crate::db::app_value_get_internal(Self::kv_key(service, account))
     }
 
+    #[cfg(test)]
     fn delete(&self, service: &str, account: &str) -> Result<(), String> {
-        crate::db::db_delete_app_value(Self::kv_key(service, account))
+        crate::db::app_value_delete_internal(Self::kv_key(service, account))
     }
 }
 
@@ -121,6 +128,7 @@ pub fn active_adapter() -> &'static dyn KeychainAdapter {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 pub fn set_adapter_for_tests(adapter: Box<dyn KeychainAdapter>) {
     let _ = ADAPTER.set(adapter);
 }
@@ -146,7 +154,13 @@ mod tests {
         let kc = MockKeychain::new();
         kc.save("svc-a", "user", "value-a").unwrap();
         kc.save("svc-b", "user", "value-b").unwrap();
-        assert_eq!(kc.get("svc-a", "user").unwrap(), Some("value-a".to_string()));
-        assert_eq!(kc.get("svc-b", "user").unwrap(), Some("value-b".to_string()));
+        assert_eq!(
+            kc.get("svc-a", "user").unwrap(),
+            Some("value-a".to_string())
+        );
+        assert_eq!(
+            kc.get("svc-b", "user").unwrap(),
+            Some("value-b".to_string())
+        );
     }
 }

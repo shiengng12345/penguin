@@ -123,7 +123,7 @@ pub fn auth_popover_close<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
 // --- Standalone TOTP entries owned by the Authenticator popover ---
 //
 // These are entries the user adds directly inside the popover (via the
-// pencil / QR buttons) — they're independent of Vault and the Aliyun
+// pencil / QR buttons) — they're independent of Vault and the Jenkins
 // tab. Persisted under app_kv key "penguin-auth-standalone" as a JSON
 // array. Popover reads on open, writes on add/delete. Main window's
 // snapshot DOES NOT need to know about them — the popover combines its
@@ -190,26 +190,25 @@ pub fn auth_capture_qr<R: Runtime>(app: AppHandle<R>) -> Result<QrScanResult, St
     //    of these works the popover is gone from the captured frame.
     //    SCANNING flag suppresses the auto-close-on-blur path.
     SCANNING.store(true, Ordering::SeqCst);
-    let saved_pos: Option<PhysicalPosition<i32>> = if let Some(w) =
-        app.get_webview_window(POPOVER_LABEL)
-    {
-        let pos = w.outer_position().ok();
-        // (1a) Move offscreen first — most reliable; doesn't rely on
-        // the windowing system honoring hide(). (-50000, -50000) is
-        // well beyond any monitor coordinate space.
-        if let Err(e) = w.set_position(LogicalPosition::new(-50000.0, -50000.0)) {
-            eprintln!("[auth_capture_qr] set_position offscreen failed: {}", e);
-        }
-        if let Err(e) = w.hide() {
-            eprintln!("[auth_capture_qr] hide failed: {}", e);
-        }
-        if let Err(e) = w.minimize() {
-            eprintln!("[auth_capture_qr] minimize failed: {}", e);
-        }
-        pos
-    } else {
-        None
-    };
+    let saved_pos: Option<PhysicalPosition<i32>> =
+        if let Some(w) = app.get_webview_window(POPOVER_LABEL) {
+            let pos = w.outer_position().ok();
+            // (1a) Move offscreen first — most reliable; doesn't rely on
+            // the windowing system honoring hide(). (-50000, -50000) is
+            // well beyond any monitor coordinate space.
+            if let Err(e) = w.set_position(LogicalPosition::new(-50000.0, -50000.0)) {
+                eprintln!("[auth_capture_qr] set_position offscreen failed: {}", e);
+            }
+            if let Err(e) = w.hide() {
+                eprintln!("[auth_capture_qr] hide failed: {}", e);
+            }
+            if let Err(e) = w.minimize() {
+                eprintln!("[auth_capture_qr] minimize failed: {}", e);
+            }
+            pos
+        } else {
+            None
+        };
     // 250ms gives macOS plenty of time to commit the move + hide
     // before screencapture takes its first frame.
     std::thread::sleep(std::time::Duration::from_millis(250));
@@ -272,8 +271,7 @@ pub fn auth_capture_qr<R: Runtime>(app: AppHandle<R>) -> Result<QrScanResult, St
     }
 
     // Decode PNG → grayscale → rqrr scan.
-    let img = image::load_from_memory(&bytes)
-        .map_err(|e| format!("PNG decode failed: {}", e))?;
+    let img = image::load_from_memory(&bytes).map_err(|e| format!("PNG decode failed: {}", e))?;
     let luma = img.to_luma8();
     let (width, height) = (luma.width(), luma.height());
     eprintln!("[auth_capture_qr] decoded image: {}x{}", width, height);
@@ -297,30 +295,4 @@ pub fn auth_capture_qr<R: Runtime>(app: AppHandle<R>) -> Result<QrScanResult, St
     }
 
     Ok(QrScanResult::NoQr { width, height })
-}
-
-// Minimal RFC 4648 base64 encoder — avoids pulling in the `base64`
-// crate just for this single call.
-fn base64_encode(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(((bytes.len() + 2) / 3) * 4);
-    let mut iter = bytes.chunks(3);
-    for chunk in iter.by_ref() {
-        let b0 = chunk[0];
-        let b1 = if chunk.len() > 1 { chunk[1] } else { 0 };
-        let b2 = if chunk.len() > 2 { chunk[2] } else { 0 };
-        out.push(ALPHABET[(b0 >> 2) as usize] as char);
-        out.push(ALPHABET[(((b0 & 0b11) << 4) | (b1 >> 4)) as usize] as char);
-        if chunk.len() > 1 {
-            out.push(ALPHABET[(((b1 & 0b1111) << 2) | (b2 >> 6)) as usize] as char);
-        } else {
-            out.push('=');
-        }
-        if chunk.len() > 2 {
-            out.push(ALPHABET[(b2 & 0b111111) as usize] as char);
-        } else {
-            out.push('=');
-        }
-    }
-    out
 }

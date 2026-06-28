@@ -17,6 +17,12 @@ use super::{
 const MAX_RESPONSE_BYTES: usize = 100 * 1024 * 1024;
 const KEYCHAIN_SERVICE: &str = "penguin-rest";
 
+struct ResponseBytes {
+    bytes: Vec<u8>,
+    total_size: u64,
+    truncated: bool,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendRequestPayload {
@@ -28,6 +34,35 @@ pub struct SendRequestPayload {
     // one-off sends (e.g. unsaved drafts). (DEC #189 — per-collection scope.)
     #[serde(default)]
     pub collection_id: Option<String>,
+}
+
+async fn read_response_with_cap(
+    mut response: reqwest::Response,
+    max_bytes: usize,
+) -> Result<ResponseBytes, RestError> {
+    let content_length = response.content_length();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|e| RestError {
+        kind: "read-body".to_string(),
+        message: e.to_string(),
+    })? {
+        if bytes.len().saturating_add(chunk.len()) > max_bytes {
+            let remaining = max_bytes.saturating_sub(bytes.len());
+            bytes.extend_from_slice(&chunk[..remaining]);
+            return Ok(ResponseBytes {
+                bytes,
+                total_size: content_length.unwrap_or((max_bytes as u64) + 1),
+                truncated: true,
+            });
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let total_size = content_length.unwrap_or(bytes.len() as u64);
+    Ok(ResponseBytes {
+        bytes,
+        total_size,
+        truncated: false,
+    })
 }
 
 #[tauri::command]
@@ -155,21 +190,14 @@ pub async fn rest_send_request(payload: SendRequestPayload) -> Result<RestRespon
         }
     }
 
-    // 7) Body with 100MB cap (DEC #194 — no streaming in MVP).
-    let body_bytes = response.bytes().await.map_err(|e| RestError {
-        kind: "read-body".to_string(),
-        message: e.to_string(),
-    })?;
-    let total_size = body_bytes.len() as u64;
-    let truncated = body_bytes.len() > MAX_RESPONSE_BYTES;
-    let kept_bytes: Vec<u8> = if truncated {
-        body_bytes[..MAX_RESPONSE_BYTES].to_vec()
-    } else {
-        body_bytes.to_vec()
-    };
+    // 7) Body with 100MB cap. Read chunk-by-chunk so pathological responses
+    // don't get fully buffered before truncation.
+    let response_bytes = read_response_with_cap(response, MAX_RESPONSE_BYTES).await?;
+    let total_size = response_bytes.total_size;
+    let truncated = response_bytes.truncated;
 
     // Try UTF-8 first; if binary, base64-encode so JSON IPC stays clean.
-    let body_str = match String::from_utf8(kept_bytes) {
+    let body_str = match String::from_utf8(response_bytes.bytes) {
         Ok(s) => s,
         Err(e) => {
             use base64::Engine;
@@ -394,9 +422,11 @@ pub async fn rest_save_cookie(payload: SaveCookiePayload) -> Result<(), RestErro
     // Manual cookie upsert from the Cookies tab + Add row. The same upsert
     // path the response Set-Cookie auto-extractor uses; user edits and
     // server responses live in one bucket.
-    super::cookie_store::upsert_cookie(&payload.collection_id, &payload.cookie).map_err(|e| RestError {
-        kind: "cookies-write".to_string(),
-        message: e,
+    super::cookie_store::upsert_cookie(&payload.collection_id, &payload.cookie).map_err(|e| {
+        RestError {
+            kind: "cookies-write".to_string(),
+            message: e,
+        }
     })
 }
 
@@ -410,10 +440,11 @@ pub struct DeleteCookiePayload {
 
 #[tauri::command]
 pub async fn rest_delete_cookie(payload: DeleteCookiePayload) -> Result<(), RestError> {
-    super::cookie_store::delete_cookie(&payload.collection_id, &payload.domain, &payload.name).map_err(|e| RestError {
-        kind: "cookies-delete".to_string(),
-        message: e,
-    })
+    super::cookie_store::delete_cookie(&payload.collection_id, &payload.domain, &payload.name)
+        .map_err(|e| RestError {
+            kind: "cookies-delete".to_string(),
+            message: e,
+        })
 }
 
 /// Parse a Set-Cookie header value into a RestCookie. Format:

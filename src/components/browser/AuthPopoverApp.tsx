@@ -32,7 +32,7 @@ interface StandaloneEntry {
 
 // Parse an otpauth:// URI as defined by RFC 6238 + Google Authenticator
 // keyuri spec. Returns null on malformed input. Example URI:
-//   otpauth://totp/Aliyun:shieng@123?secret=JBSWY3DPEHPK3PXP&issuer=Aliyun
+//   otpauth://totp/Jenkins:shieng@123?secret=JBSWY3DPEHPK3PXP&issuer=Jenkins
 function parseOtpauthUri(uri: string): {
   title: string;
   account: string;
@@ -115,7 +115,7 @@ export function AuthPopoverApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [standalone]);
 
-  // Combined entries — snapshot (Vault + Aliyun) + popover-local
+  // Combined entries — snapshot (Vault + Jenkins) + popover-local
   // standalone. Standalone entries are tagged so the card UI can show
   // a delete X on them in edit mode.
   const combinedEntries = useMemo<TotpSnapshotEntry[]>(() => {
@@ -215,7 +215,7 @@ export function AuthPopoverApp() {
             reference Authenticator extension. */}
         <button
           type="button"
-          onClick={() => alert("Authenticator — Penguin. TOTP via Vault, Aliyun tab, or add directly via the pencil button.")}
+          onClick={() => alert("Authenticator — Penguin. TOTP via Vault, Jenkins tab, or add directly via the pencil button.")}
           title="About Authenticator"
           aria-label="About"
           className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -297,7 +297,7 @@ export function AuthPopoverApp() {
                 type="text"
                 value={draftTitle}
                 onChange={(e) => setDraftTitle(e.target.value)}
-                placeholder="Title (e.g. Aliyun, GitHub)"
+                placeholder="Title (e.g. Jenkins, GitHub)"
                 className="h-7 rounded border border-border bg-background px-2 text-xs"
                 autoFocus
               />

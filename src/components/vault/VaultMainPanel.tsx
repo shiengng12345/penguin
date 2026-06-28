@@ -66,38 +66,6 @@ function hashHue(input: string): number {
   return Math.abs(hash) % 360;
 }
 
-// Longest common prefix / suffix across a set of strings. Used to dim
-// the parts of credential values that ALL credentials of the same
-// kind share (e.g. "uat-bp-fpms-…-redis-sa.…cache.amazonaws.com"
-// boilerplate), so only the distinctive middle segment is bright.
-function longestCommonPrefix(strs: readonly string[]): string {
-  if (strs.length === 0) return "";
-  let prefix = strs[0];
-  for (let i = 1; i < strs.length; i++) {
-    while (!strs[i].startsWith(prefix)) {
-      prefix = prefix.slice(0, -1);
-      if (prefix === "") return "";
-    }
-  }
-  return prefix;
-}
-function longestCommonSuffix(strs: readonly string[]): string {
-  if (strs.length === 0) return "";
-  let suffix = strs[0];
-  for (let i = 1; i < strs.length; i++) {
-    while (!strs[i].endsWith(suffix)) {
-      suffix = suffix.slice(1);
-      if (suffix === "") return "";
-    }
-  }
-  return suffix;
-}
-
-export interface ValueDiffShared {
-  prefix: string;
-  suffix: string;
-}
-
 const LOG_SCOPE = "VaultMainPanel";
 const COPIED_FEEDBACK_MS = 1500;
 
@@ -245,39 +213,6 @@ export function VaultMainPanel(props: VaultMainPanelProps) {
     }
     return out;
   }, [allGroups]);
-
-  // Per-kind shared prefix / suffix across all credential values in the
-  // active env. Lets each card dim the boilerplate part of its URL /
-  // URI and bold the differentiating middle — vital when the user has
-  // 18+ Redis credentials whose hostnames differ by 1-2 tokens.
-  // Recomputed when credentials or env change. Single-credential kinds
-  // get no entry (nothing to compare).
-  const sharedByKind = useMemo<Map<string, ValueDiffShared>>(() => {
-    const buckets = new Map<string, string[]>();
-    for (const cred of project.credentials) {
-      const v = cred.valueByEnv[selectedEnvId] ?? "";
-      if (!v) continue;
-      const arr = buckets.get(cred.kind) ?? [];
-      arr.push(v);
-      buckets.set(cred.kind, arr);
-    }
-    const out = new Map<string, ValueDiffShared>();
-    for (const [kind, values] of buckets) {
-      if (values.length < 2) continue;
-      const prefix = longestCommonPrefix(values);
-      const suffix = longestCommonSuffix(values);
-      // Avoid degenerate overlap when prefix + suffix together span
-      // the whole shortest value — fall back to prefix-only so the
-      // distinctive segment doesn't disappear.
-      const minLen = Math.min(...values.map((v) => v.length));
-      if (prefix.length + suffix.length >= minLen) {
-        out.set(kind, { prefix, suffix: "" });
-      } else {
-        out.set(kind, { prefix, suffix });
-      }
-    }
-    return out;
-  }, [project.credentials, selectedEnvId]);
 
   // Filter pipeline runs at GROUP level so paired credentials never split —
   // favorites tab shows the whole pair when any member is starred; search
@@ -525,7 +460,6 @@ export function VaultMainPanel(props: VaultMainPanelProps) {
                     onToggleFavorite={onToggleFavorite}
                     onCopyAt={handleCopyAt}
                     canReorder={canReorder}
-                    sharedByKind={sharedByKind}
                     onOpenInBrowser={
                       props.onOpenInBrowser !== undefined ? handleCredentialOpenInBrowser : undefined
                     }
@@ -707,9 +641,6 @@ interface CredentialRowProps {
   onDelete?: (credentialId: string) => void;
   onToggleFavorite: (credentialId: string) => void;
   onCopyAt: (payload: { value: string; x: number; y: number }) => void;
-  // Per-kind shared prefix / suffix across the whole project. Used by
-  // FieldInlineRow to dim boilerplate and bold the distinctive middle.
-  sharedByKind: Map<string, ValueDiffShared>;
   // Open the credential's URL in the in-app Browser module. Only
   // rendered when the kind's baseKind is one of the web-renderable
   // built-ins (vault / argocd / monitoring / web) AND the parent has
@@ -921,7 +852,6 @@ function CredentialRow(props: CredentialRowFullProps) {
             credential={cred}
             displayValue={cred.valueByEnv[selectedEnvId] ?? ""}
             searchQuery={props.searchQuery}
-            shared={props.sharedByKind.get(cred.kind)}
             onCopy={(event) => handleCopy(cred, event)}
           />
         ))}
@@ -934,54 +864,9 @@ interface FieldInlineRowProps {
   credential: VaultCredential;
   displayValue: string;
   searchQuery: string;
-  // Per-kind shared prefix / suffix across the whole project — used to
-  // dim boilerplate so the distinctive middle of the URL pops. undefined
-  // when this kind has <2 credentials or nothing in common.
-  shared?: ValueDiffShared;
   // Click handler receives the React mouse event so the parent can position
   // the floating "Copied!" toast at the cursor location.
   onCopy: (event: React.MouseEvent) => void;
-}
-
-// Three-segment value renderer: shared-prefix dim, distinctive middle
-// bright, shared-suffix dim. Folds the existing search-highlight on
-// top so an active search still wraps matched chars in <mark>. If
-// `shared` is undefined or the value doesn't actually start/end with
-// the shared bookends, falls back to a plain highlighted line.
-function DiffHighlightedValue(props: {
-  query: string;
-  text: string;
-  shared?: ValueDiffShared;
-}) {
-  const { query, text, shared } = props;
-  if (!shared) return <HighlightedText query={query} text={text} />;
-  const { prefix, suffix } = shared;
-  if (!text.startsWith(prefix) || !text.endsWith(suffix)) {
-    return <HighlightedText query={query} text={text} />;
-  }
-  const middle = text.slice(prefix.length, text.length - suffix.length);
-  // Skip the segment split entirely when there's no actual diff —
-  // dimming the whole string would be misleading.
-  if (middle.length === 0) {
-    return <HighlightedText query={query} text={text} />;
-  }
-  return (
-    <>
-      {prefix && (
-        <span className="text-muted-foreground/50">
-          <HighlightedText query={query} text={prefix} />
-        </span>
-      )}
-      <span className="font-semibold text-foreground">
-        <HighlightedText query={query} text={middle} />
-      </span>
-      {suffix && (
-        <span className="text-muted-foreground/50">
-          <HighlightedText query={query} text={suffix} />
-        </span>
-      )}
-    </>
-  );
 }
 
 // Wraps matched chunks of `text` in <mark> so the user sees exactly which
@@ -1046,11 +931,7 @@ function FieldInlineRow(props: FieldInlineRowProps) {
               className="block w-full truncate text-left text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary"
               title={`Open in browser: ${trimmedValue}`}
             >
-              <DiffHighlightedValue
-                query={props.searchQuery}
-                text={props.displayValue}
-                shared={props.shared}
-              />
+              <HighlightedText query={props.searchQuery} text={props.displayValue} />
             </button>
           ) : (
             <button
@@ -1059,11 +940,7 @@ function FieldInlineRow(props: FieldInlineRowProps) {
               className="block w-full truncate text-left text-foreground/80 transition-colors hover:text-foreground hover:bg-muted/30 rounded px-1 -mx-1"
               title="Click to copy"
             >
-              <DiffHighlightedValue
-                query={props.searchQuery}
-                text={props.displayValue}
-                shared={props.shared}
-              />
+              <HighlightedText query={props.searchQuery} text={props.displayValue} />
             </button>
           )
         ) : (

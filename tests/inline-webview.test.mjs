@@ -9,12 +9,13 @@ import { test } from "node:test";
 
 const ROOT = "/Users/shieng/Desktop/Pengvi";
 
-test("Rust inline_webview module exposes the 11 commands + reuse path + 1px clamp", async () => {
+test("Rust inline_webview module exposes the 12 commands + reuse path + 1px clamp", async () => {
   const src = await readFile(`${ROOT}/src-tauri/src/inline_webview.rs`, "utf8");
   for (const cmd of [
     "inline_webview_open",
     "inline_webview_set_bounds",
     "inline_webview_set_visible",
+    "inline_webview_set_zoom",
     "inline_webview_reload",
     "inline_webview_navigate",
     "inline_webview_back",
@@ -31,6 +32,7 @@ test("Rust inline_webview module exposes the 11 commands + reuse path + 1px clam
   assert.match(src, /if let Some\(webview\) = app\.webviews\(\)\.get\(&label\)/);
   // 0x0 panic guard.
   assert.match(src, /fn clamp_size/);
+  assert.match(src, /fn clamp_zoom/);
   // Native API path — WebviewBuilder + add_child, NOT iframe / shell open.
   assert.match(src, /WebviewBuilder::new\(&label, WebviewUrl::External\(parsed\)\)/);
   assert.match(src, /main\.add_child\(/);
@@ -44,13 +46,22 @@ test("Rust inline_webview applies native frame updates atomically with set_bound
   assert.doesNotMatch(src, /inline_webview_set_bounds[\s\S]*?\.set_size\(/);
 });
 
-test("lib.rs registers all 11 inline_webview commands in the invoke handler", async () => {
+test("Rust inline_webview rejects non-http schemes before opening or navigating", async () => {
+  const src = await readFile(`${ROOT}/src-tauri/src/inline_webview.rs`, "utf8");
+  assert.match(src, /fn parse_http_webview_url/);
+  assert.match(src, /match parsed\.scheme\(\)\s*\{\s*"http"\s*\|\s*"https"\s*=>/);
+  assert.match(src, /inline_webview_open[\s\S]*?parse_http_webview_url\(&url\)/);
+  assert.match(src, /inline_webview_navigate[\s\S]*?parse_http_webview_url\(&url\)/);
+});
+
+test("lib.rs registers all 12 inline_webview commands in the invoke handler", async () => {
   const src = await readFile(`${ROOT}/src-tauri/src/lib.rs`, "utf8");
   assert.match(src, /mod inline_webview;/);
   for (const cmd of [
     "inline_webview_open",
     "inline_webview_set_bounds",
     "inline_webview_set_visible",
+    "inline_webview_set_zoom",
     "inline_webview_reload",
     "inline_webview_navigate",
     "inline_webview_back",
@@ -69,12 +80,13 @@ test("Cargo.toml enables tauri's `unstable` feature (gates WebviewBuilder + Mana
   assert.match(cargo, /tauri\s*=\s*\{\s*version\s*=\s*"2",\s*features\s*=\s*\["unstable"\]\s*\}/);
 });
 
-test("src/lib/inline-webview.ts exports the 11 typed bridges", async () => {
+test("src/lib/inline-webview.ts exports the 12 typed bridges", async () => {
   const src = await readFile(`${ROOT}/src/lib/inline-webview.ts`, "utf8");
   for (const fn of [
     "openInlineWebview",
     "setInlineWebviewBounds",
     "setInlineWebviewVisible",
+    "setInlineWebviewZoom",
     "reloadInlineWebview",
     "navigateInlineWebview",
     "inlineWebviewBack",
@@ -88,6 +100,7 @@ test("src/lib/inline-webview.ts exports the 11 typed bridges", async () => {
   }
   assert.match(src, /invoke\("inline_webview_open"/);
   assert.match(src, /invoke\("inline_webview_set_bounds"/);
+  assert.match(src, /invoke\("inline_webview_set_zoom"/);
 });
 
 test("InlineWebviewPanel: inline-style flex sibling layout + slot prop + modal guard + hide-on-unmount", async () => {
@@ -134,8 +147,27 @@ test("InlineWebviewToolbar exposes back / forward / reload / close + url display
   assert.match(src, /aria-label="Reload"/);
   assert.match(src, /aria-label="Close inline view"/);
   assert.match(src, /{props\.url}/);
+  assert.match(src, /rightSlot\?:\s*ReactNode/);
+  assert.match(src, /{props\.rightSlot}/);
   // Reload re-injects prefill so Vault sign-in form refills after refresh.
   assert.match(src, /evalInlineWebview\(props\.label,\s*script\)/);
+});
+
+test("BrowserPage uses compact zoom chrome and opens embedded pages at 85% by default", async () => {
+  const src = await readFile(`${ROOT}/src/components/browser/BrowserPage.tsx`, "utf8");
+  assert.match(src, /DEFAULT_BROWSER_ZOOM\s*=\s*0\.85/);
+  assert.match(src, /APP_VALUE_KEYS\.browserZoomScale/);
+  assert.doesNotMatch(
+    src,
+    /parsed < LEGACY_BROWSER_ZOOM_FLOOR/,
+    "60% is a valid user-selected zoom and must survive reloads",
+  );
+  assert.doesNotMatch(src, /setPersistedValue\(APP_VALUE_KEYS\.browserZoomScale,\s*String\(DEFAULT_BROWSER_ZOOM\)\)/);
+  assert.match(src, /setInlineWebviewZoom\(webviewLabel,\s*browserZoom\)/);
+  assert.match(src, /<BrowserZoomControl/);
+  assert.match(src, /aria-label="Zoom out"/);
+  assert.match(src, /aria-label="Zoom in"/);
+  assert.match(src, /Math\.round\(zoom \* 100\)/);
 });
 
 test("Browser store slice: shortcut + deeplink types + addOrPromote dedupes by URL + persists", async () => {
@@ -234,11 +266,12 @@ test("App.tsx Browser module + closeAll guard spares 'vault' AND 'browser'", asy
 
 test("MainSidebar.tsx exposes the 'browser' MainModule entry", async () => {
   const src = await readFile(`${ROOT}/src/components/layout/MainSidebar.tsx`, "utf8");
-  assert.match(src, /"home"\s*\|\s*"client"\s*\|\s*"rest"\s*\|\s*"vault"\s*\|\s*"docs"\s*\|\s*"browser"/);
-  // Compass icon used for the browser entry; gated behind 'token' tier
-  // so normal admins (token but not super-admin) still get access.
+  assert.match(src, /"client"\s*\|\s*"rest"\s*\|\s*"vault"\s*\|\s*"docs"\s*\|\s*"browser"\s*\|\s*"database"/);
+  // Compass icon used for the browser entry; Browser is super-admin only
+  // (normal admins get Client + Vault).
   assert.match(src, /kind:\s*"browser"/);
   assert.match(src, /icon:\s*Compass/);
+  assert.match(src, /kind:\s*"browser"[^}]*?requires:\s*"super-admin"/);
 });
 
 test("BrowserPage Argo prefill: detects username + password via paired credentials' sensitive flag, with legacy parser fallback", async () => {
@@ -264,6 +297,21 @@ test("BrowserPage Argo prefill: detects username + password via paired credentia
   assert.match(src, /argo prefill script loaded/);
   assert.match(src, /input\[name="username"\]/);
   assert.match(src, /input\[name="password"\]/);
+});
+
+test("BrowserPage prefill is host-bound: never fills saved credentials on a foreign origin (F4)", async () => {
+  const src = await readFile(`${ROOT}/src/components/browser/BrowserPage.tsx`, "utf8");
+  // Expected host is derived from the shortcut URL at build time...
+  assert.match(src, /expectedHost = new URL\(active\.url\)\.hostname/);
+  // ...embedded as a JSON-safe literal into the injected guard...
+  assert.match(src, /const safeHost = JSON\.stringify\(expectedHost\)/);
+  // ...and the injected script bails before filling when the live document
+  // host differs from the intended host (SSO / redirect / manual nav).
+  assert.match(src, /location\.hostname!==__penguinExpectedHost/);
+  // Guard must be wired into BOTH the argo (user+pass) and the token IIFEs —
+  // a single shared hostGuardJs interpolated into each.
+  const guardHits = src.match(/\$\{hostGuardJs\}/g) ?? [];
+  assert.ok(guardHits.length >= 2, `expected hostGuardJs in both prefill scripts, found ${guardHits.length}`);
 });
 
 test("Vault credential editor surfaces an 'argocd-server' template (URL + username + password)", async () => {

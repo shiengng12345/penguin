@@ -200,7 +200,7 @@ fn write_registry_npmrc_for_protocol(
         lines.push(line.to_string());
     }
 
-    let auth_line_is_missing = auth_replaced == false;
+    let auth_line_is_missing = !auth_replaced;
     // 业务原因：缺少 registry auth 行时必须补上，否则安装内部包仍会 401。
     if auth_line_is_missing {
         eprintln!(
@@ -212,7 +212,7 @@ fn write_registry_npmrc_for_protocol(
 
     for scope_line in scope_lines.iter().rev() {
         let scope_line_exists = lines.iter().any(|line| line == scope_line);
-        let scope_line_is_missing = scope_line_exists == false;
+        let scope_line_is_missing = !scope_line_exists;
         // 业务原因：内部包作用域必须显式指向 Nexus，避免 npm 走默认公网 registry。
         if scope_line_is_missing {
             eprintln!(
@@ -315,7 +315,7 @@ pub(crate) fn write_registry_npmrc(
         }
     }
 
-    let has_errors = errors.len() > 0;
+    let has_errors = !errors.is_empty();
     // 业务原因：任一协议目录写入失败都会导致安装链路仍可能 401，必须把失败明细返回给 UI。
     if has_errors {
         let joined_errors = errors.join(REGISTRY_ERROR_SEPARATOR);
@@ -367,18 +367,14 @@ fn read_registry_npmrc_status_inner() -> ConfiguredStatus {
     let recovered_registry_url = match derive_registry_url_from_auth_line(auth_line) {
         Some(url) => url,
         None => {
-            eprintln!(
-                "WARN read_registry_npmrc_status_inner - 无法从 auth 行还原 registry url"
-            );
+            eprintln!("WARN read_registry_npmrc_status_inner - 无法从 auth 行还原 registry url");
             return registry_unconfigured_status();
         }
     };
     let auth_suffix_position = match auth_line.find(REGISTRY_AUTH_SUFFIX) {
         Some(position) => position,
         None => {
-            eprintln!(
-                "WARN read_registry_npmrc_status_inner - auth 行缺少 _auth= 分隔符"
-            );
+            eprintln!("WARN read_registry_npmrc_status_inner - auth 行缺少 _auth= 分隔符");
             return registry_unconfigured_status();
         }
     };
@@ -460,8 +456,7 @@ mod registry_auth_tests {
 
     #[test]
     fn derive_registry_auth_key_strips_http_scheme() {
-        let key =
-            derive_registry_auth_key("http://sonatype.client88.me/repository/npm_hosted/");
+        let key = derive_registry_auth_key("http://sonatype.client88.me/repository/npm_hosted/");
         assert_eq!(key, "//sonatype.client88.me/repository/npm_hosted/:_auth=");
     }
 

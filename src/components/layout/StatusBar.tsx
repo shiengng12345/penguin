@@ -13,7 +13,6 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import {
   AlertCircle,
-  HelpCircle,
   Keyboard,
   RefreshCw,
   Settings as SettingsIcon,
@@ -158,14 +157,11 @@ export function StatusBar({ onOpenSettings, onOpenShortcuts }: StatusBarProps) {
             : "Error log"
         }
         aria-label="Open error log"
-        className={cn(
-          "ml-auto relative flex items-center justify-center rounded px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-foreground",
-          unreadErrors > 0 ? "text-red-500" : "",
-        )}
+        className="ml-auto relative flex items-center justify-center rounded px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-foreground"
       >
         <AlertCircle className="h-3 w-3" />
         {unreadErrors > 0 ? (
-          <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-red-500 px-1 text-[8px] font-semibold leading-none text-white">
+          <span className="absolute -right-1 -top-1 flex h-3 min-w-[12px] items-center justify-center rounded-full bg-red-500/15 px-1 text-[8px] font-medium leading-none text-red-400/90">
             {unreadErrors > 99 ? "99+" : unreadErrors}
           </span>
         ) : null}
@@ -188,20 +184,11 @@ export function StatusBar({ onOpenSettings, onOpenShortcuts }: StatusBarProps) {
       >
         <SettingsIcon className="h-3 w-3" />
       </button>
-      <button
-        type="button"
-        onClick={onOpenShortcuts}
-        title="Help"
-        aria-label="Help — opens keyboard shortcuts"
-        className="flex items-center justify-center rounded px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-foreground"
-      >
-        <HelpCircle className="h-3 w-3" />
-      </button>
       <span
-        className="px-1.5 text-muted-foreground/60 tabular-nums"
-        title={`Pengvi v${pkg.version}`}
+        className="px-1.5 text-muted-foreground/60"
+        title={`Pengvi v${pkg.version} · NgSE`}
       >
-        v{pkg.version}
+        <span className="tabular-nums">v{pkg.version}</span> · NgSE
       </span>
     </div>
     {errorLogOpen ? (

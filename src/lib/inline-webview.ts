@@ -28,8 +28,8 @@ export function openInlineWebview(
   //     bleed-through).
   //   - "<parent-shortcut-id>": branch shortcut sharing its parent's
   //     login (multiple windows on the same account).
-  //   - "aliyun-acc-<id>" / "jenkins-acc-<id>": all links bound to the
-  //     same account share login.
+  //   - "jenkins-acc-<id>": all links bound to the same account
+  //     share login.
   dataKey?: string | null,
 ): Promise<void> {
   return invoke("inline_webview_open", {
@@ -52,6 +52,13 @@ export function setInlineWebviewVisible(
   visible: boolean,
 ): Promise<void> {
   return invoke("inline_webview_set_visible", { label, visible });
+}
+
+export function setInlineWebviewZoom(
+  label: string,
+  scaleFactor: number,
+): Promise<void> {
+  return invoke("inline_webview_set_zoom", { label, scaleFactor });
 }
 
 export function reloadInlineWebview(label: string): Promise<void> {

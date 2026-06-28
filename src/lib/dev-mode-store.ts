@@ -10,10 +10,19 @@ const LOG_SCOPE = "dev-mode-store";
 
 // SHA-256 hashes of the expected tokens — the raw values never live in source
 // so git history / extracted bundles only ever see opaque hex. Validate flow:
-// user input → SHA-256 (Web Crypto) → hex compare against these constants.
-// To rotate: compute the new hash with `printf "<token>" | shasum -a 256`.
-const NORMAL_TOKEN_HASH = "7eb26c3596d5691379d0107ec58f21db2cb0a4aad9af9894337ce2902e169bff";
-const SUPERADMIN_TOKEN_HASH = "b30412f69b46ee4d67eb1960247086a17ac4aaf05cc5347e7bec40a39ddda5fd";
+// user input → SHA-256 (Web Crypto) → hex compare against these sets.
+// Each tier accepts any hash in its list, so multiple tokens can map to the
+// same tier. To add one: `printf "<token>" | shasum -a 256` and append it.
+const NORMAL_TOKEN_HASHES = [
+  "7eb26c3596d5691379d0107ec58f21db2cb0a4aad9af9894337ce2902e169bff",
+  // nse0428@
+  "75f6bab8b3d293f091d7e56beac328730447adeba2b89123b452600a3dcfe1e3",
+];
+const SUPERADMIN_TOKEN_HASHES = [
+  "b30412f69b46ee4d67eb1960247086a17ac4aaf05cc5347e7bec40a39ddda5fd",
+  // NgShiEng12345@
+  "4d99f670a2a42c07fcda0c04a6acb0f5edcc3b30f4829cdcb1e125d37f6d0651",
+];
 
 // Cached hash of the in-memory token so requireSuperAdmin() stays synchronous
 // (called from CRUD entry points that cannot await). Computed once at validate
@@ -36,6 +45,11 @@ export interface ValidateTokenResult {
   isSuperAdmin: boolean;
 }
 
+export interface StoredDeveloperModeTokens {
+  adminToken: string | null;
+  superAdminToken: string | null;
+}
+
 // SHA-256 hex digest of a UTF-8 string. Uses Web Crypto, available in Tauri
 // webview + Node 20+. Never throws on valid input.
 async function sha256Hex(input: string): Promise<string> {
@@ -52,9 +66,18 @@ interface TokenTierMatch {
 }
 async function classifyTokenInput(input: string): Promise<TokenTierMatch> {
   const inputHash = await sha256Hex(input);
-  const matchedNormal = inputHash === NORMAL_TOKEN_HASH;
-  const matchedSuper = inputHash === SUPERADMIN_TOKEN_HASH;
+  const matchedNormal = NORMAL_TOKEN_HASHES.includes(inputHash);
+  const matchedSuper = SUPERADMIN_TOKEN_HASHES.includes(inputHash);
   return { matchedNormal, matchedSuper };
+}
+
+function persistTierToken(input: string, tier: TokenTierMatch): void {
+  if (tier.matchedNormal) {
+    setPersistedValue(APP_VALUE_KEYS.devModeAdminToken, input);
+  }
+  if (tier.matchedSuper) {
+    setPersistedValue(APP_VALUE_KEYS.devModeSuperAdminToken, input);
+  }
 }
 
 // Read any previously-validated token from disk and mark the store as having
@@ -77,6 +100,7 @@ export async function loadToken(): Promise<LoadTokenResult> {
       logger.warn(LOG_SCOPE, "loadToken — disk token no longer valid");
       return { success: true, loaded: false };
     }
+    persistTierToken(stored, tier);
     inMemoryToken = stored;
     inMemoryTokenHash = await sha256Hex(stored);
     const isSuperAdmin = tier.matchedSuper;
@@ -107,6 +131,7 @@ export async function validateAndSetToken(
     inMemoryToken = payload.input;
     inMemoryTokenHash = await sha256Hex(payload.input);
     setPersistedValue(APP_VALUE_KEYS.devModeToken, payload.input);
+    persistTierToken(payload.input, tier);
     const isSuperAdmin = tier.matchedSuper;
     useAppStore.getState().setHasValidToken(true);
     useAppStore.getState().setIsSuperAdmin(isSuperAdmin);
@@ -138,13 +163,29 @@ export function getInMemoryDevToken(): string | null {
   return inMemoryToken;
 }
 
+export async function getStoredDeveloperModeTokens(): Promise<StoredDeveloperModeTokens> {
+  let adminToken = getPersistedValue(APP_VALUE_KEYS.devModeAdminToken);
+  let superAdminToken = getPersistedValue(APP_VALUE_KEYS.devModeSuperAdminToken);
+
+  const currentToken =
+    inMemoryToken ?? getPersistedValue(APP_VALUE_KEYS.devModeToken);
+  if ((adminToken === null || superAdminToken === null) && currentToken !== null) {
+    const tier = await classifyTokenInput(currentToken);
+    persistTierToken(currentToken, tier);
+    if (tier.matchedNormal) adminToken = currentToken;
+    if (tier.matchedSuper) superAdminToken = currentToken;
+  }
+
+  return { adminToken, superAdminToken };
+}
+
 // Synchronous superadmin gate — compares the CACHED hash of the in-memory
 // token against the hardcoded super hash. Stays sync so CRUD handlers can call
 // it at entry without await.
 export function requireSuperAdmin(): boolean {
   const hasHash = inMemoryTokenHash !== null;
   if (!hasHash) return false;
-  return inMemoryTokenHash === SUPERADMIN_TOKEN_HASH;
+  return inMemoryTokenHash !== null && SUPERADMIN_TOKEN_HASHES.includes(inMemoryTokenHash);
 }
 
 // App-start hook. If the user enabled Dev Mode in a previous session, the

@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { useAppStore, useActiveTab } from "@/lib/store";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { useAppStore, useActiveTab, type InstalledPackage } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Package, X, Download, CheckCircle2, XCircle, Loader2 } from "lucide-react";
@@ -8,6 +8,33 @@ import { isAllowedSnsoftPackageSpec, normalizePackageSpec, protocolFromSnsoftPac
 
 function detectProtocol(spec: string): "grpc-web" | "grpc" | "sdk" | null {
   return protocolFromSnsoftPackageSpec(spec);
+}
+
+// Split a spec into name + version on the LAST "@" (the scope's leading
+// "@" sits at index 0). "@snsoft/auth-grpc@2.1.1-2026…" → name/version.
+function splitSpec(spec: string): { name: string; version: string } {
+  const trimmed = spec.trim();
+  const at = trimmed.lastIndexOf("@");
+  if (at <= 0) return { name: trimmed, version: "" };
+  return { name: trimmed.slice(0, at), version: trimmed.slice(at + 1) };
+}
+
+// snsoft build versions carry a 14-digit YYYYMMDDHHMMSS stamp
+// (e.g. "2.1.1-20260624172317") — that's the package's build time.
+function stampFromVersion(version: string): Date | null {
+  const m = version.match(/(\d{14})(?:\D|$)/);
+  if (!m) return null;
+  const s = m[1];
+  const dt = new Date(
+    +s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8),
+    +s.slice(8, 10), +s.slice(10, 12), +s.slice(12, 14),
+  );
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+function fmtStamp(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 const PROTOCOL_LABELS: Record<string, string> = {
@@ -20,6 +47,9 @@ const PROTOCOL_LABELS: Record<string, string> = {
 interface PackageInstallerProps {
   onInstall: (spec: string) => Promise<boolean>;
   onClose: () => void;
+  // Currently-installed packages (active protocol) — used to show an
+  // already-installed version + build time to compare against this spec.
+  packages: InstalledPackage[];
 }
 
 const PLACEHOLDERS: Record<string, string> = {
@@ -30,7 +60,7 @@ const PLACEHOLDERS: Record<string, string> = {
   rest: "REST requests do not require package installation",
 };
 
-export function PackageInstaller({ onInstall, onClose }: PackageInstallerProps) {
+export function PackageInstaller({ onInstall, onClose, packages }: PackageInstallerProps) {
   const tab = useActiveTab();
   const protocolTab = tab?.protocolTab ?? "grpc-web";
   const installLog = useAppStore((s) => s.installLog);
@@ -72,6 +102,24 @@ export function PackageInstaller({ onInstall, onClose }: PackageInstallerProps) 
   const detectedProtocol = detectProtocol(spec);
   const isValid = isAllowedSnsoftPackageSpec(spec);
 
+  // Compare the typed spec against an already-installed package of the
+  // same name — surfaces the installed version + build time so the user
+  // can tell whether this spec is newer / older / identical.
+  const comparison = useMemo(() => {
+    const { name, version } = splitSpec(spec);
+    if (!name) return null;
+    const installed = packages.find((p) => p.name === name) ?? null;
+    if (!installed) return null;
+    const installedStamp = stampFromVersion(installed.version);
+    const newStamp = stampFromVersion(version);
+    let relation: "newer" | "older" | "same" | null = null;
+    if (version) {
+      if (version === installed.version) relation = "same";
+      else if (installedStamp && newStamp) relation = newStamp > installedStamp ? "newer" : "older";
+    }
+    return { installed, installedStamp, version, newStamp, relation };
+  }, [spec, packages]);
+
   const lastLog = installLog[installLog.length - 1] ?? "";
   const installDone =
     lastLog === "Installation complete!" ||
@@ -79,6 +127,24 @@ export function PackageInstaller({ onInstall, onClose }: PackageInstallerProps) 
     lastLog.startsWith("Installation failed") ||
     lastLog.startsWith("Removal failed") ||
     lastLog.startsWith("Error:");
+
+  // Global keyboard close: Esc closes (unless mid-install, matching the
+  // disabled Cancel); once an install finishes, Enter closes too — works
+  // no matter where focus landed after the install (the input's own
+  // Enter handler only fires while it's focused).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !isInstalling) {
+        e.preventDefault();
+        onClose();
+      } else if (e.key === "Enter" && installDone) {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isInstalling, installDone, onClose]);
 
   const handleInstall = async () => {
     const trimmed = spec.trim();
@@ -156,12 +222,42 @@ export function PackageInstaller({ onInstall, onClose }: PackageInstallerProps) 
                 </span>
               )}
             </div>
-            <p className="mt-1 text-[10px] text-muted-foreground">
-              Format: <code>@snsoft/example-grpc-web@1.0.0</code> or <code>@snsoft/js-sdk@1.0.0</code>
-            </p>
-            <p className="mt-0.5 text-[10px] text-muted-foreground/80">
-              Tip: paste a <code>package.json</code> line like <code>&quot;@snsoft/x&quot;: &quot;1.0.0&quot;</code> — auto-converts.
-            </p>
+            {comparison ? (
+              <div className="mt-2 rounded-md border border-border bg-muted/30 p-2 text-[11px]">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">Already installed / 已安装</span>
+                  <div className="text-right font-mono">
+                    <span className="text-foreground">{comparison.installed.version}</span>
+                    {comparison.installedStamp && (
+                      <span className="ml-2 text-muted-foreground/70">{fmtStamp(comparison.installedStamp)}</span>
+                    )}
+                  </div>
+                </div>
+                {comparison.relation === "same" ? (
+                  <div className="mt-1.5 border-t border-border/50 pt-1.5 text-[10px] text-amber-500">
+                    Same version already installed / 已安装相同版本
+                  </div>
+                ) : comparison.version ? (
+                  <div className="mt-1.5 flex items-center justify-between gap-3 border-t border-border/50 pt-1.5">
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      Installing / 本次
+                      {comparison.relation === "newer" && (
+                        <span className="rounded bg-green-500/15 px-1 py-0.5 text-[9px] text-green-500">newer ↑</span>
+                      )}
+                      {comparison.relation === "older" && (
+                        <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[9px] text-amber-500">older ↓</span>
+                      )}
+                    </span>
+                    <div className="text-right font-mono">
+                      <span className="text-primary">{comparison.version}</span>
+                      {comparison.newStamp && (
+                        <span className="ml-2 text-muted-foreground/70">{fmtStamp(comparison.newStamp)}</span>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           {(installLog.length > 0 || isInstalling) && (() => {

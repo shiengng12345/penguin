@@ -2,6 +2,9 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+const MAX_PROXY_RESPONSE_BYTES: usize = 25 * 1024 * 1024;
+const PROXY_TIMEOUT_SECS: u64 = 60;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpProxyRequest {
     pub url: String,
@@ -68,8 +71,27 @@ pub(crate) async fn http_proxy(req: HttpProxyRequest) -> HttpProxyResponse {
     result
 }
 
+async fn read_response_with_cap(
+    mut response: reqwest::Response,
+    max_bytes: usize,
+) -> Result<(Vec<u8>, bool), String> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+        if bytes.len().saturating_add(chunk.len()) > max_bytes {
+            let remaining = max_bytes.saturating_sub(bytes.len());
+            bytes.extend_from_slice(&chunk[..remaining]);
+            return Ok((bytes, true));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok((bytes, false))
+}
+
 async fn http_proxy_inner(req: HttpProxyRequest) -> HttpProxyResponse {
-    let client = match reqwest::Client::builder().build() {
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(PROXY_TIMEOUT_SECS))
+        .build()
+    {
         Ok(c) => c,
         Err(e) => {
             return HttpProxyResponse {
@@ -112,10 +134,8 @@ async fn http_proxy_inner(req: HttpProxyRequest) -> HttpProxyResponse {
                 };
             }
         }
-    } else if let Some(ref b) = req.body {
-        Some(b.as_bytes().to_vec())
     } else {
-        None
+        req.body.as_ref().map(|b| b.as_bytes().to_vec())
     };
 
     let request_builder = if let Some(b) = body {
@@ -145,8 +165,9 @@ async fn http_proxy_inner(req: HttpProxyRequest) -> HttpProxyResponse {
         }
     }
 
-    let bytes = match response.bytes().await {
-        Ok(b) => b,
+    let (bytes, truncated) = match read_response_with_cap(response, MAX_PROXY_RESPONSE_BYTES).await
+    {
+        Ok(result) => result,
         Err(e) => {
             return HttpProxyResponse {
                 status,
@@ -166,6 +187,13 @@ async fn http_proxy_inner(req: HttpProxyRequest) -> HttpProxyResponse {
         headers,
         body: body_str,
         body_base64,
-        error: None,
+        error: if truncated {
+            Some(format!(
+                "Response exceeded proxy limit of {} bytes",
+                MAX_PROXY_RESPONSE_BYTES
+            ))
+        } else {
+            None
+        },
     }
 }

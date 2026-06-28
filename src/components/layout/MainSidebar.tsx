@@ -4,22 +4,22 @@
 // content so it's visible regardless of which module is active.
 //
 // Gating tiers (Sprint 8.5 — three-tier model):
-//   "none"        — always visible (Home, Client)
-//   "token"       — needs Dev Mode + any valid token (Vault)
-//   "super-admin" — needs Dev Mode + super-admin token (Docs / KB)
+//   "none"        — always visible (Client)
+//   "token"       — needs Dev Mode + any valid token (Vault, Browser)
+//   "super-admin" — needs Dev Mode + super-admin token (Home / REST / Docs / Database)
 // Super-admin implies token, so super-admin users see everything.
 
-import { BookOpen, Compass, Globe, Home, Lock, Zap } from "lucide-react";
+import { BookOpen, Compass, Database, Globe, Home, Lock, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type MainModule = "home" | "client" | "rest" | "vault" | "docs" | "browser";
+export type MainModule = "client" | "rest" | "vault" | "docs" | "browser" | "database";
 
 export interface MainSidebarProps {
   active: MainModule;
   onSelect: (module: MainModule) => void;
   // Dev Mode enabled + dev token validated. Unlocks Vault.
   hasValidToken: boolean;
-  // Dev Mode enabled + super-admin token validated. Unlocks Docs / KB.
+  // Dev Mode enabled + super-admin token validated. Unlocks Home / REST / Docs / Database.
   isSuperAdmin: boolean;
 }
 
@@ -34,20 +34,20 @@ interface RailItem {
 }
 
 const ITEMS: RailItem[] = [
-  // Home is the module launcher — entry point to REST + Docs (both super-admin).
-  // Normal admins (token but not super) skip Home and land directly on Client.
-  { kind: "home", icon: Home, label: "Home", longLabel: "Home / 首页", requires: "super-admin" },
   { kind: "client", icon: Zap, label: "Client", longLabel: "API Client / 客户端", requires: "none" },
   { kind: "vault", icon: Lock, label: "Vault", longLabel: "Vault / 凭据库", requires: "token" },
   // In-app browser for embedded Vault UI / ArgoCD / Grafana etc. Cookies
   // persist via Tauri's filesystem-backed WKWebSiteDataStore, so logging
   // in once carries across sessions. Pinned shortcuts kept in app_kv —
-  // see lib/store BrowserState slice.
-  { kind: "browser", icon: Compass, label: "Browser", longLabel: "In-App Browser / 内嵌浏览器", requires: "token" },
-  // Sprint 10 — REST module is super-admin only. Normal admins (token but
-  // not super) see only Home + Client + Vault.
+  // see lib/store BrowserState slice. Super-admin only — normal admins
+  // (dev token, not super) can't access it.
+  { kind: "browser", icon: Compass, label: "Browser", longLabel: "In-App Browser / 内嵌浏览器 (Super Admin)", requires: "super-admin" },
+  // REST / Docs / Database are super-admin only — not part of the
+  // Vault + Browser release. Normal admins (token, not super) see only
+  // Client + Vault + Browser.
   { kind: "rest", icon: Globe, label: "REST", longLabel: "REST API / 接口客户端 (Super Admin)", requires: "super-admin" },
   { kind: "docs", icon: BookOpen, label: "Docs", longLabel: "Knowledge Base / 知识库 (Super Admin)", requires: "super-admin" },
+  { kind: "database", icon: Database, label: "Database", longLabel: "Database / 数据库 (Super Admin)", requires: "super-admin" },
 ];
 
 export function MainSidebar({ active, onSelect, hasValidToken, isSuperAdmin }: MainSidebarProps) {

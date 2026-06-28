@@ -32,7 +32,7 @@ let resolveInFlight: Promise<string | null> | null = null;
 
 async function resolveNodePathViaLoginShell(): Promise<string | null> {
   try {
-    const out = await Command.create("zsh-login", [
+    const out = await Command.create("node-path", [
       "-l",
       "-c",
       `${NODE_PATH_SETUP}; command -v node`,
@@ -76,7 +76,9 @@ function nodeEvalShellScript(b64: string, nodeInvocation: string, login: boolean
 }
 
 async function runShell(args: string[], signal?: AbortSignal): Promise<SidecarResult> {
-  const cmd = Command.create("zsh-login", args);
+  const cmd = args[0] === "-l"
+    ? Command.create("node-eval-login", args)
+    : Command.create("node-eval", args);
   let stdout = "";
   let stderr = "";
   cmd.stdout.on("data", (d: string) => { stdout += d; });

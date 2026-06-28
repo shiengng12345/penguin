@@ -8,6 +8,7 @@
     "build": "pnpm -F @penguin/core build && pnpm -F @penguin/mcp build && tsc -b && vite build",
     "preview": "vite preview",
     "test": "node --test tests/",
+    "test:coverage": "node --test --experimental-test-coverage tests/",
     "typecheck": "pnpm -F @penguin/core build && pnpm -F @penguin/mcp build && tsc -b",
     "tauri": "tauri",
     "set-version": "node scripts/set-version.mjs"
@@ -29,12 +30,15 @@
     "@lezer/highlight": "^1.2.3",
     "@penguin/core": "workspace:*",
     "@tailwindcss/oxide-darwin-arm64": "^4.2.1",
+    "@tanstack/react-virtual": "^3.14.2",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.0.0",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-shell": "^2.0.0",
     "@tauri-apps/plugin-store": "^2.0.0",
     "@tauri-apps/plugin-updater": "^2.10.0",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "codemirror": "^6.0.2",
@@ -54,9 +58,12 @@
     "@vitejs/plugin-react": "^4.3.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.0",
-    "vite": "^6.0.0"
+    "vite": "^6.4.3"
   },
   "pnpm": {
+    "overrides": {
+      "esbuild": "0.28.1"
+    },
     "onlyBuiltDependencies": [
       "esbuild",
       "protobufjs"

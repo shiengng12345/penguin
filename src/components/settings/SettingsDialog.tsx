@@ -10,7 +10,6 @@ import { APP_VALUE_KEYS } from "@/lib/persistence-keys";
 import { persistSavedRequests } from "@/lib/penguin-db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DeveloperModeSection } from "@/components/settings/DeveloperModeSection";
 import { RegistryAuthSection } from "@/components/settings/RegistryAuthSection";
 import {
   X,
@@ -534,7 +533,6 @@ export function SettingsDialog({
             </label>
           </div>
 
-          <DeveloperModeSection />
           <RegistryAuthSection />
 
           {/* MCP Integration */}

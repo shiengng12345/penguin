@@ -77,37 +77,45 @@ function getActiveKey(p: ProtocolTab) {
 
 function syncAllProtocolEnvs() {
   fetchConfig().then((raw) => {
-    if (!raw?.trim()) return;
-    let config: ConfigShape;
-    try { config = parseConfig(raw); } catch { return; }
+    try {
+      if (!raw?.trim()) return;
+      let config: ConfigShape;
+      try { config = parseConfig(raw); } catch { return; }
 
-    const protocols: ProtocolTab[] = ["grpc-web", "grpc", "sdk", "rest"];
-    const update: Record<string, unknown> = {};
+      const protocols: ProtocolTab[] = ["grpc-web", "grpc", "sdk", "rest"];
+      const update: Record<string, unknown> = {};
 
-    for (const p of protocols) {
-      const configEnvs = configEnvsForProtocol(config, p);
-      if (configEnvs.length === 0) continue;
+      for (const p of protocols) {
+        const configEnvs = configEnvsForProtocol(config, p);
+        if (configEnvs.length === 0) continue;
 
-      const state = useAppStore.getState();
-      const existing = state[getEnvsKey(p)] as Environment[];
-      const currentActiveId = state[getActiveKey(p)] as string | null;
+        const state = useAppStore.getState();
+        const existing = state[getEnvsKey(p)] as Environment[];
+        const currentActiveId = state[getActiveKey(p)] as string | null;
 
-      const result = mergeConfigEnvironments(existing, configEnvs, p);
+        const result = mergeConfigEnvironments(existing, configEnvs, p);
 
-      const nextActiveId =
-        currentActiveId && result.environments.some((e) => e.id === currentActiveId)
-          ? currentActiveId
-          : result.environments[0]?.id ?? null;
+        const nextActiveId =
+          currentActiveId && result.environments.some((e) => e.id === currentActiveId)
+            ? currentActiveId
+            : result.environments[0]?.id ?? null;
 
-      if (!result.changed && nextActiveId === currentActiveId) continue;
+        if (!result.changed && nextActiveId === currentActiveId) continue;
 
-      update[getEnvsKey(p)] = result.environments;
-      update[getActiveKey(p)] = nextActiveId;
-      persistEnvironmentSnapshot(p, result.environments, nextActiveId);
-    }
+        update[getEnvsKey(p)] = result.environments;
+        update[getActiveKey(p)] = nextActiveId;
+        persistEnvironmentSnapshot(p, result.environments, nextActiveId);
+      }
 
-    if (Object.keys(update).length > 0) {
-      useAppStore.setState((s) => ({ ...s, ...update }));
+      if (Object.keys(update).length > 0) {
+        useAppStore.setState((s) => ({ ...s, ...update }));
+      }
+    } finally {
+      // Mark config sync as complete so the Send button becomes active.
+      // Without this flag, a user who clicks Send before the first rAF
+      // fires gets a 0ms "{{URL}} not found" error because the config
+      // variables haven't landed in the store yet.
+      useAppStore.setState((s) => ({ ...s, configSynced: true }));
     }
   });
 }

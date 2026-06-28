@@ -68,9 +68,8 @@ export interface BrowserShortcut {
   // data directory so cookies / storage don't bleed between them.
   parentId?: string;
   // Persistent data-store key override. Defaults to parentId ?? id at
-  // render time. Aliyun/Jenkins virtual shortcuts override this to
-  // "aliyun-acc-<id>" / "jenkins-acc-<id>" so all links bound to the
-  // same account share login.
+  // render time. Jenkins virtual shortcuts override this to
+  // "jenkins-acc-<id>" so all links bound to the same account share login.
   dataKey?: string;
   createdAt: number;
 }
@@ -104,14 +103,14 @@ export interface BrowserState {
   autoSubmitGlobalEnabled: boolean;
 }
 
-// --- Aliyun tab (independent from Vault) ---
+// --- Jenkins tab (independent from Vault) ---
 //
-// The Aliyun tab manages its own accounts + SLS link bookmarks rather
-// than mirroring Vault credentials. Each link binds to exactly one
-// account; opening a link prefills the account's username + password
-// (and uses its TOTP secret for 2FA via the existing auto-submit flow).
+// The Jenkins tab manages its own accounts + link bookmarks rather than
+// mirroring Vault credentials. Each link binds to exactly one account;
+// opening a link prefills the account's username + password (and uses
+// its TOTP secret for 2FA via the existing auto-submit flow).
 
-export interface AliyunAccount {
+export interface JenkinsAccount {
   id: string;
   label: string;             // user-typed nickname, e.g. "shieng-prod"
   username: string;
@@ -120,36 +119,6 @@ export interface AliyunAccount {
   // without 2FA leave this blank. When set, the Authenticator popover
   // surfaces it AND the sign-in auto-submit injects the current code
   // into the OTP field before clicking the submit button.
-  totpSecret?: string;
-  createdAt: number;
-}
-
-export interface AliyunLink {
-  id: string;
-  label: string;             // e.g. "FPMS-NT QAT logs"
-  url: string;               // full SLS console URL
-  // Required reference to one AliyunAccount.id. UI's add/edit form
-  // forces the user to pick — links without an account would fall back
-  // to manual sign-in which defeats the purpose of this whole feature.
-  accountId: string;
-  createdAt: number;
-}
-
-export interface AliyunState {
-  accounts: AliyunAccount[];
-  links: AliyunLink[];
-}
-
-// --- Jenkins tab (independent from Vault, mirrors Aliyun shape) ---
-// Structurally identical to AliyunAccount / AliyunLink — kept as
-// distinct types so future per-product fields (e.g. Jenkins crumb-issuer
-// override) can land without polluting Aliyun's surface.
-
-export interface JenkinsAccount {
-  id: string;
-  label: string;
-  username: string;
-  password: string;
   totpSecret?: string;
   createdAt: number;
 }
@@ -303,6 +272,11 @@ export interface AppState {
   removeGrpcPackage: (name: string) => void;
   removeSdkPackage: (name: string) => void;
 
+  // Set to true once syncAllProtocolEnvs() finishes its first run.
+  // Used to guard the Send button so users can't fire a request before
+  // {{URL}} and other config variables have landed in the store.
+  configSynced: boolean;
+
   grpcWebEnvironments: Environment[];
   grpcEnvironments: Environment[];
   sdkEnvironments: Environment[];
@@ -386,16 +360,7 @@ export interface AppState {
   setBrowserShortcutAutoSubmit: (id: string, enabled: boolean) => void;
   setBrowserAutoSubmitGlobal: (enabled: boolean) => void;
 
-  // -- Aliyun tab CRUD --
-  aliyun: AliyunState;
-  addAliyunAccount: (payload: Omit<AliyunAccount, "id" | "createdAt">) => string;
-  updateAliyunAccount: (id: string, patch: Partial<Omit<AliyunAccount, "id" | "createdAt">>) => void;
-  removeAliyunAccount: (id: string) => void;
-  addAliyunLink: (payload: Omit<AliyunLink, "id" | "createdAt">) => string;
-  updateAliyunLink: (id: string, patch: Partial<Omit<AliyunLink, "id" | "createdAt">>) => void;
-  removeAliyunLink: (id: string) => void;
-
-  // -- Jenkins tab CRUD (mirror of Aliyun, independent store) --
+  // -- Jenkins tab CRUD (independent store) --
   jenkins: JenkinsState;
   addJenkinsAccount: (payload: Omit<JenkinsAccount, "id" | "createdAt">) => string;
   updateJenkinsAccount: (id: string, patch: Partial<Omit<JenkinsAccount, "id" | "createdAt">>) => void;

@@ -2,8 +2,10 @@ import { logger } from "@/lib/logger";
 import {
   getPersistedValue,
   setPersistedValue,
+  deletePersistedValue,
 } from "@/lib/app-persistence";
 import { APP_VALUE_KEYS } from "@/lib/persistence-keys";
+import { getInMemoryDevToken } from "@/lib/dev-mode-store";
 import { useAppStore } from "@/lib/store";
 // Shared PATH setup so lark-cli (installed under nvm) resolves the same way
 // npm/node do — single source of truth in sidecar.ts.
@@ -12,6 +14,12 @@ import {
   parseVaultJson,
   persistVaultToDisk,
 } from "./vault-storage";
+import {
+  decryptVaultJson,
+  getVaultCryptoTokensFromToken,
+  isVaultEncryptedEnvelope,
+  type VaultCryptoTokens,
+} from "./vault-crypto";
 
 const LOG_SCOPE = "vault-lark";
 
@@ -36,13 +44,30 @@ export function loadLarkUrlFromDisk(): string | null {
   logger.info(LOG_SCOPE, "loadLarkUrlFromDisk — entry");
   const stored = getPersistedValue(APP_VALUE_KEYS.vaultLarkUrl);
   const isMissing = stored === null;
-  // Empty disk state — caller should prompt for URL.
+  // Empty disk state — caller should prompt for URL. Once the user enters it
+  // once, it's persisted here and never asked again (no source/.env baking).
   if (isMissing) {
     logger.info(LOG_SCOPE, "loadLarkUrlFromDisk — no url on disk");
     return null;
   }
   logger.info(LOG_SCOPE, "loadLarkUrlFromDisk — url restored");
   return stored;
+}
+
+// One-time cleanup: earlier builds baked the doc URL as a default and a
+// sync persisted its full plaintext to disk. Now that the passphrase flow
+// is the intended path, wipe any persisted value that matches the secret
+// doc (decrypted at runtime — never compared against a plaintext literal in
+// source). Other URLs the user saved on purpose are left untouched.
+export async function cleanupResidualLarkUrl(): Promise<void> {
+  const stored = getPersistedValue(APP_VALUE_KEYS.vaultLarkUrl);
+  if (stored === null) return;
+  const secret = await decryptDocUrl("PENGUIN");
+  if (secret !== null && stored === secret) {
+    deletePersistedValue(APP_VALUE_KEYS.vaultLarkUrl);
+    useAppStore.getState().setVaultLarkUrl(null);
+    logger.info(LOG_SCOPE, "cleanupResidualLarkUrl — cleared residual plaintext doc url");
+  }
 }
 
 // Persist Lark source URL and mirror into the Zustand store so the UI sees
@@ -110,25 +135,70 @@ export function validateLarkUrl(payload: { url: string }): LarkUrlValidationResu
   return { success: true };
 }
 
+// A short passphrase can stand in for the full Lark doc URL. The real URL
+// ships ONLY as AES-GCM ciphertext (below) — never in plaintext source or
+// .env — decryptable with the passphrase the user types. So the user can
+// enter e.g. "PENGUIN" instead of pasting/remembering the link.
+const ENCRYPTED_DOC_BLOB_B64 =
+  "rbA17eHrN7wHQVq+TEDa8CY0YpEuGY+Div7P7RzWzxouyrMaDPgy5mGPhMevEPmoP6rc3uUjtXyqQljLTR5dwXBUA4BSxN8BwFlfkKZvAiRgRkFxSLBzjHCQikzVyCDi";
+
+function base64ToBytes(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+// Decrypt the baked doc URL with `passphrase` (key = SHA-256(passphrase),
+// AES-GCM, IV prepended). Returns the URL on success, or null when the
+// passphrase is wrong (GCM auth failure) or the output isn't a Lark URL.
+async function decryptDocUrl(passphrase: string): Promise<string | null> {
+  try {
+    const keyBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(passphrase));
+    const key = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["decrypt"]);
+    const blob = base64ToBytes(ENCRYPTED_DOC_BLOB_B64);
+    const iv = blob.slice(0, 12);
+    const ciphertext = blob.slice(12);
+    const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+    const text = new TextDecoder().decode(plaintext);
+    return LARK_HOST_REGEX.test(text) ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+// Resolve the sync source: a real Lark URL passes through unchanged; anything
+// else is treated as a decryption passphrase for the baked default doc. Falls
+// back to the raw input (so validation can surface a clear error) when it's
+// neither a URL nor a valid passphrase.
+async function resolveLarkSource(input: string): Promise<string> {
+  const trimmed = input.trim();
+  if (LARK_HOST_REGEX.test(trimmed)) return trimmed;
+  const decrypted = await decryptDocUrl(trimmed);
+  return decrypted ?? trimmed;
+}
+
 // Orchestrate: shell-fetch → extract JSON block → parse → persist → set store.
 // Each step is logged so failures surface in the project logger.
 export async function syncVaultFromLark(payload: { url: string }): Promise<LarkSyncResult> {
   logger.info(LOG_SCOPE, "syncVaultFromLark — entry");
-  const urlCheck = validateLarkUrl({ url: payload.url });
+  // Allow a passphrase (e.g. "PENGUIN") in place of the full URL.
+  const resolvedUrl = await resolveLarkSource(payload.url);
+  const urlCheck = validateLarkUrl({ url: resolvedUrl });
   const isBadUrl = !urlCheck.success;
   // URL rejected before any shell call — surface the reason verbatim.
   if (isBadUrl) {
     logger.warn(LOG_SCOPE, `syncVaultFromLark — url rejected: ${urlCheck.reason ?? "invalid"}`);
     return { success: false, reason: urlCheck.reason };
   }
-  const fetchResult = await runLarkFetch({ url: payload.url });
+  const fetchResult = await runLarkFetch({ url: resolvedUrl });
   const fetchFailed = !fetchResult.success;
   // Shell-out failed — bubble up the underlying reason for the toast.
   if (fetchFailed) {
     logger.warn(LOG_SCOPE, `syncVaultFromLark — fetch failed: ${fetchResult.reason ?? "unknown"}`);
     return { success: false, reason: fetchResult.reason };
   }
-  const extractResult = extractJsonFromMarkdown({
+  const extractResult = await extractVaultJsonFromMarkdown({
     markdown: fetchResult.markdown ?? "",
   });
   const noJsonBlock = !extractResult.success;
@@ -160,6 +230,8 @@ export async function syncVaultFromLark(payload: { url: string }): Promise<LarkS
   const markdown = fetchResult.markdown ?? "";
   const hash = await computeMarkdownSha256(markdown);
   setPersistedValue(APP_VALUE_KEYS.vaultLastSyncedHash, hash);
+  const contentHash = await computeMarkdownSha256(JSON.stringify(parseResult.projects));
+  setPersistedValue(APP_VALUE_KEYS.vaultLastSyncedContentHash, contentHash);
   logger.info(
     LOG_SCOPE,
     `syncVaultFromLark — synced ${parseResult.projects.length} project(s)`,
@@ -192,7 +264,7 @@ export async function runLarkFetch(payload: { url: string }): Promise<LarkFetchR
   const { Command } = await import("@tauri-apps/plugin-shell");
   const quotedUrl = JSON.stringify(payload.url);
   const script = `${NODE_PATH_SETUP}; lark-cli docs +fetch --doc ${quotedUrl} --format pretty`;
-  const cmd = Command.create("zsh-login", ["-l", "-c", script]);
+  const cmd = Command.create("lark-fetch", ["-l", "-c", script]);
   const startedAt = Date.now();
   try {
     const childPromise = cmd.execute();
@@ -254,7 +326,7 @@ export async function runLarkUpdate(payload: {
       `lark-cli docs +update --doc ${quotedUrl} --mode overwrite --markdown - <<'${delimiter}'\n` +
       `${collisionFreeMarkdown}\n` +
       `${delimiter}`;
-    const cmd = Command.create("zsh-login", ["-l", "-c", script], {
+    const cmd = Command.create("lark-update", ["-l", "-c", script], {
       encoding: "utf-8",
     });
     const childPromise = cmd.execute();
@@ -300,10 +372,47 @@ function sanitizeHeredocBody(payload: { markdown: string; delimiter: string }): 
   return safeLines.join("\n");
 }
 
-interface ExtractJsonResult {
+export interface ExtractJsonResult {
   success: boolean;
   json?: string;
   reason?: string;
+}
+
+export async function extractVaultJsonFromMarkdown(payload: {
+  markdown: string;
+  tokens?: VaultCryptoTokens;
+}): Promise<ExtractJsonResult> {
+  const extracted = extractJsonFromMarkdown({ markdown: payload.markdown });
+  if (!extracted.success) return extracted;
+  const rawJson = extracted.json ?? "";
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch {
+    // Legacy plaintext path: parseVaultJson owns the final schema error.
+    return extracted;
+  }
+  if (!isVaultEncryptedEnvelope(parsed)) return extracted;
+  const decrypted = await decryptVaultJson({
+    envelope: parsed,
+    tokens: payload.tokens ?? getVaultCryptoTokensFromStoredDevToken(),
+  });
+  if (!decrypted.success) {
+    return {
+      success: false,
+      reason: decrypted.reason,
+    };
+  }
+  return {
+    success: true,
+    json: decrypted.plaintext,
+  };
+}
+
+function getVaultCryptoTokensFromStoredDevToken(): VaultCryptoTokens {
+  const token =
+    getInMemoryDevToken() ?? getPersistedValue(APP_VALUE_KEYS.devModeToken);
+  return getVaultCryptoTokensFromToken(token);
 }
 
 // Find the first ```json fenced block in the markdown and return its body.

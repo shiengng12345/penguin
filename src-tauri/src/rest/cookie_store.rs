@@ -84,17 +84,16 @@ pub fn upsert_cookie(collection_id: &str, cookie: &RestCookie) -> Result<(), Str
     let now = unix_millis();
     // PRIMARY KEY is id (a TEXT) — for (collection_id, domain, name) tuples
     // we want UPSERT semantics. Build a stable synthetic id from the tuple.
-    let synthetic_id = format!(
-        "{}::{}::{}",
-        collection_id,
-        cookie.domain,
-        cookie.name,
-    );
+    let synthetic_id = format!("{}::{}::{}", collection_id, cookie.domain, cookie.name,);
     // u64 max can't bind directly; cast to i64 (clamping to i64::MAX in the
     // extremely rare overflow case — sufficient for cookie expiry millis).
-    let expires_i64 = cookie
-        .expires_at
-        .map(|v| if v > i64::MAX as u64 { i64::MAX } else { v as i64 });
+    let expires_i64 = cookie.expires_at.map(|v| {
+        if v > i64::MAX as u64 {
+            i64::MAX
+        } else {
+            v as i64
+        }
+    });
     conn.execute(
         "INSERT INTO rest_cookies (id, collection_id, domain, name, value, path, expires_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
@@ -121,11 +120,7 @@ pub fn upsert_cookie(collection_id: &str, cookie: &RestCookie) -> Result<(), Str
 /// Delete a single cookie scoped by (collection_id, domain, name). Used by
 /// the per-row delete button in the Cookies tab. The synthetic_id key
 /// shape is mirrored from upsert_cookie so the row addresses match.
-pub fn delete_cookie(
-    collection_id: &str,
-    domain: &str,
-    name: &str,
-) -> Result<(), String> {
+pub fn delete_cookie(collection_id: &str, domain: &str, name: &str) -> Result<(), String> {
     let conn = open_product_db_shared()?;
     let synthetic_id = format!("{}::{}::{}", collection_id, domain, name);
     conn.execute(
@@ -193,8 +188,7 @@ mod tests {
     fn upsert_then_list_round_trips() {
         let cid = unique_collection();
         clear_cookies(&cid).unwrap();
-        upsert_cookie(&cid, &sample("api.example.com", "session", "abc"))
-            .unwrap();
+        upsert_cookie(&cid, &sample("api.example.com", "session", "abc")).unwrap();
         let listed = list_cookies(&cid).unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].value, "abc");
@@ -208,7 +202,11 @@ mod tests {
         upsert_cookie(&cid, &sample("api.example.com", "session", "v1")).unwrap();
         upsert_cookie(&cid, &sample("api.example.com", "session", "v2")).unwrap();
         let listed = list_cookies(&cid).unwrap();
-        assert_eq!(listed.len(), 1, "duplicate (domain,name) should upsert, not append");
+        assert_eq!(
+            listed.len(),
+            1,
+            "duplicate (domain,name) should upsert, not append"
+        );
         assert_eq!(listed[0].value, "v2");
         clear_cookies(&cid).unwrap();
     }

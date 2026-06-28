@@ -15,6 +15,7 @@ import { VaultPage } from "@/components/vault/VaultPage";
 import { BrowserPage } from "@/components/browser/BrowserPage";
 import { ApiDocsPage } from "@/components/docs/ApiDocsPage";
 import { RestPage } from "@/components/rest/RestPage";
+import { DatabasePage } from "@/components/database/DatabasePage";
 import { MainSidebar, type MainModule } from "@/components/layout/MainSidebar";
 import { getPersistedValue, setPersistedValue } from "@/lib/app-persistence";
 import { APP_VALUE_KEYS } from "@/lib/persistence-keys";
@@ -24,18 +25,19 @@ import { APP_VALUE_KEYS } from "@/lib/persistence-keys";
 // useState(false) flag resets, and the user lands on Client even if
 // they were in Browser. Persisting + restoring fixes that.
 const VALID_MODULES: ReadonlySet<MainModule> = new Set([
-  "home",
   "client",
   "vault",
   "rest",
   "docs",
   "browser",
+  "database",
 ]);
 function loadInitialActiveModule(): MainModule | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = getPersistedValue(APP_VALUE_KEYS.activeModule);
     if (raw === null) return null;
+    if (raw === "redis") return "database";
     if (VALID_MODULES.has(raw as MainModule)) return raw as MainModule;
   } catch {
     /* fall through to null */
@@ -43,7 +45,6 @@ function loadInitialActiveModule(): MainModule | null {
   return null;
 }
 import { useDeveloperMode } from "@/hooks/useDeveloperMode";
-import { HomePage } from "@/components/home/HomePage";
 import { PENGUIN_OPEN_SETTINGS_EVENT, PENGUIN_GO_HOME_EVENT } from "@/components/vault/VaultEmptyGate";
 import {
   REST_NEW_REQUEST_EVENT,
@@ -75,6 +76,7 @@ const CurlImport = lazy(() => import("@/components/environment/CurlImport").then
 const ProtoViewer = lazy(() => import("@/components/request/ProtoViewer").then(m => ({ default: m.ProtoViewer })));
 const InteractiveTutorial = lazy(() => import("@/components/onboarding/InteractiveTutorial").then(m => ({ default: m.InteractiveTutorial })));
 const Welcome = lazy(() => import("@/components/onboarding/Welcome").then(m => ({ default: m.Welcome })));
+const DeveloperModeModal = lazy(() => import("@/components/settings/DeveloperModeModal").then(m => ({ default: m.DeveloperModeModal })));
 
 import { StatusBar } from "@/components/layout/StatusBar";
 
@@ -107,17 +109,22 @@ export default function App() {
   const [networkOpen, setNetworkOpen] = useState(false);
   const [curlImportOpen, setCurlImportOpen] = useState(false);
   const [protoViewerOpen, setProtoViewerOpen] = useState(false);
+  // Hidden Developer Mode form — opened only by holding Cmd+G for 3s.
+  // No on-screen hint while holding, by design, so the gesture leaves no
+  // trace for onlookers.
+  const [devModalOpen, setDevModalOpen] = useState(false);
   // Seed the module flags from the persisted activeModule (if any),
   // so a Penguin main-webview reload restores the user's last module.
   const initialModule = loadInitialActiveModule();
   const [vaultOpen, setVaultOpen] = useState(initialModule === "vault");
   const [docsOpen, setDocsOpen] = useState(initialModule === "docs");
   const [restOpen, setRestOpen] = useState(initialModule === "rest");
-  const [homeOpen, setHomeOpen] = useState(initialModule === "home");
   const [browserOpen, setBrowserOpen] = useState(initialModule === "browser");
+  const [databaseOpen, setDatabaseOpen] = useState(initialModule === "database");
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const closeVault = useCallback(() => setVaultOpen(false), []);
   const closeBrowser = useCallback(() => setBrowserOpen(false), []);
+  const closeDatabase = useCallback(() => setDatabaseOpen(false), []);
   // Vault → Browser deeplink dispatcher. Vault cards call this when
   // the user clicks the "Open in Browser" button; we push the deeplink
   // into the store (so BrowserPage's mount-effect consumes it) and
@@ -131,52 +138,55 @@ export default function App() {
       setVaultOpen(false);
       setDocsOpen(false);
       setRestOpen(false);
-      setHomeOpen(false);
+      setDatabaseOpen(false);
     },
     [requestBrowserDeeplink],
   );
-  const openHome = useCallback(() => {
-    setVaultOpen(false);
-    setDocsOpen(false);
-    setRestOpen(false);
-    setBrowserOpen(false);
-    setHomeOpen(true);
-  }, []);
+  // Returns to the API Client — the default module now that the Home hub
+  // is gone. Used by the rail's fallback, the "go home" event, and the
+  // back/close buttons in Docs / REST.
   const selectApiClient = useCallback(() => {
     setVaultOpen(false);
     setDocsOpen(false);
     setRestOpen(false);
     setBrowserOpen(false);
-    setHomeOpen(false);
+    setDatabaseOpen(false);
   }, []);
   const selectVaultFromHome = useCallback(() => {
-    setHomeOpen(false);
     setDocsOpen(false);
     setRestOpen(false);
     setBrowserOpen(false);
+    setDatabaseOpen(false);
     setVaultOpen(true);
   }, []);
   const selectDocsFromHome = useCallback(() => {
-    setHomeOpen(false);
     setVaultOpen(false);
     setRestOpen(false);
     setBrowserOpen(false);
+    setDatabaseOpen(false);
     setDocsOpen(true);
   }, []);
   // Sprint 10 — REST module entry. Mirrors vault/docs pattern + new in 10A.
   const selectRest = useCallback(() => {
-    setHomeOpen(false);
     setVaultOpen(false);
     setDocsOpen(false);
     setBrowserOpen(false);
+    setDatabaseOpen(false);
     setRestOpen(true);
   }, []);
   const selectBrowser = useCallback(() => {
-    setHomeOpen(false);
     setVaultOpen(false);
     setDocsOpen(false);
     setRestOpen(false);
+    setDatabaseOpen(false);
     setBrowserOpen(true);
+  }, []);
+  const selectDatabase = useCallback(() => {
+    setVaultOpen(false);
+    setDocsOpen(false);
+    setRestOpen(false);
+    setBrowserOpen(false);
+    setDatabaseOpen(true);
   }, []);
   // Sidebar derives a single "active module" enum from the boolean page
   // flags. Clicking a rail item dispatches to the matching selector.
@@ -188,8 +198,8 @@ export default function App() {
     ? "rest"
     : browserOpen
     ? "browser"
-    : homeOpen
-    ? "home"
+    : databaseOpen
+    ? "database"
     : "client";
   // Three-tier gating (Sprint 8.5):
   //   - Vault requires any valid dev token (enabled && hasValidToken)
@@ -207,13 +217,15 @@ export default function App() {
   // not super) only see Client + Vault; the Home launcher AND REST + Docs all
   // require the super-admin token. Updated post-10D per user direction.
   const canAccessRest = devModeEnabled && isSuperAdmin;
-  const canAccessHome = devModeEnabled && isSuperAdmin;
   // If user loses their token mid-session, fall back to the API Client so
   // they're not stuck on a "please validate token" gate. Each module checks
   // its own gate so revoking super-admin but keeping dev token leaves the
   // user inside Vault but kicks them out of Docs.
-  // Browser is super-admin only — same tier as Docs / REST / Home.
+  // Browser is super-admin-only (matches the MainSidebar `super-admin`
+  // gate) — normal admins (dev token but not super) can't access it.
+  // Only Vault stays at the token tier.
   const canAccessBrowser = devModeEnabled && isSuperAdmin;
+  const canAccessDatabase = devModeEnabled && isSuperAdmin;
   useEffect(() => {
     // Wait for the dev-mode token to finish loading before deciding to
     // revoke access. Pre-hydration, hasValidToken / isSuperAdmin are
@@ -224,10 +236,8 @@ export default function App() {
     if (docsOpen && !canAccessDocs) setDocsOpen(false);
     if (restOpen && !canAccessRest) setRestOpen(false);
     if (browserOpen && !canAccessBrowser) setBrowserOpen(false);
-    // Home is super-admin only — drop a non-super back to Client if they
-    // somehow landed on it (e.g. token rotation mid-session).
-    if (homeOpen && !canAccessHome) setHomeOpen(false);
-  }, [devModeHydrated, canAccessVault, canAccessDocs, canAccessRest, canAccessBrowser, canAccessHome, vaultOpen, docsOpen, restOpen, browserOpen, homeOpen]);
+    if (databaseOpen && !canAccessDatabase) setDatabaseOpen(false);
+  }, [devModeHydrated, canAccessVault, canAccessDocs, canAccessRest, canAccessBrowser, canAccessDatabase, vaultOpen, docsOpen, restOpen, browserOpen, databaseOpen]);
   const handleModuleSelect = useCallback(
     (m: MainModule) => {
       if (m === "client") selectApiClient();
@@ -235,9 +245,10 @@ export default function App() {
       else if (m === "docs") selectDocsFromHome();
       else if (m === "rest") selectRest();
       else if (m === "browser") selectBrowser();
-      else openHome();
+      else if (m === "database") selectDatabase();
+      else selectApiClient();
     },
-    [selectApiClient, selectVaultFromHome, selectDocsFromHome, selectRest, selectBrowser, openHome],
+    [selectApiClient, selectVaultFromHome, selectDocsFromHome, selectRest, selectBrowser, selectDatabase],
   );
   const appUpdate = useAppUpdateScheduler(openSettings);
   const handlePackagesCleared = useCallback(async () => {
@@ -269,6 +280,19 @@ export default function App() {
         await mod.loadVaultFromDisk();
       } catch {
         // best-effort — Vault module's own mount will retry if needed
+      }
+    })();
+  }, []);
+
+  // One-time cleanup of a residual full Lark doc URL persisted by an earlier
+  // build — the passphrase flow ("PENGUIN") is the intended path now.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const mod = await import("@/components/vault/vault-lark");
+        await mod.cleanupResidualLarkUrl();
+      } catch {
+        // best-effort — non-fatal if cleanup can't run
       }
     })();
   }, []);
@@ -581,13 +605,15 @@ export default function App() {
   }, []);
 
   // Listens for a "go home" request from inside any module (e.g. the Lark
-  // setup card's close button) — pops back to the Home hub instead of the
-  // API client default.
+  // setup card's close button). The Home hub is gone, so this now returns
+  // to the API Client — the default module.
   useEffect(() => {
     const handleGoHome = (): void => {
       setVaultOpen(false);
       setDocsOpen(false);
-      setHomeOpen(true);
+      setRestOpen(false);
+      setBrowserOpen(false);
+      setDatabaseOpen(false);
     };
     document.addEventListener(PENGUIN_GO_HOME_EVENT, handleGoHome);
     return () => document.removeEventListener(PENGUIN_GO_HOME_EVENT, handleGoHome);
@@ -600,14 +626,63 @@ export default function App() {
     );
   }, []);
 
+  // Hidden Developer Mode gesture: hold Cmd(⌘) + G for 3s. macOS swallows
+  // keyup for letter keys while ⌘ is held, so we gate the hold on the
+  // (reliably-delivered) ⌘ keyup + window blur — effectively "press ⌘+G
+  // and keep ⌘ down for 3s." preventDefault stops ⌘+G's default while arming.
+  useEffect(() => {
+    const down = new Set<string>();
+    let holdTimer: number | null = null;
+    const cancel = () => {
+      if (holdTimer !== null) {
+        window.clearTimeout(holdTimer);
+        holdTimer = null;
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      const k = e.key.toLowerCase();
+      if (k === "g") down.add("g");
+      else if (k !== "meta") return;
+      if (e.metaKey && down.has("g")) {
+        e.preventDefault();
+        if (holdTimer === null) {
+          holdTimer = window.setTimeout(() => {
+            holdTimer = null;
+            down.clear();
+            setDevModalOpen(true);
+          }, 3000);
+        }
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      const k = e.key.toLowerCase();
+      if (k === "g") down.delete("g");
+      else if (k === "meta") down.clear();
+      if (!(e.metaKey && down.has("g"))) cancel();
+    };
+    const onBlur = () => {
+      down.clear();
+      cancel();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+      if (holdTimer !== null) window.clearTimeout(holdTimer);
+    };
+  }, []);
+
   return (
     <div className="penguin-app-shell relative h-screen w-screen overflow-hidden bg-background text-foreground">
       <SnowLayer active={theme === "antarctic-snow"} />
       <div className="relative z-10 flex h-full flex-col">
         <Header
           onOpenSettings={openSettings}
-          onOpenHome={openHome}
           appUpdate={appUpdate}
+          showClientControls={activeModule === "client"}
         />
         <UpdateNotification
           open={appUpdate.shouldShowToast}
@@ -622,56 +697,51 @@ export default function App() {
             active={activeModule}
             onSelect={handleModuleSelect}
             hasValidToken={canAccessVault}
-            isSuperAdmin={canAccessDocs || canAccessRest}
+            isSuperAdmin={canAccessDocs || canAccessRest || canAccessDatabase || canAccessBrowser}
           />
           <div className="flex flex-1 flex-col min-w-0">
-        {homeOpen ? (
-          <HomePage
-            onSelectApiClient={selectApiClient}
-            onSelectVault={selectVaultFromHome}
-            onSelectDocs={selectDocsFromHome}
-            onSelectRest={selectRest}
-          />
-        ) : vaultOpen ? (
-          <VaultPage onClose={closeVault} onOpenInBrowser={handleOpenInBrowser} />
-        ) : docsOpen ? (
-          <ApiDocsPage onClose={openHome} />
-        ) : restOpen ? (
-          <RestPage onClose={openHome} />
-        ) : browserOpen ? (
-          <BrowserPage onClose={closeBrowser} />
-        ) : (
-          <>
-            <TabBar
-              onCycleProtocol={handleCycleProtocol}
-              onNewRequest={() => setNewRequestOpen(true)}
-            />
-            <div className="flex flex-1 min-h-0">
-            <Sidebar
-              packages={packages}
-              onInstallClick={() => setInstallerOpen(true)}
-              onUninstall={(name) => {
-                uninstall(name);
-              }}
-              onUpdate={async (spec) => {
-                const ok = await handleInstall(spec);
-                return ok;
-              }}
-            />
+            {vaultOpen ? (
+              <VaultPage onClose={closeVault} onOpenInBrowser={handleOpenInBrowser} />
+            ) : docsOpen ? (
+              <ApiDocsPage onClose={selectApiClient} />
+            ) : restOpen ? (
+              <RestPage onClose={selectApiClient} />
+            ) : browserOpen ? (
+              <BrowserPage onClose={closeBrowser} />
+            ) : databaseOpen ? (
+              <DatabasePage onClose={closeDatabase} />
+            ) : (
+              <>
+                <TabBar
+                  onCycleProtocol={handleCycleProtocol}
+                  onNewRequest={() => setNewRequestOpen(true)}
+                />
+                <div className="flex flex-1 min-h-0">
+                  <Sidebar
+                    packages={packages}
+                    onInstallClick={() => setInstallerOpen(true)}
+                    onUninstall={(name) => {
+                      uninstall(name);
+                    }}
+                    onUpdate={async (spec) => {
+                      const ok = await handleInstall(spec);
+                      return ok;
+                    }}
+                  />
 
-            <div className="flex flex-1 flex-col min-w-0">
-              <UrlBar resolvedUrl={resolvedUrl} />
-              <ResizablePanels
-                left={<RequestPanel />}
-                right={<ResponsePanel />}
-                defaultRatio={0.45}
-                minRatio={0.25}
-                maxRatio={0.75}
-              />
-            </div>
-          </div>
-          </>
-        )}
+                  <div className="flex flex-1 flex-col min-w-0">
+                    <UrlBar resolvedUrl={resolvedUrl} />
+                    <ResizablePanels
+                      left={<RequestPanel />}
+                      right={<ResponsePanel />}
+                      defaultRatio={0.45}
+                      minRatio={0.25}
+                      maxRatio={0.75}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -689,6 +759,7 @@ export default function App() {
             <PackageInstaller
               onInstall={handleInstall}
               onClose={() => setInstallerOpen(false)}
+              packages={packages}
             />
           )}
           {settingsOpen && (
@@ -711,6 +782,7 @@ export default function App() {
           {networkOpen && <NetworkCheck open={networkOpen} onClose={() => setNetworkOpen(false)} />}
           {curlImportOpen && <CurlImport open={curlImportOpen} onClose={() => setCurlImportOpen(false)} />}
           {protoViewerOpen && <ProtoViewer open={protoViewerOpen} onClose={() => setProtoViewerOpen(false)} />}
+          {devModalOpen && <DeveloperModeModal onClose={() => setDevModalOpen(false)} />}
           <Welcome />
           <InteractiveTutorial />
         </Suspense>

@@ -1,12 +1,13 @@
-import { useMemo, useRef, useState, useCallback, useEffect } from "react";
+import { useMemo, useRef, useState, useCallback, useEffect, type ReactNode } from "react";
 import { useActiveTab } from "@/lib/store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Copy, Clock, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Copy, Clock, AlertCircle, CheckCircle2, Search, ChevronUp, ChevronDown, X } from "lucide-react";
 import { isLightAppTheme } from "@/lib/theme";
 import { formatGrpcStatusBadgeLabel, summarizeGrpcStatusResponse } from "@/lib/grpc-status";
 import { cn } from "@/lib/utils";
 import { writeClipboard } from "@/lib/clipboard";
+import { computeResponseMatches, type ResponseLineMatch } from "@/lib/response-search";
 
 function stripUnderscoreKeys(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
@@ -202,11 +203,184 @@ function VirtualizedJson({ json }: { json: string }) {
   );
 }
 
+// --- Find-in-response support ---------------------------------------
+// Match-finding lives in lib/response-search (pure + unit-tested). Here we
+// only render: matches are highlighted with <mark> over the syntax-colored
+// tokens, and the active match can be stepped through / scrolled into view.
+
+const ACTIVE_MATCH_CLASS = "bg-amber-400 text-black rounded-sm";
+
+function HighlightedLine({
+  text,
+  ranges,
+  activeMatch,
+  colors,
+}: {
+  text: string;
+  ranges: ResponseLineMatch[] | undefined;
+  activeMatch: number;
+  colors: Record<TokenType, string>;
+}) {
+  const hasMatches = ranges !== undefined && ranges.length > 0;
+  const tokens = tokenizeJson(text);
+
+  // Non-JSON / empty line (e.g. "(empty)" or a raw REST body): plain
+  // text, highlight matches only.
+  if (tokens.length === 0) {
+    if (!hasMatches) return <>{text}</>;
+    const nodes: ReactNode[] = [];
+    let cursor = 0;
+    ranges!.forEach((r, i) => {
+      if (r.start > cursor) nodes.push(text.slice(cursor, r.start));
+      nodes.push(
+        <span
+          key={i}
+          className={r.globalIndex === activeMatch ? ACTIVE_MATCH_CLASS : "bg-amber-300/40 rounded-sm"}
+        >
+          {text.slice(r.start, r.end)}
+        </span>,
+      );
+      cursor = r.end;
+    });
+    if (cursor < text.length) nodes.push(text.slice(cursor));
+    return <>{nodes}</>;
+  }
+
+  // JSON line: keep the syntax colors and overlay the match highlight on
+  // the overlapping slices, so the body stays fully colored while
+  // searching. The active match drops the token color for max contrast
+  // on the solid amber; other matches keep their color under a
+  // translucent amber wash.
+  const out: ReactNode[] = [];
+  let offset = 0;
+  let key = 0;
+  for (const tok of tokens) {
+    const tStart = offset;
+    const tEnd = offset + tok.text.length;
+    offset = tEnd;
+    const color = colors[tok.type];
+    const overlaps = hasMatches ? ranges!.filter((r) => r.start < tEnd && r.end > tStart) : [];
+    if (overlaps.length === 0) {
+      out.push(<span key={key++} className={color}>{tok.text}</span>);
+      continue;
+    }
+    let cur = tStart;
+    for (const r of overlaps) {
+      const mStart = Math.max(r.start, tStart);
+      const mEnd = Math.min(r.end, tEnd);
+      if (mStart > cur) out.push(<span key={key++} className={color}>{text.slice(cur, mStart)}</span>);
+      out.push(
+        <span
+          key={key++}
+          className={
+            r.globalIndex === activeMatch
+              ? ACTIVE_MATCH_CLASS
+              : cn(color, "bg-amber-300/40 rounded-sm")
+          }
+        >
+          {text.slice(mStart, mEnd)}
+        </span>,
+      );
+      cur = mEnd;
+    }
+    if (cur < tEnd) out.push(<span key={key++} className={color}>{text.slice(cur, tEnd)}</span>);
+  }
+  return <>{out}</>;
+}
+
+// Renders the body as highlighted plain text, reusing the same windowing
+// as VirtualizedJson so a large body stays cheap while searching. The
+// active match is scrolled into view whenever it changes.
+function HighlightedBody({
+  lines,
+  perLine,
+  flat,
+  activeMatch,
+}: {
+  lines: string[];
+  perLine: Map<number, ResponseLineMatch[]>;
+  flat: { line: number }[];
+  activeMatch: number;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [containerH, setContainerH] = useState(600);
+
+  const isDark =
+    typeof document !== "undefined"
+      ? !isLightAppTheme(document.documentElement.getAttribute("data-theme"))
+      : true;
+  const colors = isDark ? TOKEN_CLASSES : TOKEN_CLASSES_LIGHT;
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) setContainerH(e.contentRect.height);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    if (containerRef.current) setScrollTop(containerRef.current.scrollTop);
+  }, []);
+
+  const activeLine = flat[activeMatch]?.line;
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || activeLine === undefined) return;
+    const top = activeLine * LINE_HEIGHT;
+    const viewTop = el.scrollTop;
+    const viewBottom = viewTop + el.clientHeight;
+    if (top < viewTop + LINE_HEIGHT || top > viewBottom - LINE_HEIGHT * 2) {
+      el.scrollTop = Math.max(0, top - el.clientHeight / 2);
+    }
+  }, [activeMatch, activeLine]);
+
+  const totalHeight = lines.length * LINE_HEIGHT;
+  const startIdx = Math.max(0, Math.floor(scrollTop / LINE_HEIGHT) - OVERSCAN);
+  const visibleCount = Math.ceil(containerH / LINE_HEIGHT) + OVERSCAN * 2;
+  const endIdx = Math.min(lines.length, startIdx + visibleCount);
+
+  const visibleLines: number[] = [];
+  for (let i = startIdx; i < endIdx; i++) visibleLines.push(i);
+
+  return (
+    <div
+      ref={containerRef}
+      data-response-code-surface
+      className="flex-1 overflow-auto bg-background/95 text-foreground"
+      onScroll={handleScroll}
+    >
+      <div style={{ height: totalHeight, position: "relative" }}>
+        <div
+          className="p-3 font-mono text-[11px]"
+          style={{ position: "absolute", top: startIdx * LINE_HEIGHT, left: 0, right: 0 }}
+        >
+          {visibleLines.map((idx) => (
+            <div
+              key={idx}
+              style={{ height: LINE_HEIGHT }}
+              className="min-w-max whitespace-pre leading-[18px]"
+            >
+              <HighlightedLine text={lines[idx]} ranges={perLine.get(idx)} activeMatch={activeMatch} colors={colors} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type ResponseView = "pretty" | "raw" | "headers";
 
 export function ResponsePanel() {
   const tab = useActiveTab();
   const [responseView, setResponseView] = useState<ResponseView>("pretty");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeMatch, setActiveMatch] = useState(0);
 
   // Memoized on the response object: parse+unwrap+stringify of a large body
   // must not re-run on unrelated tab re-renders (e.g. request-body keystrokes).
@@ -249,8 +423,31 @@ export function ResponsePanel() {
     : isRest && responseView === "headers"
       ? headerText
       : bodyJson;
-  // Counting lines of a multi-MB body is also per-render work worth caching.
-  const bodyLines = useMemo(() => activeBody.split("\n").length, [activeBody]);
+  // Splitting a multi-MB body is per-render work worth caching; the line
+  // array is reused by the virtual scroller, the line counter, and search.
+  const bodyLineArr = useMemo(() => activeBody.split("\n"), [activeBody]);
+  const bodyLines = bodyLineArr.length;
+
+  // Find-in-response: only active when the bar is open AND there's a query.
+  const searching = searchOpen && searchQuery.trim().length > 0;
+  const { flat: searchMatches, perLine: searchPerLine } = useMemo(
+    () => computeResponseMatches(bodyLineArr, searching ? searchQuery : ""),
+    [bodyLineArr, searchQuery, searching],
+  );
+  // Reset the active match to the first hit whenever the query or the
+  // underlying body changes (new response, switched raw/pretty view).
+  useEffect(() => {
+    setActiveMatch(0);
+  }, [searchQuery, activeBody]);
+
+  const goNextMatch = useCallback(() => {
+    setActiveMatch((m) => (searchMatches.length ? (m + 1) % searchMatches.length : 0));
+  }, [searchMatches.length]);
+  const goPrevMatch = useCallback(() => {
+    setActiveMatch((m) =>
+      searchMatches.length ? (m - 1 + searchMatches.length) % searchMatches.length : 0,
+    );
+  }, [searchMatches.length]);
 
   if (!tab) return null;
 
@@ -393,12 +590,91 @@ export function ResponsePanel() {
             </span>
           )}
         </div>
-        <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px]" onClick={handleCopy}>
-          <Copy className="mr-1 h-3 w-3" />
-          Copy
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn("h-5 px-1.5 text-[10px]", searchOpen && "bg-accent text-accent-foreground")}
+            onClick={() => setSearchOpen((o) => !o)}
+            title="Find in response"
+            aria-label="Find in response"
+          >
+            <Search className="h-3 w-3" />
+          </Button>
+          <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px]" onClick={handleCopy}>
+            <Copy className="mr-1 h-3 w-3" />
+            Copy
+          </Button>
+        </div>
       </div>
-      {bodyLines > VIRTUAL_THRESHOLD ? (
+      {searchOpen && (
+        <div className="flex items-center gap-2 border-b border-border bg-muted/10 px-4 py-1.5">
+          <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <input
+            autoFocus
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (e.shiftKey) goPrevMatch();
+                else goNextMatch();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                setSearchOpen(false);
+              }
+            }}
+            placeholder="Find in response…"
+            spellCheck={false}
+            autoComplete="off"
+            className="h-6 min-w-0 flex-1 rounded border border-border bg-background px-2 text-[11px] outline-none focus:ring-1 focus:ring-primary/40"
+          />
+          <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+            {searchMatches.length
+              ? `${Math.min(activeMatch + 1, searchMatches.length)}/${searchMatches.length}`
+              : searchQuery.trim()
+                ? "0/0"
+                : ""}
+          </span>
+          <button
+            type="button"
+            onClick={goPrevMatch}
+            disabled={!searchMatches.length}
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30"
+            title="Previous match (Shift+Enter)"
+            aria-label="Previous match"
+          >
+            <ChevronUp className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={goNextMatch}
+            disabled={!searchMatches.length}
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30"
+            title="Next match (Enter)"
+            aria-label="Next match"
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setSearchOpen(false)}
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            title="Close (Esc)"
+            aria-label="Close search"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+      {searching ? (
+        <HighlightedBody
+          lines={bodyLineArr}
+          perLine={searchPerLine}
+          flat={searchMatches}
+          activeMatch={activeMatch}
+        />
+      ) : bodyLines > VIRTUAL_THRESHOLD ? (
         <VirtualizedJson json={activeBody} />
       ) : (
         <div data-response-code-surface className="flex-1 overflow-auto bg-background/95 text-foreground">
