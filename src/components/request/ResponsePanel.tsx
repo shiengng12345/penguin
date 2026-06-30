@@ -375,12 +375,32 @@ function HighlightedBody({
 
 type ResponseView = "pretty" | "raw" | "headers";
 
+// How long the floating "Copied" toast stays up after a header is copied.
+const COPIED_FEEDBACK_MS = 1500;
+
 export function ResponsePanel() {
   const tab = useActiveTab();
   const [responseView, setResponseView] = useState<ResponseView>("pretty");
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeMatch, setActiveMatch] = useState(0);
+  const [copyToast, setCopyToast] = useState<{ x: number; y: number; nonce: number } | null>(null);
+
+  // Click-to-copy for response header values (mirrors the Vault copy UX): copy
+  // the value, then pop a small "Copied" toast at the click position. The row
+  // value itself is left untouched.
+  const handleCopyHeader = useCallback((payload: { value: string; x: number; y: number }): void => {
+    void writeClipboard(payload.value);
+    setCopyToast({ x: payload.x, y: payload.y, nonce: Date.now() });
+  }, []);
+
+  useEffect(() => {
+    const noToast = copyToast === null;
+    // Nothing showing — no dismiss timer needed.
+    if (noToast) return;
+    const timer = window.setTimeout(() => setCopyToast(null), COPIED_FEEDBACK_MS);
+    return () => window.clearTimeout(timer);
+  }, [copyToast]);
 
   // Memoized on the response object: parse+unwrap+stringify of a large body
   // must not re-run on unrelated tab re-renders (e.g. request-body keystrokes).
@@ -549,14 +569,31 @@ export function ResponsePanel() {
           </div>
           <div className="grid gap-y-1">
             {Object.entries(tab.response.headers).map(([key, value]) => (
-              <div key={key} className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-3 font-mono text-[11px]">
+              <button
+                key={key}
+                type="button"
+                onClick={(e) => handleCopyHeader({ value, x: e.clientX, y: e.clientY })}
+                title="Click to copy / 点击复制"
+                className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-3 rounded px-1 py-0.5 text-left font-mono text-[11px] transition-colors hover:bg-muted/60"
+              >
                 <span className="whitespace-nowrap text-primary">{key}:</span>
                 <span className="truncate text-muted-foreground" title={value}>{value}</span>
-              </div>
+              </button>
             ))}
           </div>
         </div>
       )}
+
+      {/* Copied toast — pops at the click position; mirrors the Vault copy UX. */}
+      {copyToast !== null ? (
+        <div
+          key={copyToast.nonce}
+          className="pointer-events-none fixed z-50 select-none rounded-md bg-emerald-500 px-2.5 py-1 text-xs font-semibold text-white shadow-lg"
+          style={{ left: copyToast.x + 12, top: copyToast.y - 28 }}
+        >
+          ✓ Copied
+        </div>
+      ) : null}
 
       {/* Response body */}
       <div className="flex items-center justify-between px-4 py-1.5 border-b border-border bg-muted/20">

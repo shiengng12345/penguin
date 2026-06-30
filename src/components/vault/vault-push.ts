@@ -1,8 +1,11 @@
 // Vault → Lark push pipeline (Sprint 3 DEC #81, #82, #95; Sprint 5 backup
-// ring removed). Orchestration: validate URL → fetch remote → SHA-256 compare
-// to expected → serialize local → lark-cli +update overwrite → recompute hash
-// → persist new hash. Conflict detection short-circuits before any shell
-// write so the user always sees a Conflict Modal before destruction.
+// ring removed). Orchestration: resolve passphrase → validate URL → fetch
+// remote → SHA-256 compare to expected → serialize local → lark-cli +update
+// overwrite → recompute hash → persist new hash. On a hash mismatch the push
+// short-circuits before any shell write and returns a { reason: "conflict" }
+// result (with remoteJson/remoteHash) so the caller can resolve it.
+// NOTE: encryption-at-rest is temporarily disabled — push writes the readable
+// plaintext vault. See the TEMP block in pushToLark (pending redesign).
 
 import { logger } from "@/lib/logger";
 import { getPersistedValue, setPersistedValue } from "@/lib/app-persistence";
@@ -13,8 +16,9 @@ import {
   requireSuperAdmin,
 } from "@/lib/dev-mode-store";
 import {
-  extractJsonFromMarkdown,
+  // extractJsonFromMarkdown, // (re-enable with extractEncryptedEnvelopeFromMarkdown when encryption returns)
   extractVaultJsonFromMarkdown,
+  resolveLarkSource,
   runLarkFetch,
   runLarkUpdate,
   validateLarkUrl,
@@ -22,7 +26,7 @@ import {
 import {
   encryptVaultJson,
   getVaultCryptoTokensFromToken,
-  isVaultEncryptedEnvelope,
+  // isVaultEncryptedEnvelope, // (re-enable with extractEncryptedEnvelopeFromMarkdown when encryption returns)
   reencryptVaultJson,
   type VaultEncryptedEnvelope,
   type VaultCryptoTokens,
@@ -118,14 +122,18 @@ export async function pushToLark(payload: PushToLarkPayload): Promise<PushResult
     logger.warn(LOG_SCOPE, "pushToLark — caller is not super admin");
     return { success: false, reason: "not authorized" };
   }
-  const urlCheck = validateLarkUrl({ url: payload.url });
+  // Resolve a passphrase (e.g. "PENGUIN") to the real Lark URL, mirroring the
+  // sync path — push must validate and shell out against the same doc the sync
+  // read from, not the raw passphrase the user typed.
+  const resolvedUrl = await resolveLarkSource(payload.url);
+  const urlCheck = validateLarkUrl({ url: resolvedUrl });
   const isBadUrl = !urlCheck.success;
   // URL rejected before any shell call — surface the reason for the toast.
   if (isBadUrl) {
     logger.warn(LOG_SCOPE, `pushToLark — url rejected: ${urlCheck.reason ?? "invalid"}`);
     return { success: false, reason: urlCheck.reason ?? "invalid url" };
   }
-  const fetchResult = await runLarkFetch({ url: payload.url });
+  const fetchResult = await runLarkFetch({ url: resolvedUrl });
   const fetchFailed = !fetchResult.success;
   // Pre-fetch failed — abort push so we don't overwrite an unread remote.
   if (fetchFailed) {
@@ -142,19 +150,27 @@ export async function pushToLark(payload: PushToLarkPayload): Promise<PushResult
     logger.warn(LOG_SCOPE, "pushToLark — hash mismatch, conflict surfaced");
     return { success: false, reason: "conflict", remoteJson, remoteHash };
   }
-  let markdown: string;
-  try {
-    const baseEnvelope = extractEncryptedEnvelopeFromMarkdown(remoteMarkdown);
-    markdown = await serializeEncryptedVaultMarkdown({
-      projects: payload.projects,
-      baseEnvelope: baseEnvelope ?? undefined,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "vault encryption failed";
-    logger.error(LOG_SCOPE, `pushToLark — encryption failed: ${message}`);
-    return { success: false, reason: message };
-  }
-  const update = await runLarkUpdate({ url: payload.url, markdown });
+  // TEMP (encryption-at-rest disabled pending redesign): push the readable
+  // PLAINTEXT vault so the Lark doc shows the actual vault instead of an opaque
+  // encrypted envelope. Secrets land in the doc in clear text — this is a
+  // deliberate, temporary trade-off until the encryption flow is reworked.
+  // To restore encryption: delete the plaintext line below and uncomment the
+  // block beneath it.
+  const markdown = serializeVaultMarkdown({ projects: payload.projects });
+  // --- encrypted push (disabled pending redesign) ---
+  // let markdown: string;
+  // try {
+  //   const baseEnvelope = extractEncryptedEnvelopeFromMarkdown(remoteMarkdown);
+  //   markdown = await serializeEncryptedVaultMarkdown({
+  //     projects: payload.projects,
+  //     baseEnvelope: baseEnvelope ?? undefined,
+  //   });
+  // } catch (error) {
+  //   const message = error instanceof Error ? error.message : "vault encryption failed";
+  //   logger.error(LOG_SCOPE, `pushToLark — encryption failed: ${message}`);
+  //   return { success: false, reason: message };
+  // }
+  const update = await runLarkUpdate({ url: resolvedUrl, markdown });
   const pushFailed = !update.success;
   // Shell-out failed — keep local state unchanged so the user can retry.
   if (pushFailed) {
@@ -165,6 +181,9 @@ export async function pushToLark(payload: PushToLarkPayload): Promise<PushResult
   setPersistedValue(APP_VALUE_KEYS.vaultLastSyncedHash, newHash);
   const contentHash = await sha256Hex({ text: JSON.stringify(payload.projects) });
   setPersistedValue(APP_VALUE_KEYS.vaultLastSyncedContentHash, contentHash);
+  // Persist the user's raw input (a passphrase like "PENGUIN" stays a
+  // passphrase), NOT resolvedUrl — mirrors the sync path and keeps the real
+  // Lark URL off disk, which is the entire point of the passphrase scheme.
   setPersistedValue(APP_VALUE_KEYS.vaultLarkUrlLocked, payload.url);
   logger.info(LOG_SCOPE, "pushToLark — exit");
   return { success: true, hash: newHash };
@@ -185,14 +204,17 @@ function hasBothVaultEncryptionTokens(tokens: VaultCryptoTokens): boolean {
   );
 }
 
-function extractEncryptedEnvelopeFromMarkdown(markdown: string): VaultEncryptedEnvelope | null {
-  const extracted = extractJsonFromMarkdown({ markdown });
-  if (!extracted.success) return null;
-  try {
-    const parsed: unknown = JSON.parse(extracted.json ?? "");
-    if (isVaultEncryptedEnvelope(parsed)) return parsed;
-  } catch {
-    return null;
-  }
-  return null;
-}
+// Disabled along with the encrypted push path (pending encryption redesign).
+// Restore this together with the commented block in pushToLark and the
+// extractJsonFromMarkdown / isVaultEncryptedEnvelope imports above.
+// function extractEncryptedEnvelopeFromMarkdown(markdown: string): VaultEncryptedEnvelope | null {
+//   const extracted = extractJsonFromMarkdown({ markdown });
+//   if (!extracted.success) return null;
+//   try {
+//     const parsed: unknown = JSON.parse(extracted.json ?? "");
+//     if (isVaultEncryptedEnvelope(parsed)) return parsed;
+//   } catch {
+//     return null;
+//   }
+//   return null;
+// }

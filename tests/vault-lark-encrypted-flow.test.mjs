@@ -78,6 +78,7 @@ async function loadVaultPushModule() {
         return { success: true, json: match[1].trim() };
       }
       export async function extractVaultJsonFromMarkdown() { return { success: true, json: "[]" }; }
+      export async function resolveLarkSource(input) { return input; }
       export async function runLarkFetch() {
         return { success: true, markdown: globalThis.__vaultPushHarness?.remoteMarkdown ?? "" };
       }
@@ -224,7 +225,7 @@ test("extractVaultJsonFromMarkdown decrypts encrypted docs and keeps legacy plai
   assert.equal(legacyResult.json, plaintext);
 });
 
-test("pushToLark re-encrypts an existing envelope with the stored developer token and preserves both recipients", async () => {
+test("pushToLark re-encrypts an existing envelope with the stored developer token and preserves both recipients", { skip: "encrypted push disabled pending redesign — pushToLark writes plaintext for now (see vault-push.ts); re-enable when encryption returns" }, async () => {
   const { decryptVaultJson } = await loadVaultCryptoModule();
   const { serializeEncryptedVaultMarkdown } = await loadVaultPushModule();
   const originalProjects = sampleProjects();
@@ -273,7 +274,7 @@ test("pushToLark re-encrypts an existing envelope with the stored developer toke
   assert.deepEqual(JSON.parse(superAdminResult.plaintext), updatedProjects);
 });
 
-test("pushToLark encrypts a legacy plaintext remote doc when both tier tokens are cached", async () => {
+test("pushToLark encrypts a legacy plaintext remote doc when both tier tokens are cached", { skip: "encrypted push disabled pending redesign — pushToLark writes plaintext for now (see vault-push.ts); re-enable when encryption returns" }, async () => {
   const { decryptVaultJson } = await loadVaultCryptoModule();
   const plaintextProjects = sampleProjects();
   globalThis.__vaultPushHarness = {

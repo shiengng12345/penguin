@@ -3,6 +3,7 @@ import { useAppStore, useActiveTab, mergeWithDefaultHeaders, type MetadataEntry,
 import { useEnvironments } from "@/hooks/useEnvironments";
 import { interpolate } from "@/lib/environment-store";
 import { logger } from "@/lib/logger";
+import { generatePenguinRequestId, PENGUIN_REQUEST_ID_HEADER } from "@/lib/penguin-request-id";
 import { Button } from "@/components/ui/button";
 import { Send, Plus, X, RotateCcw, Copy, Braces, Bookmark, Check, FileText, Terminal, Ban, Code2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -92,7 +93,7 @@ export function RequestPanel() {
     // headers like `x-env-tag: {{X_ENV_TAG}}` switch automatically with env.
     // Any header whose template can't be resolved (env missing the variable)
     // is dropped — sending `{{X_ENV_TAG}}` literal would break server routing.
-    const mergedMetadata = mergeWithDefaultHeaders(tab.metadata, tab.protocolTab)
+    const baseMetadata = mergeWithDefaultHeaders(tab.metadata, tab.protocolTab)
       .map((m) => ({ ...m, value: interpolate(m.value, activeEnv) }))
       .filter((m) => {
         const isUnresolved = m.enabled && m.key.trim() !== "" && UNRESOLVED_TEMPLATE_PATTERN.test(m.value);
@@ -105,6 +106,16 @@ export function RequestPanel() {
         }
         return !isUnresolved;
       });
+
+    // Auto-attach a unique, time-ordered correlation id to every outgoing
+    // request. It is NOT in the headers editor (the user never types it) and is
+    // echoed back into the response headers below so it can be read after send.
+    // Any manually-entered x-penguin-id is replaced by the generated value.
+    const penguinRequestId = generatePenguinRequestId().value;
+    const mergedMetadata: MetadataEntry[] = [
+      ...baseMetadata.filter((m) => m.key.toLowerCase() !== PENGUIN_REQUEST_ID_HEADER),
+      { key: PENGUIN_REQUEST_ID_HEADER, value: penguinRequestId, enabled: true },
+    ];
 
     const entry: HistoryEntry = {
       id: `hist_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -195,6 +206,11 @@ export function RequestPanel() {
 
       if (controller.signal.aborted) return;
       abortRef.current = null;
+      // Echo the correlation id we sent into the response headers so the user
+      // can read it in the response HEADERS panel after sending.
+      if (result) {
+        result.headers = { ...result.headers, [PENGUIN_REQUEST_ID_HEADER]: penguinRequestId };
+      }
       updateActiveTab({ response: result, isLoading: false });
       // Archive the full response with the history row.
       if (result) {
@@ -207,7 +223,8 @@ export function RequestPanel() {
         status: "ERROR",
         statusCode: 0,
         body: "",
-        headers: {},
+        // Surface the correlation id even on failure so it stays readable.
+        headers: { [PENGUIN_REQUEST_ID_HEADER]: penguinRequestId },
         duration: 0,
         error: error instanceof Error ? error.message : String(error),
       };

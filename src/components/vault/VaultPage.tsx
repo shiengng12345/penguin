@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Lock, RefreshCw, X } from "lucide-react";
 import { useDeveloperMode } from "@/hooks/useDeveloperMode";
 import { useAppStore } from "@/lib/store";
@@ -32,7 +32,7 @@ import {
   syncVaultFromLark,
 } from "./vault-lark";
 import { computeVaultDiff } from "./vault-diff";
-import { pushToLark, serializeVaultMarkdown, sha256Hex } from "./vault-push";
+import { pushToLark, serializeVaultMarkdown, sha256Hex, type PushResult } from "./vault-push";
 import { reorderCredentialsByGroup } from "./vault-grouping";
 import type {
   VaultCredential,
@@ -640,13 +640,75 @@ export function VaultPage({ onClose, onOpenInBrowser }: VaultPageProps) {
     }));
   }, [activeProject, mutateProjects]);
 
-  // Push runs in one shot — no confirm modal. Success → green toast with
-  // diff count; conflict → conflict modal; any other failure → red toast.
+  // A single push attempt — the doc URL, the hash we expect the remote to still
+  // match (null = no prior sync, skip conflict check), and the pre-computed
+  // change count used only for the success toast.
+  type PushAttempt = { url: string; expectedHash: string | null; changeCount: number };
+
+  // Latest runPush held in a ref so the conflict modal's onConfirm can trigger a
+  // retry without runPush referencing itself (which would create a self-dep).
+  const runPushRef = useRef<((attempt: PushAttempt) => void) | null>(null);
+
+  // Execute one push and route the outcome: success → toast; conflict → offer an
+  // explicit overwrite; any other failure → error toast. The conflict path is
+  // what makes a stale-remote recoverable in-app instead of a dead-end toast.
+  const runPush = useCallback(async (attempt: PushAttempt): Promise<void> => {
+    setIsPushing(true);
+    const result = await pushToLark({
+      url: attempt.url,
+      projects: vaultProjects,
+      expectedHash: attempt.expectedHash,
+    });
+    setIsPushing(false);
+    // Push landed — clear the dirty flag and confirm with the change count.
+    if (result.success) {
+      setVaultIsDirty(false);
+      setPushSuccessToast({ count: attempt.changeCount, nonce: Date.now() });
+      return;
+    }
+    // Remote doc changed since our last sync — let the user explicitly overwrite
+    // instead of dead-ending on a toast. Re-pushing with the remote hash as the
+    // expected baseline makes pushToLark's conflict check pass on the retry.
+    const isConflict = result.reason === "conflict";
+    if (isConflict) {
+      const conflict = result as Extract<PushResult, { reason: "conflict" }>;
+      setConfirmModal({
+        open: true,
+        title: "Lark doc changed since last sync",
+        message:
+          "The remote doc was edited after your last sync. Overwrite it with your local vault? The remote changes will be lost.",
+        confirmLabel: "Overwrite",
+        onConfirm: () => {
+          closeConfirmModal();
+          runPushRef.current?.({
+            url: attempt.url,
+            expectedHash: conflict.remoteHash,
+            changeCount: attempt.changeCount,
+          });
+        },
+      });
+      return;
+    }
+    setPushErrorToast({ reason: result.reason, nonce: Date.now() });
+  }, [vaultProjects, setVaultIsDirty, closeConfirmModal]);
+
+  // Keep the ref pointing at the latest runPush for the conflict-retry path.
+  useEffect(() => {
+    runPushRef.current = (attempt) => {
+      void runPush(attempt);
+    };
+  }, [runPush]);
+
+  // Push entrypoint from the toolbar. Computes the change count + expected hash,
+  // then delegates to runPush (which owns success / conflict / error handling).
   const handlePushClick = useCallback(async (): Promise<void> => {
     const isAuthorized = requireSuperAdmin();
-    if (!isAuthorized) return;
+    const notAuthorized = !isAuthorized;
+    // Push is super-admin only — silently no-op for everyone else (UI hides it).
+    if (notAuthorized) return;
     const url = vaultLarkUrl;
     const noUrl = url === null || url.trim().length === 0;
+    // No source configured — nothing to push to; surface it via a toast.
     if (noUrl) {
       setPushErrorToast({ reason: "No Lark URL configured.", nonce: Date.now() });
       return;
@@ -658,21 +720,9 @@ export function VaultPage({ onClose, onOpenInBrowser }: VaultPageProps) {
     const remoteSnapshot = parsed.success ? parsed.projects : [];
     const diff = computeVaultDiff({ local: vaultProjects, remote: remoteSnapshot });
     const changeCount = diff.added.length + diff.modified.length + diff.deleted.length;
-    setIsPushing(true);
     const expectedHash = getPersistedValue(APP_VALUE_KEYS.vaultLastSyncedHash);
-    const result = await pushToLark({
-      url,
-      projects: vaultProjects,
-      expectedHash,
-    });
-    setIsPushing(false);
-    if (result.success) {
-      setVaultIsDirty(false);
-      setPushSuccessToast({ count: changeCount, nonce: Date.now() });
-      return;
-    }
-    setPushErrorToast({ reason: result.reason, nonce: Date.now() });
-  }, [vaultLarkUrl, vaultProjects, setVaultIsDirty]);
+    await runPush({ url, expectedHash, changeCount });
+  }, [vaultLarkUrl, vaultProjects, runPush]);
 
 
   const credentialModalInitial = useMemo<VaultCredential | null>(() => {

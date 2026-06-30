@@ -101,7 +101,14 @@ struct SentinelOpt {
     master: String,
     #[serde(default)]
     nodes: Vec<NodeOpt>,
+    // Retained for the connection config contract — the UI sends a sentinel
+    // password, but fred 9.4 only exposes Sentinel-node auth behind the
+    // `sentinel-auth` cargo feature (not enabled here; see RISKS #15 — fred
+    // feature flags have conflicted with `enable-rustls-ring`). Wiring is
+    // deferred until that feature is enabled, so this field is intentionally
+    // unread for now (data-node auth still uses the top-level `password`).
     #[serde(default)]
+    #[allow(dead_code)]
     password: String,
 }
 

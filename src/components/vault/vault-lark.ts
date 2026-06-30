@@ -75,7 +75,24 @@ export async function cleanupResidualLarkUrl(): Promise<void> {
 export function saveLarkUrl(payload: { url: string }): { success: boolean } {
   logger.info(LOG_SCOPE, "saveLarkUrl — entry");
   try {
+    // The sync-hash anchor (vaultLastSyncedHash / ...ContentHash) is scoped to
+    // the doc it was computed against. When the user points at a DIFFERENT
+    // doc, the old anchor no longer applies — leaving it on disk makes the
+    // next push compare the new doc's remote hash against the old doc's anchor
+    // and mis-fire a "conflict". Clear it on a real URL change only: the normal
+    // sync path re-saves the SAME url right before syncing and the anchor must
+    // survive that (first-ever save has previous === null → nothing to clear).
+    const previous = getPersistedValue(APP_VALUE_KEYS.vaultLarkUrl);
+    const urlChanged = previous !== null && previous !== payload.url;
     setPersistedValue(APP_VALUE_KEYS.vaultLarkUrl, payload.url);
+    // Switched to a different doc — drop the previous doc's anchors so the next
+    // push starts from a clean (no-conflict) baseline.
+    if (urlChanged) {
+      deletePersistedValue(APP_VALUE_KEYS.vaultLastSyncedHash);
+      deletePersistedValue(APP_VALUE_KEYS.vaultLastSyncedContentHash);
+      deletePersistedValue(APP_VALUE_KEYS.vaultLarkUrlLocked);
+      logger.info(LOG_SCOPE, "saveLarkUrl — url changed; cleared stale sync hashes");
+    }
     useAppStore.getState().setVaultLarkUrl(payload.url);
     logger.info(LOG_SCOPE, "saveLarkUrl — saved");
     return { success: true };
@@ -171,7 +188,9 @@ async function decryptDocUrl(passphrase: string): Promise<string | null> {
 // else is treated as a decryption passphrase for the baked default doc. Falls
 // back to the raw input (so validation can surface a clear error) when it's
 // neither a URL nor a valid passphrase.
-async function resolveLarkSource(input: string): Promise<string> {
+// Exported so the push pipeline (vault-push.ts) resolves passphrases the same
+// way sync does — otherwise a passphrase-configured vault can sync but not push.
+export async function resolveLarkSource(input: string): Promise<string> {
   const trimmed = input.trim();
   if (LARK_HOST_REGEX.test(trimmed)) return trimmed;
   const decrypted = await decryptDocUrl(trimmed);
