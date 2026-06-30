@@ -56,6 +56,14 @@ export interface InstallResult {
 // filesystem watcher in the desktop app picks up the resulting node_modules
 // churn and triggers a UI refresh, so packages installed via MCP appear in
 // Penguin's package list without a reload.
+//
+// Uses --prefer-online (NOT --prefer-offline): @snsoft/*-grpc(-web)/sdk
+// versions are timestamp-tagged and installed minutes after publish. With a
+// cached packument from before the publish, npm would resolve against stale
+// metadata and fail with ETARGET ("No matching version found") for a version
+// that is actually live on the registry. --prefer-online forces npm to
+// revalidate the version manifest while still reusing any cached tarballs, so
+// already-cached versions install with no meaningful slowdown.
 export async function installPackageViaNpm(
   protocol: Protocol,
   packageSpec: string,
@@ -80,7 +88,13 @@ export async function installPackageViaNpm(
         "--save",
         "--no-audit",
         "--no-fund",
-        "--prefer-offline",
+        // Now that we always hit the network (--prefer-online), cap the fetch
+        // timeout/retries the same way the desktop path does. npm's defaults
+        // (5-min timeout × 2 retries) would otherwise hang this MCP tool call
+        // for ~15 min if the registry is unreachable instead of failing fast.
+        "--fetch-timeout=30000",
+        "--fetch-retries=1",
+        "--prefer-online",
         packageSpec,
       ],
       { cwd: dir, stdio: ["ignore", "pipe", "pipe"] },
@@ -108,7 +122,8 @@ export async function installPackageViaNpm(
 }
 
 // Symmetric counterpart to installPackageViaNpm. Same flags minus the
-// install-specific --prefer-offline (irrelevant for uninstall).
+// install-specific --prefer-online (registry metadata is irrelevant when
+// removing an already-installed package).
 export async function uninstallPackageViaNpm(
   protocol: Protocol,
   packageName: string,

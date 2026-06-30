@@ -135,7 +135,7 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function npmInstallScript(packageSpec: string, preferOffline: boolean): string {
+function npmInstallScript(packageSpec: string): string {
   const args = [
     "npm",
     "install",
@@ -148,11 +148,14 @@ function npmInstallScript(packageSpec: string, preferOffline: boolean): string {
     // spinner.
     "--fetch-timeout=30000",
     "--fetch-retries=1",
+    // --prefer-online (NOT --prefer-offline): @snsoft versions are
+    // timestamp-tagged and installed minutes after publish. A packument
+    // cached from before the publish makes npm resolve against stale metadata
+    // and fail with ETARGET for a version that is live on the registry.
+    // --prefer-online forces a manifest revalidation while still reusing
+    // cached tarballs, so already-cached versions install with no slowdown.
+    "--prefer-online",
   ];
-
-  if (preferOffline) {
-    args.push("--prefer-offline");
-  }
 
   args.push(JSON.stringify(packageSpec));
   return args.join(" ");
@@ -174,42 +177,33 @@ export async function installPackage(
   onLog(`Target: ${dir}`);
 
   let result = await runLoggedCommand(
-    npmInstallScript(packageSpec, true),
+    npmInstallScript(packageSpec),
     dir,
     onLog,
     "Installation timed out (5 min). Killing process..."
   );
 
-  if (!result.ok && isLikelyStalePackument(result)) {
-    onLog("Registry metadata may be stale. Retrying without --prefer-offline...");
+  // The install already forces a fresh manifest (--prefer-online), so an
+  // ETARGET here is not a stale cache — it's a publish race: a pinned @snsoft
+  // dependency hasn't landed on the registry yet. These clear within a few
+  // minutes, so back off and retry.
+  for (
+    let attempt = 0;
+    !result.ok && isLikelyStalePackument(result) && attempt < ETARGET_RETRY_DELAYS_MS.length;
+    attempt++
+  ) {
+    const waitMs = ETARGET_RETRY_DELAYS_MS[attempt];
+    onLog(
+      `A pinned dependency isn't on the registry yet (likely a publish still in progress). ` +
+        `Waiting ${waitMs / 1000}s, then retry ${attempt + 1}/${ETARGET_RETRY_DELAYS_MS.length}...`
+    );
+    await delay(waitMs);
     result = await runLoggedCommand(
-      npmInstallScript(packageSpec, false),
+      npmInstallScript(packageSpec),
       dir,
       onLog,
       "Retry timed out (5 min). Killing process..."
     );
-
-    // Still ETARGET after a fresh-metadata fetch → likely a publish race (a
-    // pinned @snsoft dependency hasn't landed on the registry yet). Back off
-    // and retry; these clear within a few minutes.
-    for (
-      let attempt = 0;
-      !result.ok && isLikelyStalePackument(result) && attempt < ETARGET_RETRY_DELAYS_MS.length;
-      attempt++
-    ) {
-      const waitMs = ETARGET_RETRY_DELAYS_MS[attempt];
-      onLog(
-        `A pinned dependency isn't on the registry yet (likely a publish still in progress). ` +
-          `Waiting ${waitMs / 1000}s, then retry ${attempt + 1}/${ETARGET_RETRY_DELAYS_MS.length}...`
-      );
-      await delay(waitMs);
-      result = await runLoggedCommand(
-        npmInstallScript(packageSpec, false),
-        dir,
-        onLog,
-        "Retry timed out (5 min). Killing process..."
-      );
-    }
   }
 
   if (result.ok) {
