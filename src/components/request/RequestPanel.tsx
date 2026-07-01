@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, lazy, Suspense } from "react";
-import { useAppStore, useActiveTab, mergeWithDefaultHeaders, type MetadataEntry, type HistoryEntry, type SavedRequest } from "@/lib/store";
+import { useAppStore, useActiveTab, type MetadataEntry, type HistoryEntry, type SavedRequest } from "@/lib/store";
 import { useEnvironments } from "@/hooks/useEnvironments";
 import { interpolate } from "@/lib/environment-store";
 import { logger } from "@/lib/logger";
+import { isEmptyAuthHeader } from "@/lib/header-utils";
 import { generatePenguinRequestId, PENGUIN_REQUEST_ID_HEADER } from "@/lib/penguin-request-id";
 import { Button } from "@/components/ui/button";
 import { Send, Plus, X, RotateCcw, Copy, Braces, Bookmark, Check, FileText, Terminal, Ban, Code2 } from "lucide-react";
@@ -87,24 +88,34 @@ export function RequestPanel() {
     const resolvedUrl = interpolate(tab.targetUrl, activeEnv);
     updateActiveTab({ isLoading: true, response: null });
 
-    // Merge default headers (Settings) with tab-specific metadata so newly
-    // added defaults reach already-open tabs. Tab entries take precedence.
-    // Then resolve {{VAR}} templates in each value against the active env so
-    // headers like `x-env-tag: {{X_ENV_TAG}}` switch automatically with env.
-    // Any header whose template can't be resolved (env missing the variable)
-    // is dropped — sending `{{X_ENV_TAG}}` literal would break server routing.
-    const baseMetadata = mergeWithDefaultHeaders(tab.metadata, tab.protocolTab)
+    // The tab's own headers are the single source of truth for what gets sent.
+    // Default Headers (Settings) only SEED a tab's metadata at creation time
+    // (see createTab); we deliberately do NOT re-merge them here, so removing a
+    // header from a tab means it is never sent again. Then resolve {{VAR}}
+    // templates in each value against the active env so headers like
+    // `x-env-tag: {{X_ENV_TAG}}` switch automatically with env.
+    const baseMetadata = tab.metadata
       .map((m) => ({ ...m, value: interpolate(m.value, activeEnv) }))
       .filter((m) => {
-        const isUnresolved = m.enabled && m.key.trim() !== "" && UNRESOLVED_TEMPLATE_PATTERN.test(m.value);
-        if (isUnresolved) {
+        if (!m.enabled || m.key.trim() === "") return true;
+        // Drop headers whose {{template}} can't be resolved (env missing the
+        // variable) — sending `{{X_ENV_TAG}}` literal would break routing.
+        if (UNRESOLVED_TEMPLATE_PATTERN.test(m.value)) {
           logger.warn("RequestPanel", "header dropped — unresolved template", {
             key: m.key,
             value: m.value,
             envName: activeEnv?.name ?? "(none)",
           });
+          return false;
         }
-        return !isUnresolved;
+        // Drop an Authorization header that has no real credential (empty, or a
+        // bare "Bearer"): an empty JWT makes the backend reject the whole call,
+        // while omitting it lets the request proceed.
+        if (isEmptyAuthHeader(m.key, m.value)) {
+          logger.warn("RequestPanel", "header dropped — empty Authorization", { key: m.key });
+          return false;
+        }
+        return true;
       });
 
     // Auto-attach a unique, time-ordered correlation id to every outgoing
@@ -322,9 +333,10 @@ export function RequestPanel() {
       } catch {
         // Keep the user's current URL text if a path-only URL cannot be resolved yet.
       }
-      const headers = mergeWithDefaultHeaders(tab.metadata, tab.protocolTab)
+      const headers = tab.metadata
         .map((m) => ({ ...m, value: interpolate(m.value, activeEnv) }))
-        .filter((m) => !UNRESOLVED_TEMPLATE_PATTERN.test(m.value));
+        .filter((m) => !UNRESOLVED_TEMPLATE_PATTERN.test(m.value))
+        .filter((m) => !isEmptyAuthHeader(m.key, m.value));
       const curl = buildRestCurl({
         method: tab.restMethod,
         url: restUrl,
@@ -350,11 +362,13 @@ export function RequestPanel() {
     const servicePath = tab.pathOverride ?? `/${protoPackage}/${typeName}/${methodName}`;
     const fullUrl = `${resolvedUrl.replace(/\/$/, "")}${servicePath}`;
 
-    // Mirror the live send path: merge defaults, interpolate, drop unresolved templates.
-    const headers = mergeWithDefaultHeaders(tab.metadata, tab.protocolTab)
+    // Mirror the live send path: tab metadata only (no re-merge of defaults),
+    // interpolate, drop unresolved templates + empty Authorization.
+    const headers = tab.metadata
       .filter((m) => m.enabled && m.key)
       .map((m) => ({ key: m.key, value: interpolate(m.value, activeEnv) }))
       .filter((m) => !UNRESOLVED_TEMPLATE_PATTERN.test(m.value))
+      .filter((m) => !isEmptyAuthHeader(m.key, m.value))
       .map((m) => `  -H '${m.key}: ${m.value}'`)
       .join(" \\\n");
 
