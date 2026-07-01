@@ -63,6 +63,33 @@ test("Tauri shell capability does not expose arbitrary zsh scripts", async () =>
   assert.match(vaultLark, /Command\.create\("lark-update"/);
 });
 
+test("npm-package shell scope allows the current prefer-online install command", async () => {
+  const capabilities = JSON.parse(await loadSource("../src-tauri/capabilities/default.json"));
+  const npmPackageValidators = capabilities.permissions
+    .filter((permission) => permission && typeof permission === "object")
+    .flatMap((permission) => permission.allow ?? [])
+    .filter((entry) => entry.name === "npm-package")
+    .map((entry) => entry.args?.[2]?.validator)
+    .filter(Boolean);
+
+  assert.equal(npmPackageValidators.length, 2);
+
+  const installCommand =
+    'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; command -v nvm >/dev/null 2>&1 && (nvm use default >/dev/null 2>&1 || nvm use node >/dev/null 2>&1) || true; export VOLTA_HOME="$HOME/.volta"; export PATH="$VOLTA_HOME/bin:$HOME/.fnm:/opt/homebrew/bin:/usr/local/bin:$PATH"; command -v fnm >/dev/null 2>&1 && eval "$(fnm env 2>/dev/null)"; cd "/Users/shieng/.penguin/grpc-web" && npm install --save --no-audit --no-fund --fetch-timeout=30000 --fetch-retries=1 --prefer-online "@snsoft/auth-grpc-web@2.1.2-20260701140327"';
+
+  for (const validator of npmPackageValidators) {
+    assert.match(installCommand, new RegExp(validator));
+  }
+});
+
+test("package installer logs shell spawn rejections back into the install log", async () => {
+  const packageManager = await loadSource("../src/lib/package-manager.ts");
+
+  assert.match(packageManager, /try\s*\{[\s\S]*?cmd\.spawn\(\)/);
+  assert.match(packageManager, /catch\s*\(\s*error\s*\)\s*\{[\s\S]*?onLog\(`Error:/);
+  assert.match(packageManager, /exitCode:\s*null/);
+});
+
 test("HTTP proxy and REST sender stream responses through explicit byte caps", async () => {
   const proxy = await loadSource("../src-tauri/src/proxy.rs");
   const rest = await loadSource("../src-tauri/src/rest/commands.rs");

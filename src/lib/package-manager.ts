@@ -106,7 +106,18 @@ async function runLoggedCommand(
     });
   });
 
-  const child = await cmd.spawn();
+  let child;
+  try {
+    child = await cmd.spawn();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    onLog(`Error: ${message}`);
+    return {
+      ok: false,
+      exitCode: null,
+      output: output + message,
+    };
+  }
 
   timeoutId = setTimeout(() => {
     if (finished) return;
